@@ -179,3 +179,30 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# --- 환경변수 (DB 비밀번호 등 절대 커밋 금지) ---
+.env
+.env.*
+!.env.example
+
+# --- VSCode ---
+.vscode/
+
+# --- 가상환경 (이름 다양하게 대비) ---
+venv/
+.venv/
+env/
+
+# --- 업로드/생성 파일 (학교 문서, 파싱 산출물 등) ---
+uploads/
+*.pdf
+
+# --- 로컬 데이터/모델 ---
+qdrant_storage/        # Qdrant 도커 볼륨
+*.gguf                 # 로컬 LLM 모델 파일 (용량 큼)
+models/
+
+# --- 캐시 ---
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
