@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+# from pydantic import BaseModel
+
 
 
 class ChatRequest(BaseModel):
@@ -9,3 +10,4 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     session_id: str | None = None
+

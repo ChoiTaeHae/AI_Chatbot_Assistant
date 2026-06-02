@@ -1,7 +1,8 @@
-from contextlib import asynccontextmanager
+# from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+# from fastapi import FastAPI
+# from fastapi.middleware.cors import CORSMiddleware
+
 
 from app.core.Qdrant import close_qdrant, init_qdrant
 from app.api.chat import router as chat_router
@@ -25,19 +26,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+
 
 # 라우터 등록
 app.include_router(chat_router, prefix="/api", tags=["챗봇"])
+
+
+engine = create_engine(DATABASE_URL)
 
 
 @app.get("/health", tags=["상태확인"])
 async def health():
     """서버 상태 확인"""
     return {"status": "ok"}
+

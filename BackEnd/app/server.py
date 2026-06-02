@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -27,3 +28,4 @@ def create_app():
         start_periodic_stats_save()
 
     return app
+
