@@ -196,6 +196,8 @@ llm/
 LLM/
 백엔드/llm/
 백엔드/LLM/
+LLM/
+
 checkpoints/
 
 # Ollama 로컬 데이터
