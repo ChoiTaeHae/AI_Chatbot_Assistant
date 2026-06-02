@@ -1,5 +1,5 @@
-﻿from app.agent.intent import IntentType
-from app.agent.classifier import classify_intent
+﻿from app.aagentsintent import IntentType
+from app.agents.classifier import classify_intent
 from app.services.chat_service import chat_service
 
 

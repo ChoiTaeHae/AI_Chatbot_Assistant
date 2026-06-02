@@ -1,4 +1,4 @@
-﻿from app.agent.intent import IntentType
+﻿from app.aagentsintent import IntentType
 
 
 # 졸업요건 관련 키워드
