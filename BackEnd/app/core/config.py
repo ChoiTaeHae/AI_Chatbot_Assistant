@@ -20,9 +20,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
-    # Ollama
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "bllossom-8b"
+    # LLM 모델 경로 (로컬 safetensors)
+    MODEL_PATH: str = r"D:\202210887\학교생활지원AI\AI_Chatbot_Assistant\BackEnd\llm\bllossom-8b"
 
 
 settings = Settings()
