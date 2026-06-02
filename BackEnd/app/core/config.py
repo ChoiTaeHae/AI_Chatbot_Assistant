@@ -1,27 +1,18 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # PostgreSQL
+    DB_HOST: str
+    DB_PORT: int
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
 
-    # DB
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/school_ai"
+    # Qdrant Cloud
+    QDRANT_URL: str
+    QDRANT_API_KEY: str
 
-    # Qdrant
-    QDRANT_HOST: str = "localhost"
-    QDRANT_PORT: int = 6333
-    QDRANT_COLLECTION: str = "school_docs"
-
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379"
-
-    # JWT
-    SECRET_KEY: str = "change-me-in-production"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-
-    # LLM 모델 경로 (로컬 safetensors)
-    MODEL_PATH: str = r"D:\202210887\학교생활지원AI\AI_Chatbot_Assistant\BackEnd\llm\bllossom-8b"
-
+    class Config:
+        env_file = ".env"
 
 settings = Settings()
