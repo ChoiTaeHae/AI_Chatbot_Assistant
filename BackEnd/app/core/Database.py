@@ -1,26 +1,23 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+﻿from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.core.config import settings
 
 DATABASE_URL = (
-    f"postgresql://{settings.DB_USER}:"
+    f"postgresql+psycopg2://{settings.DB_USER}:"
     f"{settings.DB_PASSWORD}@"
     f"{settings.DB_HOST}:"
     f"{settings.DB_PORT}/"
     f"{settings.DB_NAME}"
 )
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True
-)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 def get_db():
@@ -29,3 +26,4 @@ def get_db():
         yield db
     finally:
         db.close()
+
