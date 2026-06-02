@@ -1,18 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import get_user
-from database import get_db
-from schemas import LoginRequest
-
-#예시 route post임 
+from app.core.Database import get_db
+from app.schemas.chat import ChatRequest
 
 router = APIRouter()
 
-@router.post("/login")
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = get_user(db, request.username)
-    if not user or user.password != request.password:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    return {"message": "Login successful"}
 
+@router.post("/chat")
+async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+    # TODO: LLM 연동
+    return {"answer": f"질문을 받았습니다: {request.question}"}
