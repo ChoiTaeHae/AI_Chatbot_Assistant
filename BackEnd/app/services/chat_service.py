@@ -34,7 +34,7 @@ class ChatService:
         self.model = AutoModelForCausalLM.from_pretrained(
             settings.MODEL_PATH,
             quantization_config=bnb_config,
-            device_map="auto",  # GPU 자동 할당
+            device_map="auto",
             torch_dtype=torch.float16,
         )
         self.model.eval()
@@ -47,7 +47,6 @@ class ChatService:
             {"role": "user", "content": question},
         ]
 
-        # 채팅 템플릿 적용
         input_ids = self.tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -63,7 +62,6 @@ class ChatService:
                 pad_token_id=self.tokenizer.eos_token_id,
             )
 
-        # 입력 부분 제거 후 답변만 디코딩
         new_tokens = output_ids[0][input_ids.shape[-1]:]
         return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
 
