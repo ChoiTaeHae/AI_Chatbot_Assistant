@@ -188,6 +188,7 @@ cython_debug/
 *.pt
 *.pth
 *.onnx
+BackEnd/llm/
 BackEnd/LLM/
 LLM/
 checkpoints/
