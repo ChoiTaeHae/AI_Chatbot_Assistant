@@ -188,7 +188,14 @@ cython_debug/
 *.pt
 *.pth
 *.onnx
-models/
+BackEnd/llm/
+BackEnd/LLM/
+BackEnd/models/
+BackEnd/Models/
+llm/
+LLM/
+백엔드/llm/
+백엔드/LLM/
 checkpoints/
 
 # Ollama 로컬 데이터
