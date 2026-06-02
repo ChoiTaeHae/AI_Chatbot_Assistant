@@ -180,29 +180,51 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# --- 환경변수 (DB 비밀번호 등 절대 커밋 금지) ---
+# ===== AI 모델 파일 (절대 커밋 금지 - 용량 큼) =====
+# Llama/Bllossom 등 GGUF 모델
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+models/
+checkpoints/
+
+# Ollama 로컬 데이터
+.ollama/
+ollama_models/
+
+# HuggingFace 캐시 (bge-m3, 리랭커 등 자동 다운로드분)
+.cache/
+huggingface/
+*/hf_cache/
+
+# ===== 환경변수 / 비밀키 (네이버 API 키, DB 비번 등) =====
 .env
 .env.*
 !.env.example
 
-# --- VSCode ---
-.vscode/
-
-# --- 가상환경 (이름 다양하게 대비) ---
-venv/
-.venv/
-env/
-
-# --- 업로드/생성 파일 (학교 문서, 파싱 산출물 등) ---
-uploads/
-*.pdf
-
-# --- 로컬 데이터/모델 ---
+# ===== 벡터 DB / 데이터 =====
 qdrant_storage/        # Qdrant 도커 볼륨
-*.gguf                 # 로컬 LLM 모델 파일 (용량 큼)
-models/
+*.db
+*.sqlite3
 
-# --- 캐시 ---
+# ===== 업로드 / 학교 문서 (원본 PDF 등) =====
+uploads/
+documents/
+*.pdf
+*.docx
+*.pptx
+*.hwp
+
+# ===== 개발 도구 캐시 =====
+.vscode/
+.idea/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+# ===== OS 시스템 파일 =====
+Thumbs.db        # 윈도우
+Desktop.ini      # 윈도우
+.DS_Store        # 맥
