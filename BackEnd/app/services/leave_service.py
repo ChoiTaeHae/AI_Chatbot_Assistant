@@ -1,12 +1,11 @@
-﻿from app.services.chat_service import chat_service
+from app.services.chat_service import chat_service
+from app.services.rag_service import rag_service
 
 # ============================================================
 # 우송대학교 휴학 관련 문서 컨텍스트
-# 현재: PDF에서 직접 추출한 내용 하드코딩
-# 추후: RAG팀 파싱 데이터로 교체 (get_context 함수만 수정)
+# 현재: RAG 검색 결과를 우선 사용하고, 인덱싱 전에는 임시 컨텍스트 사용
 # ============================================================
 
-#임시 프롬프트
 LEAVE_KNOWLEDGE = """
 [우송대학교 휴학 안내]
 
@@ -47,17 +46,20 @@ LEAVE_KNOWLEDGE = """
 
 
 def get_context() -> str:
-    """
-    휴학 관련 컨텍스트 반환
-    TODO: RAG팀 파싱 완료 시 Qdrant 검색 결과로 교체
-    ex) return qdrant_service.search("휴학")
-    """
+    """휴학 관련 컨텍스트 반환."""
+    try:
+        context = rag_service.search_context("우송대학교 휴학 군휴학 일반휴학 휴학신청")
+        if context:
+            return context
+    except Exception as e:
+        print(f"[RAG] 휴학 컨텍스트 검색 실패, 임시 컨텍스트 사용: {e}")
+
     return LEAVE_KNOWLEDGE
 
 
 async def answer_leave_question(question: str) -> str:
     """휴학 관련 질문에 컨텍스트를 포함해서 LLM에 전달"""
-    context = get_context()  
+    context = get_context()
     prompt = f"""다음은 우송대학교 휴학 관련 공식 안내 내용입니다:
 
 {context}
