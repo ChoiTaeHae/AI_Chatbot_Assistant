@@ -14,17 +14,18 @@ export default function LoginPage() {
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
-    e.preventDefault()
+    e.preventDefault()  //새로고침 방지
+
     if (!studentNo || !password) {
       setError('아이디와 비밀번호를 입력해주세요.')
       return
     }
     setError('')
-    setLoading(true)
+    setLoading(true) //로그인 중이라고 바꿈
     try {
-      const user = await login(studentNo, password)
-      saveUser(user)
-      navigate('/chat')
+      const user = await login(studentNo, password)  //밖에서 가죠온 login 함수를 통해 로그인 시도
+      saveUser(user) //성공하면 user 정보 받아옴
+      navigate('/chat') //chat 페이지로 이동
     } catch (err) {
       setError(err.message)
     } finally {
