@@ -28,13 +28,12 @@ class ChatService:
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_torch_dtype=torch.float16,
+            bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
         )
         self.model = AutoModelForCausalLM.from_pretrained(
             settings.MODEL_PATH,
             quantization_config=bnb_config,
-            device_map="auto",
             torch_dtype=torch.float16,
         )
         self.model.eval()
@@ -49,7 +48,6 @@ class ChatService:
             {"role": "user", "content": question},
         ]
 
-        # 채팅 템플릿 적용 후 직접 tensor 변환
         text = self.tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -65,6 +63,8 @@ class ChatService:
                 temperature=0.7,
                 do_sample=True,
                 pad_token_id=self.tokenizer.eos_token_id,
+                repetition_penalty=1.3,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
 
         new_tokens = output_ids[0][input_ids.shape[-1]:]

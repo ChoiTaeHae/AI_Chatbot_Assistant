@@ -1,6 +1,6 @@
 # ============================================================
 # School Life Support AI - requirements.in
-# Python 3.11.9
+# Python 3.11.x (DO NOT use 3.12+)
 # ============================================================
 
 # ---------- Web Framework / API ----------
@@ -60,3 +60,10 @@ tenacity>=9.0
 # ---------- Crawling ----------
 beautifulsoup4>=4.12
 apscheduler>=3.10
+
+# ============================================================
+# LLM - Version Fixed (DO NOT CHANGE)
+# ============================================================
+transformers==4.44.2
+accelerate==0.27.2
+bitsandbytes==0.49.2
