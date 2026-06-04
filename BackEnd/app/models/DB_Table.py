@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime , Boolean
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
@@ -25,7 +25,7 @@ class Student(Base):
     dept_id = Column(Integer, ForeignKey("department.id"))
     student_no = Column(String, unique=True, nullable=False)  # 학번
     password_hash = Column(String, nullable=False)            # hashed login
-    name = Column(String, nullable=False)                     # 입학년도/이름
+    name = Column(String, nullable=False)                     # 이름
     interests = Column(JSON)                                  # 관심사 태그 (JSONB 대응)
 
 # ==========================================
@@ -129,3 +129,15 @@ class ScholarshipApp(Base):
     result = Column(String, nullable=False)                                      # 신청/선정/탈락 등 상태
     created_at = Column(String)                                                  # ERD상 VARCHAR 타입으로 표기됨
     updated_at = Column(String)
+
+# ==========================================
+# 11.  수강 이수 테이블 (student_course)
+# ==========================================
+
+class StudentCourse(Base):
+    __tablename__ = "student_course"
+
+    id = Column(Integer, primary_key=True)
+    student_id = Column(Integer, ForeignKey("student.id"))
+    course_code = Column(String, ForeignKey("course.code"))
+    is_passed = Column(Boolean, default=True)
