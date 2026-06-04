@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     # Embedding
     EMBEDDING_MODEL: str = "BAAI/bge-m3"
+    EMBEDDING_DEVICE: str = "cuda"
+
+    # RAG
+    QDRANT_COLLECTION: str = "school_documents"
+    RAG_TOP_K: int = 3
 
     # Frontend
     FRONTEND_ORIGINS: str = "http://localhost:5173"
