@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.Database import Base, engine
 from app.api.chat import router as chat_router
+from app.api.auth import router as auth_router
 from app.services.chat_service import chat_service
 
 
@@ -14,9 +15,9 @@ async def lifespan(app: FastAPI):
     # DB 연결 (실패해도 서버는 계속 실행)
     try:
         Base.metadata.create_all(bind=engine)
-        print('DB 연결 성공')
+        print("DB 연결 성공")
     except Exception as e:
-        print(f'DB 연결 실패 (나중에 연결): {e}')
+        print(f"DB 연결 실패 (나중에 연결): {e}")
 
     # LLM 모델 GPU 로드
     chat_service.load_model()
@@ -40,7 +41,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(chat_router, prefix="/api", tags=["챗봇"])
+    # 라우터 등록
+    app.include_router(auth_router, prefix="/api/auth", tags=["인증"])
+    app.include_router(chat_router, prefix="/api",      tags=["챗봇"])
 
     @app.get("/health", tags=["상태확인"])
     async def health():
@@ -48,4 +51,3 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
-
