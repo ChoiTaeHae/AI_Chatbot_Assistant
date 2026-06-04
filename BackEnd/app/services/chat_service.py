@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 from functools import partial
 
 import torch
@@ -18,19 +18,19 @@ class ChatService:
         self.model = None
 
     def load_model(self):
-        """서버 시작 시 1번만 호출 - 모델을 GPU에 로드"""
-        print(f"모델 로딩 중: {settings.MODEL_PATH}")
+        if settings.DEV_MODE:
+            print("DEV_MODE: LLM 로딩 스킵")
+            return
 
+        print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.tokenizer = AutoTokenizer.from_pretrained(settings.MODEL_PATH)
 
-        # RTX 3070 8GB -> 4bit 양자화로 VRAM 절약
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
         )
-
         self.model = AutoModelForCausalLM.from_pretrained(
             settings.MODEL_PATH,
             quantization_config=bnb_config,
@@ -41,12 +41,13 @@ class ChatService:
         print("모델 로딩 완료!")
 
     def _generate(self, question: str) -> str:
-        """동기 방식으로 텍스트 생성 (별도 스레드에서 실행)"""
+        if settings.DEV_MODE:
+            return f"[DEV_MODE] 질문 수신: {question}"
+
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
-
         input_ids = self.tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -66,7 +67,6 @@ class ChatService:
         return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
 
     async def answer(self, question: str) -> str:
-        """비동기로 답변 생성 (FastAPI 이벤트 루프 블로킹 방지)"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, partial(self._generate, question))
 

@@ -2,6 +2,7 @@
 
 
 class IntentType(str, Enum):
-    GRADUATION  = "graduation"   # 졸업요건 관련
-    SCHEDULE    = "schedule"     # 학사일정 관련
-    GENERAL     = "general"      # 일반 질문
+    GRADUATION = "graduation"   # 졸업요건 관련
+    SCHEDULE   = "schedule"     # 학사일정 관련
+    LEAVE      = "leave"        # 휴학 관련
+    GENERAL    = "general"      # 일반 질문

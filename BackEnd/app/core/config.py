@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+﻿from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -25,9 +25,8 @@ class Settings(BaseSettings):
     # Frontend
     FRONTEND_ORIGINS: str = "http://localhost:5173"
 
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    # 개발 모드 (True 시 LLM 로딩 스킵)
+    DEV_MODE: bool = False
 
 
 settings = Settings()
