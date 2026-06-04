@@ -80,7 +80,7 @@ venv.bak/
 ocr_test/
 BackEnd/ocr_test/
 BackEnd/.venv/
-
+BackEnd/venv/
 # ===== Environment Variables =====
 .env
 .env.*
