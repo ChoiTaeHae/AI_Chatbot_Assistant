@@ -35,7 +35,7 @@ class ChatService:
             settings.MODEL_PATH,
             quantization_config=bnb_config,
             device_map="auto",
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
         )
         self.model.eval()
         print("모델 로딩 완료!")
@@ -48,11 +48,15 @@ class ChatService:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
-        input_ids = self.tokenizer.apply_chat_template(
+
+        # 채팅 템플릿 적용 후 직접 tensor 변환
+        text = self.tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
-            return_tensors="pt",
-        ).to(self.model.device)
+            tokenize=False,
+        )
+        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
+        input_ids = inputs["input_ids"]
 
         with torch.no_grad():
             output_ids = self.model.generate(
