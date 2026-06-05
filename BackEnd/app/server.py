@@ -14,9 +14,10 @@ from app.services.chat_service import chat_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # DB 연결 (실패해도 서버는 계속 실행)
+    # DB 연결 (async 방식)
     try:
-        Base.metadata.create_all(bind=engine)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
         print("DB 연결 성공")
     except Exception as e:
         print(f"DB 연결 실패 (나중에 연결): {e}")
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
     chat_service.load_model()
     yield
     # 서버 종료 시
+    await engine.dispose()
 
 
 def create_app() -> FastAPI:
@@ -37,8 +39,8 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.FRONTEND_ORIGINS.split(","),
-        allow_credentials=True,
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
