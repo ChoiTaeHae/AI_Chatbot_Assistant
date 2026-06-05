@@ -1,49 +1,14 @@
-from datetime import date
-from app.core.Database import SessionLocal
+﻿from app.services.chat_service import chat_service
 
-async def answer_schedule_question(question : str) -> str :
-    """학사일정 관련 질문을 처리하고 적절한 안내 응답을 반환합니다."""
 
-    #질문에서 키워트 추출함
-    schedule_type = await _extract_schedule_type(question)
-    if not schedule_type :
-        return "어떤 일정이 궁금하신지(예 : 시험, 수강신청, 휴학, 개강, 휴강 등) 구체적으로 말씀해주세요."
-    
-    #현재 날짜 기준
-    today = date.today()
+async def answer_schedule_question(question: str) -> str:
+    """학사일정 관련 질문을 LLM으로 처리"""
+    # TODO: DB에 학사일정 테이블 추가되면 DB 조회로 교체
+    prompt = f"""당신은 우송대학교 학사일정 안내 도우미입니다.
+학사일정 관련 질문에 답변해주세요.
+DB 연동 전이므로 일반적인 대학 학사일정 기준으로 안내하되,
+정확한 일정은 학교 홈페이지(wsu.ac.kr) 또는 학사지원팀에 문의하도록 안내하세요.
 
-    #DB 마스터키 발급
-    db = SessionLocal()
-    try :
-        upcoming_schedules = await get_upcoming_schedule(db=db, keyword=schedule_type)
-
-        if not upcoming_schedules :
-            return f"현재 예정된 {schedule_type} 일정이 없습니다."
-    
-        #가장 가까운 일정 순으로 오름차순 정렬
-        upcoming_schedules.sort(key=lambda x : x["start_date"])
-        target_schedule = upcoming_schedules[0]
-
-        #응답 문자열 포맷팅
-        start_str = target_schedule["start_date"].strftime("%m월 %d일")
-        end_str = target_schedule["end_date"].strftime("%m월 %d일")
-
-        if start_str == end_str :
-            return f"{target_schedule['event_name']}는 {start_str}입니다."
-        else :
-            return f"{target_schedule['event_name']}는 {start_str}~{end_str}입니다."
-    finally :
-        db.close()  #DB연결 종료
-    
-async def _extract_schedule_type(question : str) -> str:
-    prompt = f""" 
-    사용자의 질문 : "{question}"
-    핵심 키워드 :
-    """
-
-    try :
-        #LLM에게 프롬프트 전송해서 답 받기
-        response = await chat_service.answer(prompt)
-        return response.strip().replace(".", "").replace("'","").replace('"',"")
-    except :
-        return ""
+질문: {question}
+답변:"""
+    return await chat_service.answer(prompt)
