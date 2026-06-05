@@ -2,7 +2,7 @@
 from app.agents.classifier import classify_intent
 from app.services.chat_service import chat_service
 from app.services.leave_service import answer_leave_question
-
+from app.services.schedule_service import answer_schedule_question
 
 class SchoolAgent:
     """질문 의도를 파악해서 적절한 서비스로 라우팅하는 Agent"""
@@ -26,7 +26,7 @@ class SchoolAgent:
 
     async def _handle_schedule(self, question: str) -> str:
         # TODO: schedule_service 완성되면 연결
-        return await chat_service.answer(question)
+        return await answer_schedule_question(question)
 
     async def _handle_general(self, question: str) -> str:
         return await chat_service.answer(question)
