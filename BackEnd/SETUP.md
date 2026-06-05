@@ -20,19 +20,18 @@ cd AI_Chatbot_Assistant/BackEnd
 
 ## 2. 가상환경 생성
 ```
-C:\Users\[유저명]\AppData\Local\Programs\Python\Python311\python.exe -m venv venv
-venv\Scripts\activate
+C:\Users\[유저명]\AppData\Local\Programs\Python\Python311\python.exe -m venv .venv
+.venv\Scripts\activate
 ```
 
-## 3. PyTorch CUDA 설치 (GPU 사용)
+## 3. PyTorch CUDA 먼저 설치 (GPU 사용)
 ```
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
 ```
 
-## 4. 나머지 패키지 설치
+## 4. 나머지 패키지 설치 (requirements_lock 사용)
 ```
-pip install -r requirements.in
-pip install bitsandbytes
+pip install -r requirements_lock.txt
 ```
 
 ## 5. .env 파일 생성
@@ -65,7 +64,7 @@ DEV_MODE=true
 
 ## 6. 서버 실행
 ```
-venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## 7. API 문서 확인
@@ -80,6 +79,8 @@ venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --rel
 
 ## 주의사항
 - Python 3.14 사용 금지 (PyTorch 미지원)
-- bcrypt 반드시 4.0.1 버전 사용
-- transformers 반드시 4.44.2 버전 사용
-- accelerate 반드시 0.27.2 버전 사용
+- torch는 반드시 CUDA 인덱스에서 별도 설치
+- requirements_lock.txt 로 나머지 패키지 설치
+- accelerate 반드시 0.27.2 버전 사용 (변경 금지)
+- bcrypt 반드시 4.0.1 버전 사용 (변경 금지)
+- transformers 반드시 4.44.2 버전 사용 (변경 금지)

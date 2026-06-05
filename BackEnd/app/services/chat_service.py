@@ -16,13 +16,14 @@ class ChatService:
     def __init__(self):
         self.tokenizer = None
         self.model = None
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def load_model(self):
         if settings.DEV_MODE:
             print("DEV_MODE: LLM 로딩 스킵")
             return
 
-        print(f"모델 로딩 중: {settings.MODEL_PATH}")
+        print(f"모델 로딩 중: {settings.MODEL_PATH} (device: {self.device})")
         self.tokenizer = AutoTokenizer.from_pretrained(settings.MODEL_PATH)
 
         bnb_config = BitsAndBytesConfig(
@@ -31,50 +32,65 @@ class ChatService:
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
         )
+
         self.model = AutoModelForCausalLM.from_pretrained(
             settings.MODEL_PATH,
             quantization_config=bnb_config,
             torch_dtype=torch.float16,
         )
         self.model.eval()
-        print("모델 로딩 완료!")
+        print(f"모델 로딩 완료!")
+        if torch.cuda.is_available():
+            print(f"VRAM 사용: {torch.cuda.memory_allocated(0)/1024**3:.2f} GB")
 
     def _generate(self, question: str) -> str:
         if settings.DEV_MODE:
             return f"[DEV_MODE] 질문 수신: {question}"
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ]
+        try:
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": question},
+            ]
 
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            tokenize=False,
-        )
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
-        input_ids = inputs["input_ids"]
-
-        with torch.no_grad():
-            output_ids = self.model.generate(
-                input_ids,
-                max_new_tokens=512,
-                temperature=0.7,
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id,
-                repetition_penalty=1.3,
-                eos_token_id=self.tokenizer.eos_token_id,
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=False,
             )
+            inputs = self.tokenizer(text, return_tensors="pt")
 
-        new_tokens = output_ids[0][input_ids.shape[-1]:]
-        return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+            # 모델이 있는 device로 이동
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            input_ids = inputs["input_ids"]
+
+            print(f"추론 시작...")
+
+            with torch.no_grad():
+                output_ids = self.model.generate(
+                    input_ids,
+                    max_new_tokens=128,
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    repetition_penalty=1.3,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                )
+
+            new_tokens = output_ids[0][input_ids.shape[-1]:]
+            return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            print("CUDA OOM 발생! 캐시 정리")
+            return "죄송합니다. 서버 메모리가 부족합니다. 잠시 후 다시 시도해주세요."
+        except Exception as e:
+            print(f"추론 오류: {type(e).__name__}: {e}")
+            raise
 
     async def answer(self, question: str) -> str:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, partial(self._generate, question))
+        return self._generate(question)
 
 
 # 싱글톤 인스턴스
 chat_service = ChatService()
-
