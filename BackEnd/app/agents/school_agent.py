@@ -1,11 +1,16 @@
-﻿from app.agents.intent import IntentType
+﻿import asyncio
+from app.agents.intent import IntentType
 from app.agents.classifier import classify_intent
 from app.services.chat_service import chat_service
+from app.services.rag_service import rag_service
 from app.services.school.leave import answer_leave_question
 from app.services.school.schedule import answer_schedule_question
 from app.services.school.graduation import graduation_service
 from app.services.school.campus import CampusService
+from app.services.school.scholarship import answer_scholarship_question
 from sqlalchemy.ext.asyncio import AsyncSession
+
+MAX_CONTEXT_LENGTH = 2000
 
 campus_service = CampusService()
 
@@ -25,6 +30,8 @@ class SchoolAgent:
             return await answer_leave_question(question)
         elif intent == IntentType.CAMPUS:
             return await self._handle_campus(question, db)
+        elif intent == IntentType.SCHOLARSHIP:
+            return await answer_scholarship_question(question)
         else:
             return await self._handle_general(question)
 
@@ -50,7 +57,19 @@ class SchoolAgent:
         return result.get("msg", "위치 정보를 찾을 수 없습니다.")
 
     async def _handle_general(self, question: str) -> str:
-        return await chat_service.answer(question)
+        # RAG 검색 후 컨텍스트와 함께 LLM에 전달
+        loop = asyncio.get_event_loop()
+        context = await loop.run_in_executor(
+            None, lambda: rag_service.search_context(question)
+        )
+        if context:
+            context = context[:MAX_CONTEXT_LENGTH]
+            prompt = f"[참고 문서]\n{context}\n\n질문: {question}\n답변:"
+            print(f"[Agent] RAG 컨텍스트 {len(context)}자 적용")
+        else:
+            prompt = question
+            print("[Agent] RAG 컨텍스트 없음, 직접 답변")
+        return await chat_service.answer(prompt)
 
 
 # 싱글톤 인스턴스

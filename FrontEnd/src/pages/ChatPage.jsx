@@ -56,7 +56,18 @@ export default function ChatPage() {
               </button>
 
               {dropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 w-36 bg-white rounded-lg shadow-lg border border-slate-100 overflow-hidden z-50">
+                <div className="absolute right-0 top-full mt-2 w-40 bg-white rounded-lg shadow-lg border border-slate-100 overflow-hidden z-50">
+                  {user?.role === 'admin' && (
+                    <button
+                      onClick={() => { setDropdownOpen(false); navigate('/admin') }}
+                      className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-[#005956] hover:bg-[#005956]/5 transition border-b border-slate-100"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0H3" />
+                      </svg>
+                      관리자 페이지
+                    </button>
+                  )}
                   <button
                     onClick={handleLogout}
                     className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-red-500 hover:bg-red-50 transition"
