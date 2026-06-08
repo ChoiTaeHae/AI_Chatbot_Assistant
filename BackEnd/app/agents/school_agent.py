@@ -4,7 +4,10 @@ from app.services.chat_service import chat_service
 from app.services.school.leave import answer_leave_question
 from app.services.school.schedule import answer_schedule_question
 from app.services.school.graduation import graduation_service
+from app.services.school.campus import CampusService
 from sqlalchemy.ext.asyncio import AsyncSession
+
+campus_service = CampusService()
 
 
 class SchoolAgent:
@@ -20,6 +23,8 @@ class SchoolAgent:
             return await self._handle_schedule(question)
         elif intent == IntentType.LEAVE:
             return await answer_leave_question(question)
+        elif intent == IntentType.CAMPUS:
+            return await self._handle_campus(question, db)
         else:
             return await self._handle_general(question)
 
@@ -33,9 +38,21 @@ class SchoolAgent:
     async def _handle_schedule(self, question: str) -> str:
         return await answer_schedule_question(question)
 
+    async def _handle_campus(self, question: str, db: AsyncSession) -> str:
+        # 질문에서 CAMPUS 키워드 추출
+        from app.agents.classifier import CAMPUS_KEYWORDS
+        keyword = question
+        for kw in CAMPUS_KEYWORDS:
+            if kw in question:
+                keyword = kw
+                break
+        result = await campus_service.search_location(db, keyword)
+        return result.get("msg", "위치 정보를 찾을 수 없습니다.")
+
     async def _handle_general(self, question: str) -> str:
         return await chat_service.answer(question)
 
 
 # 싱글톤 인스턴스
 school_agent = SchoolAgent()
+
