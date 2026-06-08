@@ -160,10 +160,9 @@ threadpoolctl==3.6.0
 tifffile==2026.3.3
 tokenizers==0.19.1
 # ⚠️ torch CUDA 버전은 아래 명령어로 별도 설치 필요:
-# pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
-# torch==2.5.1+cu121
-# torchaudio==2.5.1+cu121
-# torchvision==0.20.1+cu121
+# pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+# torch==2.6.0+cu121
+# torchvision==0.21.0+cu121
 tqdm==4.67.3
 transformers==4.44.2
 trec-car-tools==2.6
