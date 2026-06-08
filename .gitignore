@@ -72,17 +72,22 @@ cython_debug/
 # ===== Virtual Environments =====
 .env
 .venv
+.venv2
+
 env/
 venv/
+venv2/
+
 ENV/
 env.bak/
 venv.bak/
 ocr_test/
 BackEnd/ocr_test/
 BackEnd/.venv/
+BackEnd/.venv2/
 
 BackEnd/venv/ 
-
+BackEnd/venv2/
 
 # ===== Environment Variables =====
 .env
