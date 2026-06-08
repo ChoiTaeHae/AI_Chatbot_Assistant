@@ -102,6 +102,10 @@ def parse_notice_page(html: str, url: str) -> CrawledPage:
 
 
 def _find_notice_container(soup: BeautifulSoup) -> Tag:
+    board_read = soup.select_one(".board-read")
+    if isinstance(board_read, Tag):
+        return board_read
+
     headings = soup.find_all(["h1", "h2", "h3", "h4", "strong", "b"])
     for heading in headings:
         if "졸업종합시험" in heading.get_text(" ", strip=True):
@@ -142,6 +146,10 @@ def _find_metadata_text(container: Tag | BeautifulSoup) -> str:
 
 
 def _extract_content(container: Tag, title: str) -> str:
+    body = container.select_one(".board-body")
+    if isinstance(body, Tag):
+        container = body
+
     for removable in container.find_all(["script", "style", "noscript"]):
         removable.decompose()
 
@@ -153,10 +161,6 @@ def _extract_content(container: Tag, title: str) -> str:
         "커뮤니티",
         "공지사항",
         "작성자",
-        "첨부파일",
-        "목록",
-        "이전글",
-        "다음글",
     )
 
     for line in lines:
@@ -168,7 +172,7 @@ def _extract_content(container: Tag, title: str) -> str:
             continue
         content_lines.append(line)
 
-    content_lines = _trim_before_article_body(_dedupe_preserve_order(content_lines))
+    content_lines = _trim_before_article_body(content_lines)
     content = "\n".join(content_lines)
     content = re.sub(r"\n{3,}", "\n\n", content).strip()
     return content
@@ -214,7 +218,13 @@ def _dedupe_preserve_order(lines: list[str]) -> list[str]:
 
 
 def _trim_before_article_body(lines: list[str]) -> list[str]:
-    for index, line in enumerate(lines):
+    body_lines = lines
+    for index, line in enumerate(body_lines[:3]):
         if line.startswith("[") or line.startswith("안녕하세요"):
-            return lines[index:]
-    return lines
+            body_lines = body_lines[index:]
+            break
+
+    for index, line in enumerate(body_lines):
+        if line in {"첨부파일", "목록", "이전글", "다음글"}:
+            return body_lines[:index]
+    return body_lines
