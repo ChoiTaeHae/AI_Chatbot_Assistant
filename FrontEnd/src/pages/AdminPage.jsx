@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
+import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus } from '../api/admin'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '대시보드 요약', icon: (
@@ -52,8 +53,8 @@ function StatusBadge({ status, color }) {
     red: 'bg-red-500',
   }
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${colors[color]}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dots[color]}`} />
+    <span className={`inline-flex items-center text-xs font-semibold ${colors[color]}`} style={{ gap: '6px', padding: '4px 10px', borderRadius: '6px' }}>
+      <span className={`h-1.5 w-1.5 ${dots[color]}`} style={{ borderRadius: '3px' }} />
       {status}
     </span>
   )
@@ -63,9 +64,93 @@ export default function AdminPage() {
   const [activeNav, setActiveNav] = useState('documents')
   const [searchText, setSearchText] = useState('')
   const [docTitle, setDocTitle] = useState('')
-  const [tags, setTags] = useState(['학사규정', '졸업요건', '변경사항'])
+  const [tags, setTags] = useState([])
+  const [tagInput, setTagInput] = useState('')
+  const [documents, setDocuments] = useState([])
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState(null) // { type: 'success'|'error', text }
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [category, setCategory] = useState('')
+  const fileInputRef = useRef(null)
   const { user, clearUser } = useAuth()
   const navigate = useNavigate()
+
+  // 문서 목록 불러오기
+  useEffect(() => {
+    loadDocuments()
+  }, [])
+
+  async function loadDocuments() {
+    try {
+      const data = await fetchDocuments()
+      setDocuments(data.documents || [])
+    } catch (e) {
+      console.error('문서 목록 조회 실패:', e)
+    }
+  }
+
+  async function handleUpload() {
+    if (!selectedFile) {
+      setUploadMsg({ type: 'error', text: '파일을 선택해주세요.' })
+      return
+    }
+    setUploading(true)
+    setUploadMsg({ type: 'info', text: '파일 업로드 중...' })
+    try {
+      const source = docTitle || selectedFile.name.replace(/\.[^.]+$/, '')
+      const result = await uploadDocument(selectedFile, source)
+
+      setUploadMsg({ type: 'info', text: 'RAG 처리 중입니다. 잠시 기다려주세요...' })
+
+      // 백그라운드 처리 상태 폴링
+      const final = await pollUploadStatus(result.job_id, (status) => {
+        if (status.status === 'processing') {
+          setUploadMsg({ type: 'info', text: '문서 파싱 및 임베딩 중...' })
+        }
+      })
+
+      if (final.status === 'done') {
+        setUploadMsg({ type: 'success', text: final.message })
+        setSelectedFile(null)
+        setDocTitle('')
+        setTags([])
+        await loadDocuments()
+      } else {
+        setUploadMsg({ type: 'error', text: final.message || 'RAG 처리 중 오류가 발생했습니다.' })
+      }
+    } catch (e) {
+      setUploadMsg({ type: 'error', text: e.message })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function handleDelete(source) {
+    if (!confirm(`'${source}' 문서를 삭제하시겠습니까?`)) return
+    try {
+      await deleteDocument(source)
+      await loadDocuments()
+    } catch (e) {
+      alert(e.message)
+    }
+  }
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0]
+    if (file) {
+      setSelectedFile(file)
+      setDocTitle(file.name.replace(/\.[^.]+$/, ''))
+      setUploadMsg(null)
+    }
+  }
+
+  function handleTagKeyDown(e) {
+    if (e.key === 'Enter' && tagInput.trim()) {
+      e.preventDefault()
+      setTags([...tags, tagInput.trim()])
+      setTagInput('')
+    }
+  }
 
   async function handleLogout() {
     await logout()
@@ -73,8 +158,8 @@ export default function AdminPage() {
     navigate('/login')
   }
 
-  const filtered = MOCK_DOCUMENTS.filter(d =>
-    d.title.includes(searchText) || d.category.includes(searchText)
+  const filtered = documents.filter(d =>
+    d.source.includes(searchText) || (d.file_name || '').includes(searchText)
   )
 
   return (
@@ -83,22 +168,23 @@ export default function AdminPage() {
       {/* 사이드바 */}
       <aside className="w-56 shrink-0 bg-white border-r border-slate-100 flex flex-col shadow-sm">
         {/* 로고 */}
-        <div className="flex items-center gap-2.5 px-5 py-5 border-b border-slate-100">
+        <div className="flex items-center border-b border-slate-100" style={{ gap: '10px', padding: '20px' }}>
           <MascotAvatar className="h-10 w-10 object-contain" />
           <span className="text-xl font-black text-[#005956]">SOL로몬</span>
         </div>
 
         {/* 네비게이션 */}
-        <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
+        <nav className="flex-1 flex flex-col" style={{ padding: '16px 12px', gap: '4px' }}>
           {NAV_ITEMS.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveNav(item.id)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-left w-full ${
+              className={`flex items-center rounded-xl text-sm font-medium transition text-left w-full ${
                 activeNav === item.id
                   ? 'bg-[#005956]/10 text-[#005956] font-bold'
                   : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
               }`}
+              style={{ gap: '12px', padding: '10px 14px' }}
             >
               {item.icon}
               {item.label}
@@ -124,7 +210,8 @@ export default function AdminPage() {
         {/* 로그아웃 */}
         <button
           onClick={handleLogout}
-          className="flex items-center gap-2 px-6 py-4 text-sm font-medium text-slate-400 hover:text-red-500 hover:bg-red-50 transition border-t border-slate-100"
+          className="flex items-center text-sm font-medium text-slate-400 hover:text-red-500 hover:bg-red-50 transition border-t border-slate-100"
+          style={{ gap: '8px', padding: '16px 24px' }}
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
@@ -137,15 +224,15 @@ export default function AdminPage() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* 헤더 */}
-        <header className="shrink-0 bg-white border-b border-slate-100 px-8 py-4 flex items-center justify-between">
+        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between" style={{ padding: '16px 32px' }}>
           <h1 className="text-lg font-black text-[#05263d]">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center" style={{ gap: '16px' }}>
             <button className="text-slate-400 hover:text-slate-600 transition">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
             </button>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center" style={{ gap: '10px' }}>
               <MascotAvatar className="h-8 w-8 object-contain" />
               <div className="text-sm">
                 <p className="font-bold text-slate-700">{user?.name || '관리자님'} · 교무처</p>
@@ -159,27 +246,27 @@ export default function AdminPage() {
         </header>
 
         {/* 본문 */}
-        <main className="flex-1 overflow-y-auto p-6 flex gap-6">
+        <main className="flex-1 overflow-y-auto flex gap-6" style={{ padding: '32px' }}>
 
           {/* 문서 목록 */}
-          <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 p-6 min-w-0">
-            <h2 className="text-base font-black text-[#05263d] mb-4">
+          <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 min-w-0 flex flex-col" style={{ padding: '32px' }}>
+            <h2 className="text-base font-black text-[#05263d] mb-6">
               현재 RAG 지식 문서 목록
               <span className="ml-2 text-slate-400 font-normal text-sm">(Active Retrieval Documents)</span>
             </h2>
 
             {/* 필터 */}
-            <div className="flex items-center gap-3 mb-5 flex-wrap">
-              <select className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 outline-none focus:border-[#005956]">
+            <div className="flex items-center flex-wrap" style={{ gap: '10px', marginBottom: '20px' }}>
+              <select className="border border-slate-200 text-sm text-slate-600 outline-none focus:border-[#005956]" style={{ borderRadius: '8px', padding: '8px 14px' }}>
                 <option>카테고리 전체</option>
               </select>
-              <select className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 outline-none focus:border-[#005956]">
+              <select className="border border-slate-200 text-sm text-slate-600 outline-none focus:border-[#005956]" style={{ borderRadius: '8px', padding: '8px 14px' }}>
                 <option>상태 전체</option>
               </select>
-              <select className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 outline-none focus:border-[#005956]">
+              <select className="border border-slate-200 text-sm text-slate-600 outline-none focus:border-[#005956]" style={{ borderRadius: '8px', padding: '8px 14px' }}>
                 <option>기간 전체</option>
               </select>
-              <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 ml-auto">
+              <div className="flex items-center gap-2 border border-slate-200 ml-auto" style={{ borderRadius: '8px', padding: '8px 14px' }}>
                 <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                 </svg>
@@ -194,54 +281,46 @@ export default function AdminPage() {
             </div>
 
             {/* 테이블 */}
+            <div className="flex-1 overflow-y-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['상태', '카테고리', '문서 제목', '버전', '유효 기간', '청크(Chunks)', '파싱 방식', '액션'].map(h => (
-                    <th key={h} className="text-left py-3 px-3 text-xs font-bold text-slate-500 whitespace-nowrap">{h}</th>
+                  {['문서명 (source)', '파일명', '청크(Chunks)', '액션'].map(h => (
+                    <th key={h} className="text-left text-xs font-bold text-slate-500 whitespace-nowrap" style={{ padding: '12px 16px' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((doc) => (
-                  <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
-                    <td className="py-3 px-3"><StatusBadge status={doc.status} color={doc.statusColor} /></td>
-                    <td className="py-3 px-3 text-slate-500 text-xs">{doc.category}</td>
-                    <td className="py-3 px-3 font-medium text-slate-700">{doc.title}</td>
-                    <td className="py-3 px-3 text-slate-500">{doc.version}</td>
-                    <td className="py-3 px-3 text-slate-500">{doc.expiry}</td>
-                    <td className="py-3 px-3 text-center text-slate-700 font-medium">{doc.chunks}</td>
-                    <td className="py-3 px-3">
-                      <span className={`text-xs font-semibold ${doc.parsing === '파싱 실패' ? 'text-red-500' : 'text-slate-600'}`}>
-                        {doc.parsing}
-                      </span>
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="text-center text-slate-400 text-sm" style={{ padding: '32px' }}>
+                      등록된 문서가 없습니다.
                     </td>
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <button className="hover:text-[#005956] transition" title="보기">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                        </button>
-                        <button className="hover:text-[#005956] transition" title="다운로드">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                          </svg>
-                        </button>
-                        <button className="hover:text-red-500 transition" title="삭제">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                          </svg>
-                        </button>
-                      </div>
+                  </tr>
+                )}
+                {filtered.map((doc, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition">
+                    <td className="font-medium text-slate-700" style={{ padding: '14px 16px' }}>{doc.source}</td>
+                    <td className="text-slate-500 text-xs" style={{ padding: '14px 16px' }}>{doc.file_name || '-'}</td>
+                    <td className="text-center text-slate-700 font-medium" style={{ padding: '14px 16px' }}>{doc.chunks}</td>
+                    <td style={{ padding: '14px 16px' }}>
+                      <button
+                        onClick={() => handleDelete(doc.source)}
+                        className="hover:text-red-500 transition text-slate-400"
+                        title="삭제"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
 
-            <div className="mt-4 flex items-center justify-between text-sm text-slate-400">
+            <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100" style={{ marginTop: 'auto', paddingTop: '16px' }}>
               <span>총 {filtered.length}건의 문서</span>
               <div className="flex items-center gap-1">
                 <button className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50">
@@ -260,56 +339,63 @@ export default function AdminPage() {
           </div>
 
           {/* 업로드 패널 */}
-          <div className="w-72 shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-6 flex flex-col gap-5">
+          <div className="w-72 shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col overflow-y-auto" style={{ padding: '20px', gap: '12px' }}>
             <h2 className="text-base font-black text-[#05263d]">새 문서 업로드 및 RAG 지식 추가</h2>
 
             {/* 드래그 앤 드롭 */}
-            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:border-[#005956]/40 transition cursor-pointer bg-slate-50">
-              <svg className="h-12 w-12 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+            <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md" className="hidden" onChange={handleFileChange} />
+            <div
+              className="border-2 border-dashed border-slate-200 hover:border-[#005956]/40 transition cursor-pointer bg-slate-50 flex flex-col items-center"
+              style={{ borderRadius: '10px', padding: '12px', gap: '6px' }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <svg className="h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
               </svg>
-              <p className="text-sm font-medium text-slate-400">파일 드래그 &amp; 드롭</p>
-              <button className="bg-[#005956] text-white text-sm font-bold px-5 py-2 rounded-xl hover:bg-[#004a47] transition">
+              {selectedFile ? (
+                <p className="text-sm font-medium text-[#005956] text-center">{selectedFile.name}</p>
+              ) : (
+                <p className="text-sm font-medium text-slate-400">파일 드래그 &amp; 드롭</p>
+              )}
+              <button
+                type="button"
+                className="bg-[#005956] text-white text-sm font-bold hover:bg-[#004a47] transition"
+                style={{ borderRadius: '8px', padding: '8px 20px' }}
+                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
+              >
                 파일 선택
               </button>
-              <p className="text-xs text-slate-400">가능한 유형: PDF, DOCX, HWP</p>
+              <p className="text-xs text-slate-400">가능한 유형: PDF, DOCX, TXT, MD</p>
             </div>
 
-            {/* 문서 제목 */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-600">문서 제목</label>
+            {/* 문서 제목 (source) */}
+            <div className="flex flex-col" style={{ gap: '4px' }}>
+              <label className="text-xs font-bold text-slate-600">문서명 (source)</label>
               <input
                 type="text"
-                placeholder="문서 제목을 입력하세요"
+                placeholder="문서명을 입력하세요"
                 value={docTitle}
                 onChange={(e) => setDocTitle(e.target.value)}
-                className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#005956] transition"
+                className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                style={{ borderRadius: '8px', padding: '6px 10px' }}
               />
-            </div>
-
-            {/* 카테고리 */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-600">카테고리</label>
-              <select className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#005956] transition text-slate-500">
-                <option>카테고리 선택</option>
-                <option>수강신청</option>
-                <option>학사규정</option>
-                <option>장학금</option>
-                <option>졸업요건</option>
-              </select>
             </div>
 
             {/* 키워드 태그 */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-600">키워드 태그</label>
+            <div className="flex flex-col" style={{ gap: '4px' }}>
+              <label className="text-xs font-bold text-slate-600">키워드 태그 (Enter로 추가)</label>
               <input
                 type="text"
-                placeholder="키워드 태그를 입력하세요"
-                className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#005956] transition"
+                placeholder="태그 입력 후 Enter"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={handleTagKeyDown}
+                className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                style={{ borderRadius: '8px', padding: '6px 10px' }}
               />
-              <div className="flex flex-wrap gap-1.5 mt-1">
+              <div className="flex flex-wrap" style={{ gap: '6px', marginTop: '4px' }}>
                 {tags.map((tag) => (
-                  <span key={tag} className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs font-medium px-2.5 py-1 rounded-full">
+                  <span key={tag} className="inline-flex items-center bg-slate-100 text-slate-600 text-xs font-medium" style={{ gap: '4px', padding: '4px 10px', borderRadius: '6px' }}>
                     {tag}
                     <button onClick={() => setTags(tags.filter(t => t !== tag))} className="text-slate-400 hover:text-red-400">×</button>
                   </span>
@@ -318,9 +404,9 @@ export default function AdminPage() {
             </div>
 
             {/* 유효 기간 */}
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col" style={{ gap: '4px' }}>
               <label className="text-xs font-bold text-slate-600">유효 기간 설정</label>
-              <div className="flex items-center gap-2 text-sm text-slate-500 border border-slate-200 rounded-xl px-3 py-2.5">
+              <div className="flex items-center text-sm text-slate-500 border border-slate-200" style={{ gap: '8px', borderRadius: '8px', padding: '10px 14px' }}>
                 <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5" />
                 </svg>
@@ -329,24 +415,59 @@ export default function AdminPage() {
             </div>
 
             {/* 파싱 방식 */}
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col" style={{ gap: '4px' }}>
               <label className="text-xs font-bold text-slate-600">파싱 방식 선택</label>
-              <select className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#005956] transition text-slate-600">
+              <select
+                className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition text-slate-600"
+                style={{ borderRadius: '8px', padding: '6px 10px' }}
+              >
                 <option>LlamaParse (표 추출 특화)</option>
                 <option>sLLM Advanced</option>
                 <option>Simple Text</option>
               </select>
             </div>
 
+            {/* 업로드 결과 메시지 */}
+            {uploadMsg && (
+              <p className={`text-xs font-medium ${
+                uploadMsg.type === 'success' ? 'text-[#005956]' :
+                uploadMsg.type === 'info' ? 'text-blue-500' :
+                'text-red-500'
+              }`}>
+                {uploadMsg.type === 'info' && '⏳ '}{uploadMsg.text}
+              </p>
+            )}
+
             {/* 버튼 */}
-            <div className="flex gap-2 mt-auto">
-              <button className="flex-1 flex items-center justify-center gap-1.5 bg-[#005956] text-white text-sm font-black py-3 rounded-xl hover:bg-[#004a47] transition">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-                RAG 지식 추가
+            <div className="flex mt-auto" style={{ gap: '8px' }}>
+              <button
+                onClick={handleUpload}
+                disabled={uploading || !selectedFile}
+                className="flex-1 flex items-center justify-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ gap: '6px', borderRadius: '8px', padding: '12px 16px' }}
+              >
+                {uploading ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    업로드 중...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    RAG 지식 추가
+                  </>
+                )}
               </button>
-              <button className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition">
+              <button
+                onClick={() => { setSelectedFile(null); setDocTitle(''); setTags([]); setUploadMsg(null) }}
+                className="border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition"
+                style={{ borderRadius: '8px', padding: '8px 12px' }}
+              >
                 취소
               </button>
             </div>

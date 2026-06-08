@@ -37,7 +37,7 @@ pip install -r requirements_lock.txt
 
 ## 4. PyTorch CUDA 버전 별도 설치 (GPU 사용)
 ```powershell
-pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 ```
 
 > CUDA 정상 인식 확인:
@@ -47,7 +47,7 @@ pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorc
 > `True` 가 나와야 정상. `False` 시 torch 재설치 필요:
 > ```powershell
 > pip uninstall torch torchvision -y
-> pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+> pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 > ```
 
 ## 5. .env 파일 생성

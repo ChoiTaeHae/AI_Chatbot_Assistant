@@ -26,6 +26,7 @@ class Student(Base):
     student_no = Column(String, unique=True, nullable=False)  # 학번
     password_hash = Column(String, nullable=False)            # hashed login
     name = Column(String, nullable=False)                     # 이름
+    role = Column(String, nullable=False, server_default="student")  # 권한: student / admin
     interests = Column(JSON)                                  # 관심사 태그 (JSONB 대응)
 
 # ==========================================
