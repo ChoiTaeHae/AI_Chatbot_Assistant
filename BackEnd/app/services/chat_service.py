@@ -6,10 +6,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from app.core.config import settings
 
-SYSTEM_PROMPT = """당신은 대학교 학생들의 학교생활을 도와주는 AI 어시스턴트입니다.
-학사 일정, 수강신청, 졸업요건, 장학금 등 학교생활 전반에 대해 친절하게 안내해주세요.
-모르는 내용은 모른다고 솔직하게 말하고, 학교 공식 홈페이지나 담당 부서에 문의하도록 안내하세요.
-답변은 한국어로 작성해주세요."""
+SYSTEM_PROMPT = """당신은 우송대학교 학생들의 학교생활을 도와주는 AI 어시스턴트입니다.
+학사 일정, 수강신청, 졸업요건, 장학금 등 학교생활 전반에 대해 친절하고 정확하게 안내해주세요.
+
+반드시 지켜야 할 규칙:
+1. 답변은 반드시 한국어로 작성하세요.
+2. 문법과 맞춤법을 정확하게 사용하세요.
+3. 모르는 내용은 모른다고 솔직하게 말하고, 학교 공식 홈페이지나 담당 부서에 문의하도록 안내하세요.
+4. 추측이나 불확실한 정보는 제공하지 마세요.
+5. 답변은 간결하고 명확하게 작성하세요."""
 
 # 전용 스레드풀 (CUDA는 단일 스레드에서 실행)
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -67,11 +72,12 @@ class ChatService:
             with torch.no_grad():
                 output_ids = self.model.generate(
                     input_ids,
-                    max_new_tokens=256,
-                    temperature=0.7,
+                    max_new_tokens=512,
+                    temperature=0.3,
                     do_sample=True,
+                    top_p=0.9,
                     pad_token_id=self.tokenizer.eos_token_id,
-                    repetition_penalty=1.3,
+                    repetition_penalty=1.1,
                     eos_token_id=self.tokenizer.eos_token_id,
                 )
 
