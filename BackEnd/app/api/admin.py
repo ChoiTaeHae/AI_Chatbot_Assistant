@@ -25,7 +25,7 @@ upload_jobs: dict[str, dict] = {}
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
 
-def _run_ingest(job_id: str, tmp_path: Path, source_name: str, file_name: str):
+def _run_ingest(job_id: str, tmp_path: Path, source_name: str, file_name: str, topic: str | None = None):
     """백그라운드에서 실행되는 ingest 작업"""
     try:
         upload_jobs[job_id]["status"] = "processing"
@@ -33,6 +33,7 @@ def _run_ingest(job_id: str, tmp_path: Path, source_name: str, file_name: str):
             file_path=tmp_path,
             source=source_name,
             service=rag_service,
+            topic=topic,
         )
         if chunk_count == 0:
             upload_jobs[job_id] = {
@@ -55,17 +56,27 @@ def _run_ingest(job_id: str, tmp_path: Path, source_name: str, file_name: str):
         tmp_path.unlink(missing_ok=True)
 
 
+VALID_TOPICS = {"graduation", "schedule", "leave", "campus", "scholarship", "general"}
+
+
 @router.post("/documents/upload", summary="문서 업로드 및 RAG 등록 (백그라운드 처리)")
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     source: str = Form(None),
+    topic: str = Form(None),
 ):
     suffix = Path(file.filename).suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
             detail=f"지원하지 않는 파일 형식입니다. 지원 형식: {', '.join(SUPPORTED_EXTENSIONS)}"
+        )
+
+    if topic and topic not in VALID_TOPICS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"유효하지 않은 주제입니다. 가능한 값: {', '.join(sorted(VALID_TOPICS))}"
         )
 
     # 임시 파일 저장
@@ -76,18 +87,19 @@ async def upload_document(
     source_name = source or Path(file.filename).stem
     job_id = f"{source_name}_{tmp_path.stem}"
 
-    upload_jobs[job_id] = {"status": "queued", "source": source_name, "file_name": file.filename}
+    upload_jobs[job_id] = {"status": "queued", "source": source_name, "topic": topic, "file_name": file.filename}
 
     # 백그라운드에서 ingest 실행
     background_tasks.add_task(
         _ingest_executor.submit,
-        _run_ingest, job_id, tmp_path, source_name, file.filename
+        _run_ingest, job_id, tmp_path, source_name, file.filename, topic
     )
 
     return {
         "success": True,
         "job_id": job_id,
         "source": source_name,
+        "topic": topic,
         "file_name": file.filename,
         "message": f"'{file.filename}' 업로드 완료. 백그라운드에서 RAG 처리 중입니다.",
     }

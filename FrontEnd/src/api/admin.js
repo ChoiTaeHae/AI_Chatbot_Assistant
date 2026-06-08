@@ -1,9 +1,10 @@
 const BASE = 'http://localhost:8000/api/admin'
 
-export async function uploadDocument(file, source = null) {
+export async function uploadDocument(file, source = null, topic = null) {
   const formData = new FormData()
   formData.append('file', file)
   if (source) formData.append('source', source)
+  if (topic) formData.append('topic', topic)
 
   const res = await fetch(`${BASE}/documents/upload`, {
     method: 'POST',

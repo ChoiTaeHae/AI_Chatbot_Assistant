@@ -70,6 +70,7 @@ export default function AdminPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState(null) // { type: 'success'|'error', text }
   const [selectedFile, setSelectedFile] = useState(null)
+  const [topic, setTopic] = useState('')
   const [category, setCategory] = useState('')
   const fileInputRef = useRef(null)
   const { user, clearUser } = useAuth()
@@ -98,7 +99,7 @@ export default function AdminPage() {
     setUploadMsg({ type: 'info', text: '파일 업로드 중...' })
     try {
       const source = docTitle || selectedFile.name.replace(/\.[^.]+$/, '')
-      const result = await uploadDocument(selectedFile, source)
+      const result = await uploadDocument(selectedFile, source, topic || null)
 
       setUploadMsg({ type: 'info', text: 'RAG 처리 중입니다. 잠시 기다려주세요...' })
 
@@ -113,6 +114,7 @@ export default function AdminPage() {
         setUploadMsg({ type: 'success', text: final.message })
         setSelectedFile(null)
         setDocTitle('')
+        setTopic('')
         setTags([])
         await loadDocuments()
       } else {
@@ -379,6 +381,25 @@ export default function AdminPage() {
                 className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
                 style={{ borderRadius: '8px', padding: '6px 10px' }}
               />
+            </div>
+
+            {/* 주제 분류 (topic) */}
+            <div className="flex flex-col" style={{ gap: '4px' }}>
+              <label className="text-xs font-bold text-slate-600">주제 분류 (RAG 검색 필터)</label>
+              <select
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition bg-white"
+                style={{ borderRadius: '8px', padding: '6px 10px' }}
+              >
+                <option value="">선택 안 함 (전체 검색 대상)</option>
+                <option value="graduation">졸업요건</option>
+                <option value="schedule">학사일정</option>
+                <option value="leave">휴학/복학</option>
+                <option value="campus">캠퍼스/시설</option>
+                <option value="scholarship">장학금</option>
+                <option value="general">일반</option>
+              </select>
             </div>
 
             {/* 키워드 태그 */}

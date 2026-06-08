@@ -11,6 +11,7 @@ def ingest_file(
     file_path: str | Path,
     source: str | None = None,
     service: RagService | None = None,
+    topic: str | None = None,
 ) -> int:
     path = Path(file_path)
 
@@ -24,6 +25,7 @@ def ingest_file(
     chunk_count = rag_service.ingest_document(
         file_path=path,
         source=source_name,
+        topic=topic,
     )
 
     if chunk_count == 0:
