@@ -42,7 +42,8 @@ class ChatService:
         self.model = AutoModelForCausalLM.from_pretrained(
             settings.MODEL_PATH,
             quantization_config=bnb_config,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
+            device_map="auto",
         )
         self.model.eval()
         print(f"모델 로딩 완료!")
