@@ -1,64 +1,61 @@
 import argparse
 from pathlib import Path
 
-from app.rag.Chunking import split_by_article
-from app.rag.Embedding import BaaiEmbedding
-from app.rag.Loader import DoclingLoader
-from app.rag.Retrieval import QdrantVectorStore
+from app.services.rag_service import RagService
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 
 
-def ingest_file(file_path: str | Path, source: str | None = None) -> int:
+def ingest_file(
+    file_path: str | Path,
+    source: str | None = None,
+    service: RagService | None = None,
+) -> int:
     path = Path(file_path)
+
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
+    rag_service = service or RagService()
     source_name = source or path.stem
-    loader = DoclingLoader()
-    embedding = BaaiEmbedding()
-    vector_store = QdrantVectorStore()
 
-    print(f"[RAG] Loading document: {path}")
-    text = loader.load_text(path)
+    print(f"[RAG] Ingesting document: {path}")
+    chunk_count = rag_service.ingest_document(
+        file_path=path,
+        source=source_name,
+    )
 
-    print("[RAG] Splitting chunks")
-    chunks = split_by_article(text)
-    if not chunks:
+    if chunk_count == 0:
         print("[RAG] No chunks created")
         return 0
 
-    print(f"[RAG] Embedding chunks: {len(chunks)}")
-    embeddings = embedding.embed_texts(chunks)
-
-    print(f"[RAG] Upserting to Qdrant: source={source_name}")
-    vector_store.upsert_chunks(
-        chunks=chunks,
-        embeddings=embeddings,
-        source=source_name,
-        metadata={"file_name": path.name},
-    )
-
-    print(f"[RAG] Ingest complete: {len(chunks)} chunks")
-    return len(chunks)
+    print(f"[RAG] Ingest complete: {chunk_count} chunks")
+    return chunk_count
 
 
 def ingest_directory(directory_path: str | Path, source_prefix: str | None = None) -> int:
     directory = Path(directory_path)
+
     if not directory.exists():
         raise FileNotFoundError(f"Directory not found: {directory}")
 
-    total_chunks = 0
     files = [
         path
         for path in directory.rglob("*")
         if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS
     ]
 
+    rag_service = RagService()
+    total_chunks = 0
+
     for file_path in files:
         source = f"{source_prefix}:{file_path.stem}" if source_prefix else file_path.stem
-        total_chunks += ingest_file(file_path, source=source)
+        total_chunks += ingest_file(
+            file_path=file_path,
+            source=source,
+            service=rag_service,
+        )
 
     print(f"[RAG] Directory ingest complete: {len(files)} files, {total_chunks} chunks")
     return total_chunks
