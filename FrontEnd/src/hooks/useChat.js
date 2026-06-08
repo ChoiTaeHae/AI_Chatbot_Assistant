@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { sendMessage } from '../api/chat'
+import { useAuth } from '../store/AuthContext'
 
 function getTime() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -9,6 +10,7 @@ export function useChat() {
   const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState(null)
+  const { user } = useAuth()
 
   const send = useCallback(async (text) => {
     const userMsg = { id: Date.now(), role: 'user', content: text, time: getTime() }
@@ -16,7 +18,7 @@ export function useChat() {
     setIsLoading(true)
 
     try {
-      const data = await sendMessage(text, sessionId)
+      const data = await sendMessage(text, sessionId, user?.student_no)
       if (data.session_id) setSessionId(data.session_id)
       const aiMsg = { id: Date.now() + 1, role: 'ai', content: data.answer, time: getTime() }
       setMessages((prev) => [...prev, aiMsg])

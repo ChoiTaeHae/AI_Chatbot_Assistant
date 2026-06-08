@@ -16,6 +16,28 @@ export async function uploadDocument(file, source = null) {
   return res.json()
 }
 
+export async function pollUploadStatus(jobId, onUpdate) {
+  let failCount = 0
+  while (true) {
+    await new Promise(r => setTimeout(r, 5000)) // 5초마다 확인
+    try {
+      const res = await fetch(`${BASE}/documents/status/${encodeURIComponent(jobId)}`)
+      if (!res.ok) {
+        failCount++
+        if (failCount >= 5) throw new Error('상태 확인에 반복 실패했습니다.')
+        continue
+      }
+      failCount = 0
+      const data = await res.json()
+      onUpdate(data)
+      if (data.status === 'done' || data.status === 'error') return data
+    } catch (e) {
+      failCount++
+      if (failCount >= 5) throw e
+    }
+  }
+}
+
 export async function fetchDocuments() {
   const res = await fetch(`${BASE}/documents`)
   if (!res.ok) throw new Error('문서 목록 조회 실패')

@@ -7,9 +7,10 @@ from app.services.school.leave import answer_leave_question
 from app.services.school.schedule import answer_schedule_question
 from app.services.school.graduation import graduation_service
 from app.services.school.campus import CampusService
+from app.services.school.scholarship import answer_scholarship_question
 from sqlalchemy.ext.asyncio import AsyncSession
 
-MAX_CONTEXT_LENGTH = 1000
+MAX_CONTEXT_LENGTH = 2000
 
 campus_service = CampusService()
 
@@ -29,6 +30,8 @@ class SchoolAgent:
             return await answer_leave_question(question)
         elif intent == IntentType.CAMPUS:
             return await self._handle_campus(question, db)
+        elif intent == IntentType.SCHOLARSHIP:
+            return await answer_scholarship_question(question)
         else:
             return await self._handle_general(question)
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
-import { uploadDocument, fetchDocuments, deleteDocument } from '../api/admin'
+import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus } from '../api/admin'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '대시보드 요약', icon: (
@@ -95,16 +95,29 @@ export default function AdminPage() {
       return
     }
     setUploading(true)
-    setUploadMsg(null)
+    setUploadMsg({ type: 'info', text: '파일 업로드 중...' })
     try {
       const source = docTitle || selectedFile.name.replace(/\.[^.]+$/, '')
       const result = await uploadDocument(selectedFile, source)
-      setUploadMsg({ type: 'success', text: result.message })
-      setSelectedFile(null)
-      setDocTitle('')
-      setTags([])
-      setCategory('')
-      await loadDocuments()
+
+      setUploadMsg({ type: 'info', text: 'RAG 처리 중입니다. 잠시 기다려주세요...' })
+
+      // 백그라운드 처리 상태 폴링
+      const final = await pollUploadStatus(result.job_id, (status) => {
+        if (status.status === 'processing') {
+          setUploadMsg({ type: 'info', text: '문서 파싱 및 임베딩 중...' })
+        }
+      })
+
+      if (final.status === 'done') {
+        setUploadMsg({ type: 'success', text: final.message })
+        setSelectedFile(null)
+        setDocTitle('')
+        setTags([])
+        await loadDocuments()
+      } else {
+        setUploadMsg({ type: 'error', text: final.message || 'RAG 처리 중 오류가 발생했습니다.' })
+      }
     } catch (e) {
       setUploadMsg({ type: 'error', text: e.message })
     } finally {
@@ -416,8 +429,12 @@ export default function AdminPage() {
 
             {/* 업로드 결과 메시지 */}
             {uploadMsg && (
-              <p className={`text-xs font-medium ${uploadMsg.type === 'success' ? 'text-[#005956]' : 'text-red-500'}`}>
-                {uploadMsg.text}
+              <p className={`text-xs font-medium ${
+                uploadMsg.type === 'success' ? 'text-[#005956]' :
+                uploadMsg.type === 'info' ? 'text-blue-500' :
+                'text-red-500'
+              }`}>
+                {uploadMsg.type === 'info' && '⏳ '}{uploadMsg.text}
               </p>
             )}
 
