@@ -1,6 +1,5 @@
 ﻿from app.services.chat_service import chat_service
 
-
 async def answer_schedule_question(question: str) -> str:
     """학사일정 관련 질문을 LLM으로 처리"""
     # TODO: DB에 학사일정 테이블 추가되면 DB 조회로 교체
