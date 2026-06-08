@@ -1,7 +1,7 @@
 ﻿from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.Database import get_db
-from app.services.campus_service import CampusService
+from app.services.school.campus import CampusService
 
 router = APIRouter(tags=["Campus"])
 campus_srv = CampusService()

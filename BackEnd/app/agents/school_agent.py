@@ -1,11 +1,9 @@
 ﻿from app.agents.intent import IntentType
 from app.agents.classifier import classify_intent
 from app.services.chat_service import chat_service
-from app.services.leave_service import answer_leave_question
-
-from app.services.schedule_service import answer_schedule_question
-
-from app.services.graduation_service import graduation_service
+from app.services.school.leave import answer_leave_question
+from app.services.school.schedule import answer_schedule_question
+from app.services.school.graduation import graduation_service
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -25,16 +23,14 @@ class SchoolAgent:
         else:
             return await self._handle_general(question)
 
-    async def _handle_graduation(self, question: str , student_id: int , db: AsyncSession) -> str:
-        # TODO: graduation_service 완성되면 연결
-       return await graduation_service.answer_graduation(
-            question=question, 
-            student_id=student_id, 
+    async def _handle_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
+        return await graduation_service.answer_graduation(
+            question=question,
+            student_id=student_id,
             db=db
         )
 
     async def _handle_schedule(self, question: str) -> str:
-        # TODO: schedule_service 완성되면 연결
         return await answer_schedule_question(question)
 
     async def _handle_general(self, question: str) -> str:
