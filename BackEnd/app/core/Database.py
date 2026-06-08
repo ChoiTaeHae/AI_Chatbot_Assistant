@@ -25,6 +25,21 @@ AsyncSessionLocal = sessionmaker(
 
 Base = declarative_base()
 
+# 동기 세션 (schedule_service 등 동기 코드 호환용)
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker as sync_sessionmaker
+
+SYNC_DATABASE_URL = (
+    f"postgresql+psycopg2://{settings.DB_USER}:"
+    f"{settings.DB_PASSWORD}@"
+    f"{settings.DB_HOST}:"
+    f"{settings.DB_PORT}/"
+    f"{settings.DB_NAME}"
+)
+sync_engine = create_engine(SYNC_DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sync_sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
+
+
 async def get_db():
     async with AsyncSessionLocal() as db :
         try:

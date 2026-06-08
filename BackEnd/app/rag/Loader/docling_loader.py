@@ -1,5 +1,7 @@
+
 import logging
 from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,3 +59,4 @@ class DoclingLoader:
                 f"파일이 너무 큽니다: {path.name} "
                 f"({file_size_mb:.1f}MB > {self.max_file_size_mb}MB)"
             )
+

@@ -1,5 +1,5 @@
 ﻿from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.Database import get_db
 from app.schemas.auth import LoginRequest, LoginResponse
@@ -9,8 +9,8 @@ router = APIRouter()
 
 
 @router.post("/login", response_model=LoginResponse, summary="로그인")
-def login(request: LoginRequest, db: Session = Depends(get_db)): #DB를 api에 열어서 서비스에서 사용할 수 있도록(명령에 한번만 실행됨)
-    result = auth_service.login(request.student_no, request.password, db) 
+async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await auth_service.login(request.student_no, request.password, db)
     return LoginResponse(**result)
 
 
