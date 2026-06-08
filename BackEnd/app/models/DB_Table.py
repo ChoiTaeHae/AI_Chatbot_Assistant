@@ -25,7 +25,7 @@ class Student(Base):
     dept_id = Column(Integer, ForeignKey("department.id"))
     student_no = Column(String, unique=True, nullable=False)  # 학번
     password_hash = Column(String, nullable=False)            # hashed login
-    name = Column(String, nullable=False)                     # 입학년도/이름
+    name = Column(String, nullable=False)                     # 이름
     interests = Column(JSON)                                  # 관심사 태그 (JSONB 대응)
 
 # ==========================================
