@@ -3,23 +3,32 @@ from pathlib import Path
 from app.rag.Chunking import split_by_article
 from app.rag.Embedding import BaaiEmbedding
 from app.rag.Loader import DoclingLoader
+from app.rag.Loader.fast_loader import FastLoader
 from app.rag.Retrieval import QdrantVectorStore, Retriever, SearchResult
 
 
 class RagService:
-    """Application service that composes Docling, BAAI embedding, and Qdrant."""
+    """Application service that composes FastLoader/Docling, BAAI embedding, and Qdrant."""
 
     def __init__(self) -> None:
-        self._loader: DoclingLoader | None = None
+        self._fast_loader: FastLoader | None = None
+        self._docling_loader: DoclingLoader | None = None
         self._embedding: BaaiEmbedding | None = None
         self._vector_store: QdrantVectorStore | None = None
         self._retriever: Retriever | None = None
 
     @property
+    def fast_loader(self) -> FastLoader:
+        if self._fast_loader is None:
+            self._fast_loader = FastLoader()
+        return self._fast_loader
+
+    @property
     def loader(self) -> DoclingLoader:
-        if self._loader is None:
-            self._loader = DoclingLoader()
-        return self._loader
+        """하위 호환용 - Docling 로더"""
+        if self._docling_loader is None:
+            self._docling_loader = DoclingLoader()
+        return self._docling_loader
 
     @property
     def embedding(self) -> BaaiEmbedding:
@@ -45,7 +54,24 @@ class RagService:
     def ingest_document(self, file_path: str | Path, source: str | None = None) -> int:
         path = Path(file_path)
         source_name = source or path.stem
-        text = self.loader.load_text(path)
+
+        # FastLoader로 빠르게 시도, 실패 시 Docling으로 폴백
+        text = None
+        try:
+            print(f"[RAG] FastLoader로 텍스트 추출 시도: {path.name}")
+            text = self.fast_loader.load_text(path)
+            print(f"[RAG] FastLoader 성공: {len(text)}자")
+        except Exception as e:
+            print(f"[RAG] FastLoader 실패 ({e}), Docling으로 재시도...")
+            try:
+                text = self.loader.load_text(path)
+                print(f"[RAG] Docling 성공: {len(text)}자")
+            except Exception as e2:
+                raise RuntimeError(f"텍스트 추출 실패: {e2}")
+
+        if not text or not text.strip():
+            return 0
+
         chunks = split_by_article(text)
         if not chunks:
             return 0

@@ -1,10 +1,10 @@
 const BASE = 'http://localhost:8000/api'
 
-export async function sendMessage(question, session_id = null) {
+export async function sendMessage(question, session_id = null, student_no = null) {
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, session_id }),
+    body: JSON.stringify({ question, session_id, student_no }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

@@ -12,7 +12,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 async def login(student_no: str, password: str, db: AsyncSession):
     result = await db.execute(
-        text("SELECT id, student_no, name, dept_id, password_hash FROM student WHERE student_no = :sno"),
+        text("SELECT id, student_no, name, dept_id, role, password_hash FROM student WHERE student_no = :sno"),
         {"sno": student_no}
     )
     student = result.fetchone()
@@ -27,4 +27,5 @@ async def login(student_no: str, password: str, db: AsyncSession):
         "student_no": student.student_no,
         "name": student.name,
         "dept_id": student.dept_id,
+        "role": student.role or "student",
     }

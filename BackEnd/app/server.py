@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.Database import Base, engine
 from app.api.chat import router as chat_router
 from app.api.auth import router as auth_router
+from app.api.admin import router as admin_router
 from app.services.chat_service import chat_service
 
 
@@ -44,8 +45,9 @@ def create_app() -> FastAPI:
     )
 
     # 라우터 등록
-    app.include_router(auth_router, prefix="/api/auth", tags=["인증"])
-    app.include_router(chat_router, prefix="/api",      tags=["챗봇"])
+    app.include_router(auth_router, prefix="/api/auth",  tags=["인증"])
+    app.include_router(chat_router, prefix="/api",       tags=["챗봇"])
+    app.include_router(admin_router, prefix="/api/admin", tags=["관리자"])
 
     @app.get("/health", tags=["상태확인"])
     async def health():

@@ -8,6 +8,7 @@ from qdrant_client.models import (
     MatchValue,
     PointStruct,
     VectorParams,
+    FilterSelector,
 )
 
 from app.core.Qdrant import qdrant_client
@@ -141,3 +142,47 @@ class QdrantVectorStore:
             )
 
         return results
+
+    def delete_by_source(self, source: str) -> int:
+        """source 기준으로 문서 청크 전체 삭제. 삭제된 포인트 수 반환."""
+        # 삭제 전 개수 파악
+        count_result = qdrant_client.count(
+            collection_name=self.collection_name,
+            count_filter=Filter(
+                must=[FieldCondition(key="source", match=MatchValue(value=source))]
+            ),
+            exact=True,
+        )
+        count = count_result.count
+
+        qdrant_client.delete(
+            collection_name=self.collection_name,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[FieldCondition(key="source", match=MatchValue(value=source))]
+                )
+            ),
+        )
+        return count
+
+    def list_sources(self) -> list[dict]:
+        """저장된 문서 source 목록 반환."""
+        result = qdrant_client.scroll(
+            collection_name=self.collection_name,
+            limit=10000,
+            with_payload=True,
+            with_vectors=False,
+        )
+        seen = {}
+        for point in result[0]:
+            payload = point.payload or {}
+            source = payload.get("source", "unknown")
+            if source not in seen:
+                seen[source] = {
+                    "source": source,
+                    "file_name": payload.get("file_name", ""),
+                    "chunks": 1,
+                }
+            else:
+                seen[source]["chunks"] += 1
+        return list(seen.values())
