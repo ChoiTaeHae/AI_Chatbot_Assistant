@@ -81,7 +81,11 @@ class ChatService:
                 output_ids = self.model.generate(
                     input_ids,
                     max_new_tokens=512,
-                    do_sample=False,          # greedy decoding (가장 빠름)
+
+                    temperature=0.3,
+                    do_sample=True,
+                    top_p=0.9,
+
                     pad_token_id=self.tokenizer.eos_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
                 )

@@ -9,7 +9,13 @@ from app.services.school.graduation import graduation_service
 from app.services.school.campus import CampusService
 from app.services.school.scholarship import answer_scholarship_question
 from app.services.school.ot import answer_ot_question
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.school.special_credit import answer_special_credit_question
+
+MAX_CONTEXT_LENGTH = 2000
+
 
 campus_service = CampusService()
 
@@ -56,6 +62,8 @@ class SchoolAgent:
             return await answer_scholarship_question(question)
         elif intent == IntentType.OT:
             return await answer_ot_question(question)
+        elif intent == IntentType.SPECIAL_CREDIT:
+            return await answer_special_credit_question(question)
         # 여기까지 오면 GENERAL이지만 안전망으로 LLM 직접 호출
         return await chat_service.answer(question)
 
