@@ -48,7 +48,8 @@ class ChatService:
             device_map={"": 0},
         )
         self.model.eval()
-        print(f"모델 로딩 완료!")
+        device = next(self.model.parameters()).device
+        print(f"모델 로딩 완료! 디바이스: {device}")
 
     def _generate(self, question: str) -> str:
         if settings.DEV_MODE:
@@ -80,7 +81,7 @@ class ChatService:
                     do_sample=True,
                     top_p=0.9,
                     pad_token_id=self.tokenizer.eos_token_id,
-                    repetition_penalty=1.1,
+                    repetition_penalty=1.3,
                     eos_token_id=self.tokenizer.eos_token_id,
                 )
 
