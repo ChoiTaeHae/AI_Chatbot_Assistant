@@ -44,7 +44,7 @@ class ChatService:
         self.model = AutoModelForCausalLM.from_pretrained(
             settings.MODEL_PATH,
             quantization_config=bnb_config,
-            dtype=torch.float16,
+            torch_dtype=torch.float16,
             device_map="auto",
         )
         self.model.eval()
