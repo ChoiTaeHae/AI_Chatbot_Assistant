@@ -63,7 +63,7 @@ class Building(Base):
     name = Column(String)           
     address = Column(Text)          
     aliases = Column(JSONB)         
-    place_url = Column(Text)                                # REAL 대응
+    place_url = Column(Text)                
 
 # ==========================================
 # 6. 호실 테이블 (room)

@@ -46,6 +46,7 @@ class ChatService:
             quantization_config=bnb_config,
             torch_dtype=torch.float16,
             device_map={"": 0}
+
         )
         self.model.eval()
         device = next(self.model.parameters()).device
@@ -55,7 +56,9 @@ class ChatService:
         if settings.DEV_MODE:
             return f"[DEV_MODE] 질문 수신: {question}"
 
+        import time
         try:
+            t0 = time.time()
             print("[LLM] 추론 시작")
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -71,23 +74,27 @@ class ChatService:
             inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
             input_ids = inputs["input_ids"]
 
-            print(f"[LLM] 토큰 길이: {input_ids.shape[-1]}")
+            device = self.model.device
+            print(f"[LLM] 디바이스: {device} | 입력 토큰: {input_ids.shape[-1]}")
 
+            t1 = time.time()
             with torch.no_grad():
                 output_ids = self.model.generate(
                     input_ids,
-                    max_new_tokens=256,
+                    max_new_tokens=512,
+
                     temperature=0.3,
                     do_sample=True,
                     top_p=0.9,
+
                     pad_token_id=self.tokenizer.eos_token_id,
-                    repetition_penalty=1.3,
                     eos_token_id=self.tokenizer.eos_token_id,
                 )
+            t2 = time.time()
 
             new_tokens = output_ids[0][input_ids.shape[-1]:]
             result = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
-            print("[LLM] 추론 완료")
+            print(f"[LLM] 생성 완료 | 출력 토큰: {len(new_tokens)} | 토크나이징: {t1-t0:.1f}s | 생성: {t2-t1:.1f}s")
             return result
 
         except torch.cuda.OutOfMemoryError:
