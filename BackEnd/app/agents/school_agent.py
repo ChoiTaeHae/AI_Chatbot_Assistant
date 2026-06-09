@@ -74,8 +74,8 @@ class SchoolAgent:
             if kw in question:
                 keyword = kw
                 break
-        result = await campus_service.search_location(db, keyword)
-        return result.get("msg", "위치 정보를 찾을 수 없습니다.")
+        result = await campus_service.search_location(question)
+        return result.get("answer", "위치 정보를 찾을 수 없습니다.")
 
 
 # 싱글톤 인스턴스

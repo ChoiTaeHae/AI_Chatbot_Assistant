@@ -45,7 +45,9 @@ class ChatService:
             settings.MODEL_PATH,
             quantization_config=bnb_config,
             torch_dtype=torch.float16,
+
             device_map={"": 0}
+
         )
         self.model.eval()
         device = next(self.model.parameters()).device
