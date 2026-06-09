@@ -18,6 +18,7 @@ class Retriever:
         question: str,
         limit: int | None = None,
         source: str | None = None,
+        topic: str | None = None,
     ) -> list[SearchResult]:
         question = question.strip()
 
@@ -30,6 +31,7 @@ class Retriever:
             query_embedding=query_embedding,
             limit=limit,
             source=source,
+            topic=topic,
         )
 
     def search_context(
@@ -37,11 +39,13 @@ class Retriever:
         question: str,
         limit: int | None = None,
         source: str | None = None,
+        topic: str | None = None,
     ) -> str:
         results = self.search(
             question=question,
             limit=limit,
             source=source,
+            topic=topic,
         )
 
         return "\n\n".join(

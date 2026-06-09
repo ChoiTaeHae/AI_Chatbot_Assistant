@@ -45,7 +45,8 @@ class ChatService:
             settings.MODEL_PATH,
             quantization_config=bnb_config,
             torch_dtype=torch.float16,
-            device_map="auto",
+            device_map={"": 0},
+
         )
         self.model.eval()
         print(f"모델 로딩 완료!")
@@ -75,7 +76,7 @@ class ChatService:
             with torch.no_grad():
                 output_ids = self.model.generate(
                     input_ids,
-                    max_new_tokens=512,
+                    max_new_tokens=256,
                     temperature=0.3,
                     do_sample=True,
                     top_p=0.9,

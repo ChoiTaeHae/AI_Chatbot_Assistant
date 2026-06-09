@@ -63,6 +63,7 @@ class QdrantVectorStore:
         embeddings: list[list[float]],
         source: str,
         metadata: dict | None = None,
+        topic: str | None = None,
     ) -> None:
         if not chunks:
             return
@@ -86,6 +87,7 @@ class QdrantVectorStore:
                 payload={
                     **base_metadata,
                     "source": source,
+                    "topic": topic,
                     "chunk_index": index,
                     "text": chunk,
                 },
@@ -103,10 +105,20 @@ class QdrantVectorStore:
         query_embedding: list[float],
         limit: int | None = None,
         source: str | None = None,
+        topic: str | None = None,
     ) -> list[SearchResult]:
         query_filter = None
 
-        if source:
+        if topic:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="topic",
+                        match=MatchValue(value=topic),
+                    )
+                ]
+            )
+        elif source:
             query_filter = Filter(
                 must=[
                     FieldCondition(
