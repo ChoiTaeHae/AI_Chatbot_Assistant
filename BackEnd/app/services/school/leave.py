@@ -14,7 +14,7 @@ LEAVE_KNOWLEDGE = """
 주의사항: 일반휴학/일반휴학연장은 온라인 신청 불가, 학과사무실 상담 필요
 """
 
-MAX_CONTEXT_LENGTH = 2000
+MAX_CONTEXT_LENGTH = 800
 
 
 def _search_rag(question: str) -> str:

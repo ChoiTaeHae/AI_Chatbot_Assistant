@@ -45,7 +45,7 @@ class ChatService:
             settings.MODEL_PATH,
             quantization_config=bnb_config,
             torch_dtype=torch.float16,
-            device_map={"": 0},
+            device_map={"": 0}
         )
         self.model.eval()
         device = next(self.model.parameters()).device
@@ -80,7 +80,7 @@ class ChatService:
             with torch.no_grad():
                 output_ids = self.model.generate(
                     input_ids,
-                    max_new_tokens=256,
+                    max_new_tokens=512,
                     do_sample=False,          # greedy decoding (가장 빠름)
                     pad_token_id=self.tokenizer.eos_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
