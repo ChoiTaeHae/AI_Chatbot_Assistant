@@ -174,11 +174,11 @@ class GraduationService:
         if not rule:
             return {"error": "졸업요건 세부 규칙이 설정되어 있지 않습니다."}
 
-        # 이수 학점 계산
+        # 이수 학점 계산 (DB category 값: "전공필수", "교양필수")
         passed_credits = await self._get_earned_credits(db, student_id)
-        earned_major   = passed_credits.get("major", 0.0)
-        earned_liberal = passed_credits.get("liberal", 0.0)
-        earned_general = passed_credits.get("general", 0.0)
+        earned_major   = (passed_credits.get("전공필수", 0.0) + passed_credits.get("전공선택", 0.0))
+        earned_liberal = (passed_credits.get("교양필수", 0.0) + passed_credits.get("교양선택", 0.0))
+        earned_general = passed_credits.get("일반", 0.0)
         total_earned   = earned_major + earned_liberal + earned_general
 
         # 학점 충족 여부 확인
@@ -222,17 +222,21 @@ class GraduationService:
 
     def _build_db_context(self, report: dict) -> str:
         """DB 조회 결과를 LLM 컨텍스트 문자열로 변환"""
-        status = "가능 (졸업 요건 충족)" if report["is_graduated"] else "불가 (요건 미충족)"
-        lacking = ", ".join(report["insufficient_details"]) if report["insufficient_details"] else "없음"
+        status = "졸업 가능" if report["is_graduated"] else "졸업 불가"
+
+        major_short  = report['req_major'] - report['earned_major']
+        liberal_short = report['req_liberal'] - report['earned_liberal']
+        general_short = report['req_general'] - report['earned_general']
+        total_short  = report['total_required'] - report['total_earned']
 
         return (
-            f"[졸업 요건 조회 결과]\n"
-            f"- 졸업 가능 여부: {status}\n"
-            f"- 전공 학점: {report['earned_major']}학점 이수 / 졸업 요건: {report['req_major']}학점\n"
-            f"- 교양 학점: {report['earned_liberal']}학점 이수 / 졸업 요건: {report['req_liberal']}학점\n"
-            f"- 일반 학점: {report['earned_general']}학점 이수 / 졸업 요건: {report['req_general']}학점\n"
-            f"- 총 이수 학점: {report['total_earned']}학점 / 총 필요 요건: {report['total_required']}학점\n"
-            f"- 부족한 항목: {lacking}\n"
+            f"[학생 졸업요건 조회 결과 - 아래 수치는 정확한 DB 데이터임]\n"
+            f"졸업 가능 여부: {status}\n\n"
+            f"전공 학점: 현재 {report['earned_major']}학점 이수, 졸업에 필요한 학점 {report['req_major']}학점, 아직 부족한 학점 {major_short}학점\n"
+            f"교양 학점: 현재 {report['earned_liberal']}학점 이수, 졸업에 필요한 학점 {report['req_liberal']}학점, 아직 부족한 학점 {liberal_short}학점\n"
+            f"일반 학점: 현재 {report['earned_general']}학점 이수, 졸업에 필요한 학점 {report['req_general']}학점, 아직 부족한 학점 {general_short}학점\n"
+            f"총 이수 학점: 현재 {report['total_earned']}학점 이수, 졸업에 필요한 총 학점 {report['total_required']}학점, 아직 부족한 학점 {total_short}학점\n"
+            f"영어 공인성적: {'취득 완료' if not report['insufficient_details'] or '영어 공인성적 미취득' not in report['insufficient_details'] else '미취득'}\n"
         )
 
     def _build_db_prompt(self, question: str, context: str) -> str:

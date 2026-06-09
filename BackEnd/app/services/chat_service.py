@@ -78,7 +78,7 @@ class ChatService:
             with torch.no_grad():
                 output_ids = self.model.generate(
                     input_ids,
-                    max_new_tokens=256,
+                    max_new_tokens=512,
                     temperature=0.3,
                     do_sample=True,
                     top_p=0.9,
