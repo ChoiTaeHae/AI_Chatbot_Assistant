@@ -2,7 +2,7 @@ import asyncio
 from app.services.chat_service import chat_service
 from app.services.rag_service import rag_service
 
-MAX_CONTEXT_LENGTH = 800
+MAX_CONTEXT_LENGTH = 2000
 
 SCHOLARSHIP_FALLBACK = """
 [우송대학교 장학금 안내]
