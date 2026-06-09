@@ -1,5 +1,5 @@
 ﻿from app.agents.intent import IntentType
-
+SPECIAL_CREDIT_KEYWORDS = ["특별학점", "학점인정", "재수강", "비교과", "자격증학점","학점취득", "특별이수", "비교과학점", "학점 인정"]
 GRADUATION_KEYWORDS  = ["졸업", "학점", "필수과목", "전공필수", "교양필수", "이수", "졸업요건", "졸업조건", "졸업학점"]
 SCHEDULE_KEYWORDS    = ["수강신청", "학사일정", "중간고사", "기말고사", "방학", "개강", "종강", "시험일정", "수업일정"]
 LEAVE_KEYWORDS       = ["휴학", "복학", "군휴학", "휴학신청", "휴학절차", "휴학방법", "창업휴학", "육아휴학", "휴학기간"]
@@ -8,6 +8,9 @@ SCHOLARSHIP_KEYWORDS = ["장학금", "장학", "장학생", "장학신청", "성
 OT_KEYWORDS          = ["오리엔테이션", "OT","ot", "신입생 OT", "학과 OT", "오티", "OT 안내", "OT 일정","신입생 오리엔테이션","신입생행사","입학행사","솔숲","솔숲 OT","SOL_SUP"]
 
 def classify_intent(question: str) -> IntentType:
+    for keyword in SPECIAL_CREDIT_KEYWORDS:
+        if keyword in question:
+            return IntentType.SPECIAL_CREDIT
     for keyword in GRADUATION_KEYWORDS:
         if keyword in question:
             return IntentType.GRADUATION
