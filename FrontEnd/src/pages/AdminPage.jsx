@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
-import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus } from '../api/admin'
+import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus } from '../api/admins/documents'
+import { fetchDashboard, fetchStats } from '../api/admins/stats'
+import { fetchSettings } from '../api/admins/settings'
+import { fetchUsers, updateUserRole } from '../api/admins/security'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '대시보드 요약', icon: (
@@ -11,7 +14,7 @@ const NAV_ITEMS = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
     </svg>
   )},
-  { id: 'documents', label: '문서 관리 (RAG 지식고)', icon: (
+  { id: 'documents', label: '문서 관리 (RAG)', icon: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
     </svg>
@@ -72,14 +75,62 @@ export default function AdminPage() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [topic, setTopic] = useState('')
   const [category, setCategory] = useState('')
+  // 대시보드
+  const [dashboard, setDashboard] = useState(null)
+  // 사용 통계
+  const [stats, setStats] = useState(null)
+  // 서비스 설정
+  const [settings, setSettings] = useState(null)
+  // 보안/권한
+  const [users, setUsers] = useState([])
+  const [roleLoading, setRoleLoading] = useState(null) // 변경 중인 user id
+
   const fileInputRef = useRef(null)
+  const profileRef = useRef(null)
+  const [profileOpen, setProfileOpen] = useState(false)
   const { user, clearUser } = useAuth()
   const navigate = useNavigate()
 
-  // 문서 목록 불러오기
+  // 탭 전환 시 해당 데이터 로드
   useEffect(() => {
-    loadDocuments()
+    if (activeNav === 'documents') loadDocuments()
+    if (activeNav === 'dashboard') loadDashboard()
+    if (activeNav === 'stats') loadStats()
+    if (activeNav === 'settings') loadSettings()
+    if (activeNav === 'security') loadUsers()
+  }, [activeNav])
+
+  // 프로필 드롭다운 바깥 클릭 시 닫기
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  async function loadDashboard() {
+    try { setDashboard(await fetchDashboard()) } catch (e) { console.error(e) }
+  }
+  async function loadStats() {
+    try { setStats(await fetchStats()) } catch (e) { console.error(e) }
+  }
+  async function loadSettings() {
+    try { setSettings(await fetchSettings()) } catch (e) { console.error(e) }
+  }
+  async function loadUsers() {
+    try { const data = await fetchUsers(); setUsers(data.users || []) } catch (e) { console.error(e) }
+  }
+  async function handleRoleChange(userId, newRole) {
+    setRoleLoading(userId)
+    try {
+      await updateUserRole(userId, newRole)
+      await loadUsers()
+    } catch (e) { alert(e.message) }
+    finally { setRoleLoading(null) }
+  }
 
   async function loadDocuments() {
     try {
@@ -234,15 +285,56 @@ export default function AdminPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
             </button>
-            <div className="flex items-center" style={{ gap: '10px' }}>
-              <MascotAvatar className="h-8 w-8 object-contain" />
-              <div className="text-sm">
-                <p className="font-bold text-slate-700">{user?.name || '관리자님'} · 교무처</p>
-                <p className="text-xs text-slate-400">Admin</p>
-              </div>
-              <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
+            {/* 프로필 드롭다운 */}
+            <div className="relative" ref={profileRef}>
+              <button
+                onClick={() => setProfileOpen(v => !v)}
+                className="flex items-center rounded-xl hover:bg-slate-50 transition"
+                style={{ gap: '10px', padding: '6px 10px' }}
+              >
+                <MascotAvatar className="h-8 w-8 object-contain" />
+                <div className="text-sm text-left">
+                  <p className="font-bold text-slate-700">{user?.name || '관리자님'} · 교무처</p>
+                  <p className="text-xs text-slate-400">Admin</p>
+                </div>
+                <svg
+                  className={`h-4 w-4 text-slate-400 transition-transform ${profileOpen ? 'rotate-180' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* 드롭다운 메뉴 */}
+              {profileOpen && (
+                <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden z-50">
+                  
+
+                  {/* AI 어시스턴트로 이동 */}
+                  <button
+                    onClick={() => { setProfileOpen(false); navigate('/chat') }}
+                    className="w-full flex items-center text-sm text-slate-600 hover:bg-[#005956]/5 hover:text-[#005956] transition"
+                    style={{ gap: '10px', padding: '12px 16px' }}
+                  >
+                    <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+                    </svg>
+                    AI 어시스턴트 열기
+                  </button>
+
+                  {/* 로그아웃 */}
+                  <button
+                    onClick={() => { setProfileOpen(false); handleLogout() }}
+                    className="w-full flex items-center text-sm text-red-500 hover:bg-red-50 transition border-t border-slate-50"
+                    style={{ gap: '10px', padding: '12px 16px' }}
+                  >
+                    <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                    </svg>
+                    로그아웃
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -250,7 +342,144 @@ export default function AdminPage() {
         {/* 본문 */}
         <main className="flex-1 overflow-y-auto flex gap-6" style={{ padding: '32px' }}>
 
+          {/* 대시보드 */}
+          {activeNav === 'dashboard' && (
+            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '24px' }}>
+              <h2 className="text-base font-black text-[#05263d]">대시보드 요약</h2>
+              {!dashboard ? (
+                <p className="text-slate-400 text-sm">불러오는 중...</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { label: '등록 문서 수', value: `${dashboard.total_documents}건`, color: 'bg-blue-50 text-blue-700' },
+                      { label: '총 청크 수', value: `${dashboard.total_chunks}개`, color: 'bg-emerald-50 text-emerald-700' },
+                      { label: '모델 상태', value: dashboard.model_status === 'loaded' ? '로드됨' : '미로드', color: dashboard.model_status === 'loaded' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700' },
+                      { label: 'DEV MODE', value: dashboard.dev_mode ? 'ON' : 'OFF', color: dashboard.dev_mode ? 'bg-yellow-50 text-yellow-700' : 'bg-slate-50 text-slate-600' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className={`rounded-xl p-5 ${color}`}>
+                        <p className="text-xs font-semibold opacity-70 mb-1">{label}</p>
+                        <p className="text-2xl font-black">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-4">
+                    <p className="text-xs font-bold text-slate-500 mb-1">모델 경로</p>
+                    <p className="text-sm text-slate-700 font-mono">{dashboard.model_path}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* 사용 통계 */}
+          {activeNav === 'stats' && (
+            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '24px' }}>
+              <h2 className="text-base font-black text-[#05263d]">사용 통계</h2>
+              {!stats ? (
+                <p className="text-slate-400 text-sm">불러오는 중...</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { label: '전체 학생 수', value: `${stats.total_students}명`, icon: '🎓' },
+                    { label: '학과 수', value: `${stats.total_departments}개`, icon: '🏫' },
+                    { label: '과목 수', value: `${stats.total_courses}개`, icon: '📚' },
+                    { label: '관리자 수', value: `${stats.total_admins}명`, icon: '🔑' },
+                  ].map(({ label, value, icon }) => (
+                    <div key={label} className="bg-slate-50 rounded-xl p-5 flex items-center" style={{ gap: '16px' }}>
+                      <span className="text-3xl">{icon}</span>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500">{label}</p>
+                        <p className="text-2xl font-black text-[#05263d]">{value}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 서비스 설정 */}
+          {activeNav === 'settings' && (
+            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '24px' }}>
+              <h2 className="text-base font-black text-[#05263d]">서비스 설정</h2>
+              {!settings ? (
+                <p className="text-slate-400 text-sm">불러오는 중...</p>
+              ) : (
+                <div className="flex flex-col" style={{ gap: '8px' }}>
+                  {[
+                    { label: 'DEV MODE', value: settings.dev_mode ? 'true (LLM 스킵)' : 'false' },
+                    { label: '모델 경로', value: settings.model_path },
+                    { label: 'DEVICE', value: settings.device },
+                    { label: '임베딩 모델', value: settings.embedding_model },
+                    { label: '임베딩 DEVICE', value: settings.embedding_device },
+                    { label: 'Qdrant 컬렉션', value: settings.qdrant_collection },
+                    { label: 'RAG Top-K', value: String(settings.rag_top_k) },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex items-center justify-between border-b border-slate-50 py-3">
+                      <span className="text-sm font-bold text-slate-500 w-36 shrink-0">{label}</span>
+                      <span className="text-sm text-slate-700 font-mono bg-slate-50 rounded-lg px-3 py-1">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 보안 및 권한 */}
+          {activeNav === 'security' && (
+            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '20px' }}>
+              <h2 className="text-base font-black text-[#05263d]">보안 및 권한 관리</h2>
+              {users.length === 0 ? (
+                <p className="text-slate-400 text-sm">불러오는 중...</p>
+              ) : (
+                <div className="overflow-y-auto">
+                  <table className="w-full text-sm table-fixed">
+                    <colgroup>
+                      <col style={{ width: '15%' }} />
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '25%' }} />
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '20%' }} />
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        {['학번', '이름', '학과', '현재 권한', '권한 변경'].map(h => (
+                          <th key={h} className="text-left text-xs font-bold text-slate-500 whitespace-nowrap" style={{ padding: '10px 12px' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map(u => (
+                        <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
+                          <td className="font-mono text-xs text-slate-600" style={{ padding: '12px' }}>{u.student_no}</td>
+                          <td className="font-medium text-slate-700" style={{ padding: '12px' }}>{u.name}</td>
+                          <td className="text-slate-500 text-xs truncate" style={{ padding: '12px' }}>{u.department}</td>
+                          <td style={{ padding: '12px' }}>
+                            <span className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-500'}`}>
+                              {u.role === 'admin' ? '관리자' : '학생'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <button
+                              onClick={() => handleRoleChange(u.id, u.role === 'admin' ? 'student' : 'admin')}
+                              disabled={roleLoading === u.id}
+                              className="text-xs font-bold border border-slate-200 hover:border-[#005956] hover:text-[#005956] text-slate-500 transition disabled:opacity-40 rounded-lg px-3 py-1"
+                            >
+                              {roleLoading === u.id ? '변경 중...' : u.role === 'admin' ? '학생으로 변경' : '관리자로 변경'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 문서 목록 */}
+          {activeNav === 'documents' && (<>
           <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 min-w-0 flex flex-col" style={{ padding: '32px' }}>
             <h2 className="text-base font-black text-[#05263d] mb-6">
               현재 RAG 지식 문서 목록
@@ -284,11 +513,17 @@ export default function AdminPage() {
 
             {/* 테이블 */}
             <div className="flex-1 overflow-y-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col style={{ width: '38%' }} />
+                <col style={{ width: '38%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '6%' }} />
+              </colgroup>
               <thead>
                 <tr className="border-b border-slate-100">
                   {['문서명 (source)', '파일명', '청크(Chunks)', '액션'].map(h => (
-                    <th key={h} className="text-left text-xs font-bold text-slate-500 whitespace-nowrap" style={{ padding: '12px 16px' }}>{h}</th>
+                    <th key={h} className={`text-xs font-bold text-slate-500 whitespace-nowrap ${h === '청크(Chunks)' ? 'text-right' : 'text-left'}`} style={{ padding: '12px 16px' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -302,9 +537,9 @@ export default function AdminPage() {
                 )}
                 {filtered.map((doc, i) => (
                   <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition">
-                    <td className="font-medium text-slate-700" style={{ padding: '14px 16px' }}>{doc.source}</td>
-                    <td className="text-slate-500 text-xs" style={{ padding: '14px 16px' }}>{doc.file_name || '-'}</td>
-                    <td className="text-center text-slate-700 font-medium" style={{ padding: '14px 16px' }}>{doc.chunks}</td>
+                    <td className="font-medium text-slate-700 truncate" style={{ padding: '14px 16px' }}>{doc.source}</td>
+                    <td className="text-slate-500 text-xs truncate" style={{ padding: '14px 16px' }}>{doc.file_name || '-'}</td>
+                    <td className="text-right text-slate-700 font-medium" style={{ padding: '14px 16px' }}>{doc.chunks}</td>
                     <td style={{ padding: '14px 16px' }}>
                       <button
                         onClick={() => handleDelete(doc.source)}
@@ -493,6 +728,7 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
+          </>)}
 
         </main>
       </div>
