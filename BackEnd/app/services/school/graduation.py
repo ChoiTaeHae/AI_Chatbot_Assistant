@@ -105,9 +105,9 @@ class GraduationService:
 
         # 이수 학점 계산
         passed_credits = await self._get_earned_credits(db, student_id)
-        earned_major   = passed_credits.get("major", 0.0)
-        earned_liberal = passed_credits.get("liberal", 0.0)
-        earned_general = passed_credits.get("general", 0.0)
+        earned_major   = (passed_credits.get("전공필수", 0.0) + passed_credits.get("전공선택", 0.0))
+        earned_liberal = (passed_credits.get("교양필수", 0.0) + passed_credits.get("교양선택", 0.0))
+        earned_general = passed_credits.get("일반선택", 0.0)
         total_earned   = earned_major + earned_liberal + earned_general
 
         # 학점 충족 여부 확인
