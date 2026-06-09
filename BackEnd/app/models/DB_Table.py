@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime , Boolean, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime , Boolean
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
@@ -59,11 +58,11 @@ class StudentAchievement(Base):
 class Building(Base):
     __tablename__ = "building"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String)           
-    address = Column(Text)          
-    aliases = Column(JSONB)         
-    place_url = Column(Text)                                # REAL 대응
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    latitude = Column(Float, nullable=False)                  # 위도
+    longitude = Column(Float, nullable=False)                 # 경도
+    note = Column(Float)                                      # REAL 대응
 
 # ==========================================
 # 6. 호실 테이블 (room)
