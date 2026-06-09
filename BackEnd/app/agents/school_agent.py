@@ -9,7 +9,7 @@ from app.services.school.graduation import graduation_service
 from app.services.school.campus import CampusService
 from app.services.school.scholarship import answer_scholarship_question
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.services.school.ot import answer_ot_question
 MAX_CONTEXT_LENGTH = 2000
 
 campus_service = CampusService()
@@ -32,6 +32,8 @@ class SchoolAgent:
             return await self._handle_campus(question, db)
         elif intent == IntentType.SCHOLARSHIP:
             return await answer_scholarship_question(question)
+        elif intent == IntentType.OT:
+            return await answer_ot_question(question)
         else:
             return await self._handle_general(question)
 
