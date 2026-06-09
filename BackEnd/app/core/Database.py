@@ -20,7 +20,8 @@ AsyncSessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine,
-    class_=AsyncSession
+    class_=AsyncSession,
+    expire_on_commit=False   # commit 후 속성 만료 방지 (async 환경 필수)
 )
 
 Base = declarative_base()
