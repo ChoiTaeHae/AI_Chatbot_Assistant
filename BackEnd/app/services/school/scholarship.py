@@ -14,7 +14,7 @@ SCHOLARSHIP_FALLBACK = """
 
 def _search_rag(question: str) -> str:
     try:
-        context = rag_service.search_context(question)
+        context = rag_service.search_context(question, topic="scholarship")
         if context:
             return context[:MAX_CONTEXT_LENGTH]
     except Exception as e:

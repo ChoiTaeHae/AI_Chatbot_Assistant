@@ -20,7 +20,7 @@ MAX_CONTEXT_LENGTH = 2000
 def _search_rag(question: str) -> str:
     """RAG 검색 (동기, 별도 스레드에서 실행)"""
     try:
-        context = rag_service.search_context(question)
+        context = rag_service.search_context(question, topic="leave")
         if context:
             return context[:MAX_CONTEXT_LENGTH]
     except Exception as e:
