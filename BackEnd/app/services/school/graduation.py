@@ -66,9 +66,15 @@ class GraduationService:
     # =============================================
 
     async def _answer_from_rag(self, question: str) -> str:
+        import time
+        t1 = time.time()
         rag_context = await self._search_rag(question)
+        print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
         prompt = self._build_rag_prompt(question, rag_context)
-        return await chat_service.answer(prompt)
+        t2 = time.time()
+        result = await chat_service.answer(prompt)
+        print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
+        return result
 
     # =============================================
     # 경로 3: 개인 현황 + 공식 문서 (DB + RAG)
@@ -87,7 +93,9 @@ class GraduationService:
         """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
         loop = asyncio.get_event_loop()
         context = await loop.run_in_executor(None, rag_service.search_context, question)
-        return context or "관련 공식 문서를 찾지 못했습니다."
+        if context:
+            return context[:500]
+        return "관련 공식 문서를 찾지 못했습니다."
 
     # =============================================
     # DB 조회
