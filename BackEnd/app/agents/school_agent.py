@@ -55,8 +55,8 @@ class SchoolAgent:
             if kw in question:
                 keyword = kw
                 break
-        result = await campus_service.search_location(db, keyword)
-        return result.get("msg", "위치 정보를 찾을 수 없습니다.")
+        result = await campus_service.search_location(question)
+        return result.get("answer", "위치 정보를 찾을 수 없습니다.")
 
     async def _handle_general(self, question: str) -> str:
         # RAG 검색 후 컨텍스트와 함께 LLM에 전달

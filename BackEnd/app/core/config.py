@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     QDRANT_URL: str
     QDRANT_API_KEY: str
 
+    # Kakao Map
+    KAKAO_API_KEY : str
+
     # LLM
     MODEL_PATH: str = "./llm/bllossom-8b"
     DEVICE: str = "cuda"
