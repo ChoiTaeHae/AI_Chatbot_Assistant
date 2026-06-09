@@ -7,6 +7,7 @@ import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus } from
 import { fetchDashboard, fetchStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
+import { fetchFiles, uploadFile, deleteFile, downloadFile } from '../api/admins/files'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '대시보드 요약', icon: (
@@ -33,6 +34,11 @@ const NAV_ITEMS = [
   { id: 'security', label: '보안 및 권한', icon: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+    </svg>
+  )},
+  { id: 'files', label: '파일 관리', icon: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
     </svg>
   )},
 ]
@@ -85,6 +91,14 @@ export default function AdminPage() {
   const [users, setUsers] = useState([])
   const [roleLoading, setRoleLoading] = useState(null) // 변경 중인 user id
 
+  // 파일 관리
+  const [files, setFiles] = useState({})           // { graduation: [{name,size,topic,label}, ...], ... }
+  const [fileLabels, setFileLabels] = useState({}) // { graduation: "졸업요건", ... }
+  const [filesTopic, setFilesTopic] = useState('graduation')
+  const [fileUploading, setFileUploading] = useState(false)
+  const [fileMsg, setFileMsg] = useState(null)     // { type: 'success'|'error', text }
+  const filesInputRef = useRef(null)
+
   const fileInputRef = useRef(null)
   const profileRef = useRef(null)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -98,6 +112,7 @@ export default function AdminPage() {
     if (activeNav === 'stats') loadStats()
     if (activeNav === 'settings') loadSettings()
     if (activeNav === 'security') loadUsers()
+    if (activeNav === 'files') loadFiles()
   }, [activeNav])
 
   // 프로필 드롭다운 바깥 클릭 시 닫기
@@ -123,6 +138,53 @@ export default function AdminPage() {
   async function loadUsers() {
     try { const data = await fetchUsers(); setUsers(data.users || []) } catch (e) { console.error(e) }
   }
+
+  async function loadFiles() {
+    try {
+      const data = await fetchFiles()
+      setFiles(data.files || {})
+      setFileLabels(data.labels || {})
+    } catch (e) {
+      console.error('파일 목록 조회 실패:', e)
+    }
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileUploading(true)
+    setFileMsg(null)
+    try {
+      const result = await uploadFile(file, filesTopic)
+      setFileMsg({ type: 'success', text: result.message })
+      await loadFiles()
+    } catch (err) {
+      setFileMsg({ type: 'error', text: err.message })
+    } finally {
+      setFileUploading(false)
+      // input 초기화
+      if (filesInputRef.current) filesInputRef.current.value = ''
+    }
+  }
+
+  async function handleFileDelete(topic, filename) {
+    if (!confirm(`'${filename}' 파일을 삭제하시겠습니까?`)) return
+    try {
+      await deleteFile(topic, filename)
+      await loadFiles()
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  async function handleFileDownload(topic, filename) {
+    try {
+      await downloadFile(topic, filename)
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
   async function handleRoleChange(userId, newRole) {
     setRoleLoading(userId)
     try {
@@ -729,6 +791,161 @@ export default function AdminPage() {
             </div>
           </div>
           </>)}
+
+          {/* 파일 관리 */}
+          {activeNav === 'files' && (
+            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '20px' }}>
+              {/* 헤더 */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-black text-[#05263d]">파일 관리</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">학생에게 제공할 양식·자료를 topic별로 관리합니다</p>
+                </div>
+                <div className="flex items-center" style={{ gap: '8px' }}>
+                  {fileUploading && (
+                    <span className="text-xs text-blue-500 font-medium flex items-center gap-1">
+                      <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      업로드 중...
+                    </span>
+                  )}
+                  <input
+                    ref={filesInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.pptx,.xlsx,.hwp,.hwpx,.txt,.md,.jpg,.jpeg,.png"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                  <button
+                    onClick={() => filesInputRef.current?.click()}
+                    disabled={fileUploading}
+                    className="flex items-center bg-[#005956] text-white text-sm font-bold hover:bg-[#004a47] transition disabled:opacity-50 rounded-xl"
+                    style={{ gap: '6px', padding: '9px 16px' }}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    파일 추가
+                  </button>
+                </div>
+              </div>
+
+              {/* 알림 메시지 */}
+              {fileMsg && (
+                <div className={`text-xs font-medium px-4 py-2 rounded-xl ${fileMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                  {fileMsg.text}
+                </div>
+              )}
+
+              {/* Topic 탭 */}
+              <div className="flex border-b border-slate-100" style={{ gap: '0' }}>
+                {Object.entries(fileLabels).map(([topicKey, label]) => (
+                  <button
+                    key={topicKey}
+                    onClick={() => { setFilesTopic(topicKey); setFileMsg(null) }}
+                    className={`text-sm font-semibold transition border-b-2 ${
+                      filesTopic === topicKey
+                        ? 'border-[#005956] text-[#005956]'
+                        : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                    style={{ padding: '8px 16px', marginBottom: '-1px' }}
+                  >
+                    {label}
+                    {files[topicKey]?.length > 0 && (
+                      <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${filesTopic === topicKey ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
+                        {files[topicKey].length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* 파일 목록 */}
+              <div className="flex-1 overflow-y-auto">
+                {(files[filesTopic] || []).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-slate-300" style={{ padding: '60px 0', gap: '12px' }}>
+                    <svg className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    <p className="text-sm font-medium">등록된 파일이 없습니다</p>
+                    <p className="text-xs">오른쪽 상단 '파일 추가' 버튼으로 업로드하세요</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        {['파일명', '크기', '액션'].map((h, i) => (
+                          <th key={h} className={`text-xs font-bold text-slate-500 ${i === 2 ? 'text-right' : 'text-left'}`} style={{ padding: '10px 12px' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(files[filesTopic] || []).map((f) => (
+                        <tr key={f.name} className="border-b border-slate-50 hover:bg-slate-50 transition group">
+                          <td className="font-medium text-slate-700" style={{ padding: '12px' }}>
+                            <div className="flex items-center" style={{ gap: '8px' }}>
+                              {/* 확장자 아이콘 */}
+                              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
+                                f.name.endsWith('.pdf') ? 'bg-red-100 text-red-600' :
+                                f.name.endsWith('.docx') || f.name.endsWith('.hwp') || f.name.endsWith('.hwpx') ? 'bg-blue-100 text-blue-600' :
+                                f.name.endsWith('.xlsx') ? 'bg-green-100 text-green-600' :
+                                f.name.endsWith('.pptx') ? 'bg-orange-100 text-orange-600' :
+                                'bg-slate-100 text-slate-500'
+                              }`}>
+                                {f.name.split('.').pop().toUpperCase()}
+                              </span>
+                              <span className="truncate max-w-xs">{f.name}</span>
+                            </div>
+                          </td>
+                          <td className="text-slate-400 text-xs" style={{ padding: '12px' }}>
+                            {f.size < 1024 ? `${f.size} B` :
+                             f.size < 1024 * 1024 ? `${(f.size / 1024).toFixed(1)} KB` :
+                             `${(f.size / 1024 / 1024).toFixed(1)} MB`}
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <div className="flex items-center justify-end" style={{ gap: '8px' }}>
+                              {/* 다운로드 버튼 */}
+                              <button
+                                onClick={() => handleFileDownload(filesTopic, f.name)}
+                                className="text-slate-300 hover:text-[#005956] transition"
+                                title="다운로드"
+                              >
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                </svg>
+                              </button>
+                              {/* 삭제 버튼 */}
+                              <button
+                                onClick={() => handleFileDelete(filesTopic, f.name)}
+                                className="text-slate-300 hover:text-red-500 transition"
+                                title="삭제"
+                              >
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* 하단 정보 */}
+              <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-100 pt-4">
+                <span>
+                  {fileLabels[filesTopic]} 탭 — 총 {(files[filesTopic] || []).length}개 파일
+                </span>
+                <span className="font-mono bg-slate-50 px-2 py-1 rounded-lg text-slate-500">
+                  documents/{filesTopic}/
+                </span>
+              </div>
+            </div>
+          )}
 
         </main>
       </div>
