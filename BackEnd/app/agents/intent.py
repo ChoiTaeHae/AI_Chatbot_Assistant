@@ -8,3 +8,4 @@ class IntentType(str, Enum):
     CAMPUS       = "campus"        # 건물/위치 관련
     SCHOLARSHIP  = "scholarship"   # 장학금 관련
     GENERAL      = "general"       # 일반 질문
+    OT           = "ot"            # 오리엔테이션 관련

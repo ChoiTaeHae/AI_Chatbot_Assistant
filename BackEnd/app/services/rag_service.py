@@ -51,7 +51,7 @@ class RagService:
             )
         return self._retriever
 
-    def ingest_document(self, file_path: str | Path, source: str | None = None) -> int:
+    def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None) -> int:
         path = Path(file_path)
         source_name = source or path.stem
 
@@ -82,14 +82,15 @@ class RagService:
             embeddings=embeddings,
             source=source_name,
             metadata={"file_name": path.name},
+            topic=topic,
         )
         return len(chunks)
 
-    def search(self, question: str, limit: int | None = None, source: str | None = None) -> list[SearchResult]:
-        return self.retriever.search(question=question, limit=limit, source=source)
+    def search(self, question: str, limit: int | None = None, source: str | None = None, topic: str | None = None) -> list[SearchResult]:
+        return self.retriever.search(question=question, limit=limit, source=source, topic=topic)
 
-    def search_context(self, question: str, limit: int | None = None, source: str | None = None) -> str:
-        return self.retriever.search_context(question=question, limit=limit, source=source)
+    def search_context(self, question: str, limit: int | None = None, source: str | None = None, topic: str | None = None) -> str:
+        return self.retriever.search_context(question=question, limit=limit, source=source, topic=topic)
 
 
 rag_service = RagService()

@@ -1,4 +1,6 @@
-﻿from sqlalchemy.ext.asyncio import AsyncSession
+﻿import asyncio
+
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 
@@ -7,6 +9,13 @@ from app.models.DB_Table import (
     StudentAchievement, Course, StudentCourse
 )
 from app.services.chat_service import chat_service
+from app.services.rag_service import rag_service
+
+# 개인 현황 질문 키워드 (DB 조회 경로)
+_PERSONAL_KEYWORDS = ["내", "나의", "나는", "나", "제", "저의", "저는", "저", "내가", "제가", "내 졸업", "제 졸업"]
+
+# 공식 문서 질문 키워드 (RAG 경로)
+_DOCUMENT_KEYWORDS = ["방법", "절차", "서류", "신청", "어떻게", "어디서", "기간", "일정", "규정", "제출", "조건이란", "요건이란"]
 
 
 class GraduationService:
@@ -16,15 +25,77 @@ class GraduationService:
     # =============================================
 
     async def answer_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
-        """Agent가 호출하는 메인 함수 - DB 조회 후 LLM으로 자연어 답변 생성"""
-        report = await self._check_graduation_status(db, student_id)
+        """Agent가 호출하는 메인 함수 - 질문 유형에 따라 DB/RAG/둘 다 경로 선택"""
+        question_type = self._classify_question(question)
+        print(f"[Graduation] 질문 유형: {question_type}")
 
+        if question_type == "personal":
+            return await self._answer_from_db(question, student_id, db)
+
+        elif question_type == "document":
+            return await self._answer_from_rag(question)
+
+        else:  # both
+            return await self._answer_from_db_and_rag(question, student_id, db)
+
+    def _classify_question(self, question: str) -> str:
+        """personal: 개인 현황 / document: 공식 문서 / both: 둘 다"""
+        is_personal = any(kw in question for kw in _PERSONAL_KEYWORDS)
+        is_document = any(kw in question for kw in _DOCUMENT_KEYWORDS)
+
+        if is_personal and is_document:
+            return "both"
+        if is_personal:
+            return "personal"
+        return "document"  # 기본값: 공식 문서 RAG 검색
+
+    # =============================================
+    # 경로 1: 개인 현황 (DB)
+    # =============================================
+
+    async def _answer_from_db(self, question: str, student_id: int, db: AsyncSession) -> str:
+        report = await self._check_graduation_status(db, student_id)
         if "error" in report:
             return report["error"]
-
-        context = self._build_context(report)
-        prompt = self._build_prompt(question, context)
+        context = self._build_db_context(report)
+        prompt = self._build_db_prompt(question, context)
         return await chat_service.answer(prompt)
+
+    # =============================================
+    # 경로 2: 공식 문서 (RAG)
+    # =============================================
+
+    async def _answer_from_rag(self, question: str) -> str:
+        import time
+        t1 = time.time()
+        rag_context = await self._search_rag(question)
+        print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
+        prompt = self._build_rag_prompt(question, rag_context)
+        t2 = time.time()
+        result = await chat_service.answer(prompt)
+        print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
+        return result
+
+    # =============================================
+    # 경로 3: 개인 현황 + 공식 문서 (DB + RAG)
+    # =============================================
+
+    async def _answer_from_db_and_rag(self, question: str, student_id: int, db: AsyncSession) -> str:
+        report, rag_context = await asyncio.gather(
+            self._check_graduation_status(db, student_id),
+            self._search_rag(question),
+        )
+        db_context = report.get("error") if "error" in report else self._build_db_context(report)
+        prompt = self._build_combined_prompt(question, db_context, rag_context)
+        return await chat_service.answer(prompt)
+
+    async def _search_rag(self, question: str) -> str:
+        """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
+        loop = asyncio.get_event_loop()
+        context = await loop.run_in_executor(None, rag_service.search_context, question)
+        if context:
+            return context[:500]
+        return "관련 공식 문서를 찾지 못했습니다."
 
     # =============================================
     # DB 조회
@@ -149,7 +220,7 @@ class GraduationService:
     # LLM 프롬프트 생성
     # =============================================
 
-    def _build_context(self, report: dict) -> str:
+    def _build_db_context(self, report: dict) -> str:
         """DB 조회 결과를 LLM 컨텍스트 문자열로 변환"""
         status = "가능 (졸업 요건 충족)" if report["is_graduated"] else "불가 (요건 미충족)"
         lacking = ", ".join(report["insufficient_details"]) if report["insufficient_details"] else "없음"
@@ -164,14 +235,37 @@ class GraduationService:
             f"- 부족한 항목: {lacking}\n"
         )
 
-    def _build_prompt(self, question: str, context: str) -> str:
-        """LLM에 전달할 프롬프트 생성"""
+    def _build_db_prompt(self, question: str, context: str) -> str:
+        """DB 데이터 기반 프롬프트"""
         return (
             f"{context}\n\n"
             f"위 데이터는 DB에서 정확하게 계산된 100% 실제 데이터입니다.\n"
             f"임의로 수정하거나 추측하지 마세요.\n"
             f"학생 질문('{question}')에 대해 위 데이터를 기반으로 "
             f"친절하고 자세하게 설명하고 부족한 부분을 명확하게 안내해주세요."
+        )
+
+    def _build_rag_prompt(self, question: str, rag_context: str) -> str:
+        """RAG 문서 기반 프롬프트"""
+        return (
+            f"[공식 졸업 관련 문서 검색 결과]\n"
+            f"{rag_context}\n\n"
+            f"위 내용은 학교 공식 문서에서 검색된 자료입니다.\n"
+            f"검색된 내용을 벗어난 추측은 하지 마세요.\n"
+            f"학생 질문('{question}')에 대해 위 문서를 근거로 "
+            f"친절하고 명확하게 답변해주세요."
+        )
+
+    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str) -> str:
+        """DB + RAG 데이터 통합 프롬프트"""
+        return (
+            f"{db_context}\n\n"
+            f"[공식 졸업 관련 문서 검색 결과]\n"
+            f"{rag_context}\n\n"
+            f"위 [졸업 요건 조회 결과]는 DB에서 계산된 실제 데이터이며, "
+            f"[공식 문서]는 학교 규정집에서 검색된 내용입니다.\n"
+            f"두 정보를 모두 활용하여 학생 질문('{question}')에 대해 "
+            f"친절하고 자세하게 답변해주세요."
         )
 
 
