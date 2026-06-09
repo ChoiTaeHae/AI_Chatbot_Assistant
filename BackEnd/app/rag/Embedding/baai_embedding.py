@@ -6,7 +6,7 @@ class BaaiEmbedding:
     def __init__(self) -> None:
         self.model_name = settings.EMBEDDING_MODEL
         self.device = settings.EMBEDDING_DEVICE
-        self._model = None      # BGE-M3가 수 GB짜리라서 실제로 쓸 때만 메모리에 올림
+        self._model = None      # BGE-M3가 수 GB짜리라서 실제로 쓸 때만 메모리에 올림 
 
     @property
     def model(self):                #모델로드
