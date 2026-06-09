@@ -9,3 +9,4 @@ class IntentType(str, Enum):
     SCHOLARSHIP  = "scholarship"   # 장학금 관련
     GENERAL      = "general"       # 일반 질문
     OT           = "ot"            # 오리엔테이션 관련
+    SPECIAL_EXAM = "special_exam"  # 특별시험(특별학점)
