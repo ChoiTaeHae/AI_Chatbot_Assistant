@@ -111,28 +111,8 @@ async def _extract_location_keyword(question: str) -> str | None:
     return keyword.splitlines()[0].strip()
 
 
-async def _search_db(keyword: str) -> tuple[Building | None, Room | None]:
+async def _search_db_building_only(keyword: str) -> tuple[Building | None, None]:
     async with AsyncSessionLocal() as db:
-        room_result = await db.execute(
-            select(Building, Room)
-            .join(Room, Room.building_id == Building.id)
-            .where(
-                or_(
-                    Room.room_no.ilike(f"%{keyword}%"),
-                    Room.note.ilike(f"%{keyword}%"),
-                    Building.name.ilike(f"%{keyword}%"),
-                    Building.address.ilike(f"%{keyword}%"),
-                    cast(Building.aliases, String).ilike(f"%{keyword}%"),
-                )
-            )
-        )
-
-        room_match = room_result.first()
-
-        if room_match:
-            building, room = room_match
-            return building, room
-
         building_result = await db.execute(
             select(Building).where(
                 or_(
@@ -142,27 +122,59 @@ async def _search_db(keyword: str) -> tuple[Building | None, Room | None]:
                 )
             )
         )
-
         building = building_result.scalars().first()
+        return building, None
 
-        if building:
-            return building, None
 
-    return None, None
+async def _search_db_with_room(keyword: str) -> tuple[Building | None, Room | None]:
+    async with AsyncSessionLocal() as db:
+        room_result = await db.execute(
+            select(Building, Room)
+            .join(Room, Room.building_id == Building.id)
+            .where(
+                or_(
+                    Room.room_no.ilike(f"%{keyword}%"),
+                    Room.note.ilike(f"%{keyword}%"),
+                    Building.name.ilike(f"%{keyword}%"),
+                )
+            )
+        )
+        room_match = room_result.first()
+        if room_match:
+            return room_match[0], room_match[1]
+
+        building_result = await db.execute(
+            select(Building).where(
+                Building.name.ilike(f"%{keyword}%")
+            )
+        )
+        building = building_result.scalars().first()
+        return building, None
 
 
 async def _find_location_from_question(question: str) -> tuple[Building | None, Room | None, str | None]:
     candidates = _make_keyword_candidates(question)
+    
+    # 질문에 호실 번호 있는지 먼저 확인
+    has_room = bool(re.findall(r"\d+\s*호", question))
 
     for keyword in candidates:
-        building, room = await _search_db(keyword)
+        if has_room:
+            # 호실 포함 검색
+            building, room = await _search_db_with_room(keyword)
+        else:
+            # 건물만 검색
+            building, room = await _search_db_building_only(keyword)
+        
         if building:
             return building, room, keyword
 
     extracted_keyword = await _extract_location_keyword(question)
-
     if extracted_keyword and extracted_keyword not in candidates:
-        building, room = await _search_db(extracted_keyword)
+        if has_room:
+            building, room = await _search_db_with_room(extracted_keyword)
+        else:
+            building, room = await _search_db_building_only(extracted_keyword)
         if building:
             return building, room, extracted_keyword
 

@@ -11,7 +11,6 @@ SCHOLARSHIP_FALLBACK = """
 국가장학금은 한국장학재단(kosaf.go.kr)에서 신청 가능합니다.
 """
 
-
 def _search_rag(question: str) -> str:
     try:
         context = rag_service.search_context(question, topic="scholarship")
