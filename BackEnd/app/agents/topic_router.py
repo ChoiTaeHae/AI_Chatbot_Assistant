@@ -8,18 +8,21 @@ from app.agents.intent import IntentType
 from app.rag.Embedding import BaaiEmbedding
 
 # topic별 대표 문장 (임베딩 대상)
-TOPIC_PROTOTYPES: dict[IntentType, str] = {
-    IntentType.SCHEDULE:    "수강신청 학사일정 개강 종강 시험일정 방학 수업일정 강의계획서",
-    IntentType.LEAVE:       "휴학 복학 군휴학 휴학신청 휴학절차 휴학방법 휴학기간",
-    IntentType.GRADUATION:  "졸업 학점 이수 졸업요건 전공필수 교양필수 졸업조건 졸업학점",
-    IntentType.CAMPUS:      "건물 위치 강의실 도서관 학과사무실 식당 캠퍼스 호실 층",
-    IntentType.SCHOLARSHIP: "장학금 장학생 국가장학 성적장학 장학신청 장학금조건 장학금지원",
-    IntentType.OT:          "오리엔테이션 신입생 OT 입학행사 솔숲 신입생행사 학과OT",
+TOPIC_PROTOTYPES = {    
+    IntentType.GRADUATION: "졸업 학점 졸업요건 전공필수 교양필수 졸업가능 졸업조건",
+
+    IntentType.CAMPUS: "건물 위치 강의실 도서관 식당 캠퍼스",
+
+    IntentType.RAG_GENERAL: 
+    """
+    장학금 특별학점 오리엔테이션
+    수강신청 휴학 복학 학사일정
+    """
 }
 
 # 유사도 임계값 — 이 값 이상이어야 해당 topic으로 라우팅
 # BGE-M3 정규화 벡터 기준 코사인 유사도 (= 내적)
-SIMILARITY_THRESHOLD = 0.50
+SIMILARITY_THRESHOLD = 0.40
 
 
 def _dot(a: list[float], b: list[float]) -> float:
