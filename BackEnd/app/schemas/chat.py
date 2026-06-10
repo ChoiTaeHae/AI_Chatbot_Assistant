@@ -3,10 +3,13 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     question: str
-    session_id: str | None = None   # 나중에 대화 기록용 (DB 연동 시 사용)
-    student_no: str | None = None   # 로그인한 사용자 학번
+    session_id: str | None = None
+    pending_file: dict | None = None  # { topic, filename } 파일 제안에 대한 응답 시 프론트가 전달
 
 
 class ChatResponse(BaseModel):
     answer: str
     session_id: str | None = None
+    file_offer: dict | None = None     # { topic, filename } AI가 파일을 제안할 때
+    file_download: dict | None = None  # { topic, filename, url } 파일을 실제로 전송할 때
+    map_card: dict | None = None       # { title, address, place_url, latitude, longitude } 캠퍼스 위치 검색 결과
