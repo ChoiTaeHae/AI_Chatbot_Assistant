@@ -1,3 +1,5 @@
+import { authFetch } from '../utils'
+
 const BASE = 'http://localhost:8000/api/admins'
 
 export async function uploadDocument(file, source = null, topic = null) {
@@ -6,7 +8,7 @@ export async function uploadDocument(file, source = null, topic = null) {
   if (source) formData.append('source', source)
   if (topic) formData.append('topic', topic)
 
-  const res = await fetch(`${BASE}/documents/upload`, {
+  const res = await authFetch(`${BASE}/documents/upload`, {
     method: 'POST',
     body: formData,
   })
@@ -22,7 +24,7 @@ export async function pollUploadStatus(jobId, onUpdate) {
   while (true) {
     await new Promise(r => setTimeout(r, 5000))
     try {
-      const res = await fetch(`${BASE}/documents/status/${encodeURIComponent(jobId)}`)
+      const res = await authFetch(`${BASE}/documents/status/${encodeURIComponent(jobId)}`)
       if (!res.ok) {
         failCount++
         if (failCount >= 5) throw new Error('상태 확인에 반복 실패했습니다.')
@@ -40,13 +42,13 @@ export async function pollUploadStatus(jobId, onUpdate) {
 }
 
 export async function fetchDocuments() {
-  const res = await fetch(`${BASE}/documents`)
+  const res = await authFetch(`${BASE}/documents`)
   if (!res.ok) throw new Error('문서 목록 조회 실패')
   return res.json()
 }
 
 export async function deleteDocument(source) {
-  const res = await fetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
+  const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
     method: 'DELETE',
   })
   if (!res.ok) {
