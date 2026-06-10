@@ -1,9 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const MAX_LENGTH = 1000
 
 export default function ChatInput({ onSend, disabled }) {
   const [text, setText] = useState('')
+  const textareaRef = useRef(null)
+
+  // 전송 후 또는 disabled 해제 시 입력창에 포커스 복귀
+  useEffect(() => {
+    if (!disabled) {
+      textareaRef.current?.focus()
+    }
+  }, [disabled])
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -11,6 +19,8 @@ export default function ChatInput({ onSend, disabled }) {
     if (!trimmed || disabled) return
     onSend(trimmed)
     setText('')
+    // 전송 즉시 포커스 (disabled로 전환되기 전에도 커서 유지)
+    textareaRef.current?.focus()
   }
 
   function handleKeyDown(e) {
@@ -25,6 +35,7 @@ export default function ChatInput({ onSend, disabled }) {
       <form onSubmit={handleSubmit} className="w-full max-w-2xl">
         <div className="relative rounded-2xl border border-slate-200 bg-white px-6 py-4 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] focus-within:border-[#004d4a] focus-within:ring-1 focus-within:ring-[#004d4a] transition">
           <textarea
+            ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value.slice(0, MAX_LENGTH))}
             onKeyDown={handleKeyDown}
