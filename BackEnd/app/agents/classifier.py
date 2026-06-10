@@ -1,4 +1,5 @@
-﻿from app.agents.intent import IntentType
+﻿import re
+from app.agents.intent import IntentType
 
 SPECIAL_CREDIT_KEYWORDS = ["특별학점", "학점인정", "재수강", "비교과", "자격증학점","학점취득", "특별이수", "비교과학점", "학점 인정"]
 GRADUATION_KEYWORDS  = ["졸업", "학점", "필수과목", "전공필수", "교양필수", "이수", "졸업요건", "졸업조건", "졸업학점"]
