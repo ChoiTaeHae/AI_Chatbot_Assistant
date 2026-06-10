@@ -72,7 +72,8 @@ cython_debug/
 # ===== Virtual Environments =====
 .env
 .venv
-.venv2 
+.venv2
+
 
 env/
 venv/
