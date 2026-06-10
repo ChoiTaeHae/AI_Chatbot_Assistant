@@ -59,7 +59,7 @@ class SchoolAgent:
         elif intent == IntentType.CAMPUS:
             return await self._handle_campus(question, db)
         elif intent == IntentType.SCHOLARSHIP:
-            return await answer_scholarship_question(question)
+            return await answer_scholarship_question(question, student_id=student_id, db=db)
         elif intent == IntentType.OT:
             return await answer_ot_question(question)
         elif intent == IntentType.SPECIAL_CREDIT:
