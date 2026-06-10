@@ -9,6 +9,7 @@ from app.api.chat import router as chat_router
 from app.api.auth import router as auth_router
 from app.api.admins import router as admins_router
 from app.api.files import router as files_router
+from app.api.campus import router as campus_router
 import asyncio
 from app.services.chat_service import chat_service
 from app.services.rag_service import rag_service
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router,   prefix="/api/auth",   tags=["인증"])
     app.include_router(chat_router,   prefix="/api",        tags=["챗봇"])
     app.include_router(files_router,  prefix="/api",        tags=["파일"])
+    app.include_router(campus_router, prefix="/api",        tags=["캠퍼스"])
     app.include_router(admins_router, prefix="/api/admins", tags=["관리자"])
 
     @app.get("/health", tags=["상태확인"])

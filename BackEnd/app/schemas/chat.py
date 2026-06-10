@@ -12,3 +12,4 @@ class ChatResponse(BaseModel):
     session_id: str | None = None
     file_offer: dict | None = None     # { topic, filename } AI가 파일을 제안할 때
     file_download: dict | None = None  # { topic, filename, url } 파일을 실제로 전송할 때
+    map_card: dict | None = None       # { title, address, place_url, latitude, longitude } 캠퍼스 위치 검색 결과

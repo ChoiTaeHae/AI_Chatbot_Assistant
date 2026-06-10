@@ -88,6 +88,55 @@ export default function MessageBubble({ message }) {
             {message.content}
           </div>
 
+          {/* 캠퍼스 지도 카드 */}
+          {message.mapCard && (
+            <div
+              className="rounded-xl border border-[#005956]/20 overflow-hidden"
+              style={{ marginTop: '14px' }}
+            >
+              {/* 건물 정보 헤더 */}
+              <div className="flex items-center gap-2 bg-[#f0f9f8]" style={{ padding: '10px 14px' }}>
+                <div className="shrink-0 rounded-lg bg-[#005956] flex items-center justify-center" style={{ width: '32px', height: '32px' }}>
+                  <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-[#005956] truncate">{message.mapCard.title}</p>
+                  <p className="text-xs text-slate-500 truncate">{message.mapCard.address}</p>
+                </div>
+              </div>
+
+              {/* 지도 (좌표 있을 때 — OpenStreetMap 무료 임베드) */}
+              {message.mapCard.latitude && message.mapCard.longitude ? (
+                <div style={{ width: '100%', height: '200px', overflow: 'hidden' }}>
+                  <iframe
+                    title={message.mapCard.title}
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${message.mapCard.longitude - 0.003},${message.mapCard.latitude - 0.003},${message.mapCard.longitude + 0.003},${message.mapCard.latitude + 0.003}&layer=mapnik&marker=${message.mapCard.latitude},${message.mapCard.longitude}`}
+                    style={{ width: '100%', height: '222px', border: 'none', display: 'block' }}
+                  />
+                </div>
+              ) : null}
+
+              {/* 카카오맵 링크 */}
+              {message.mapCard.place_url && (
+                <a
+                  href={message.mapCard.place_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 text-xs font-medium text-[#005956] hover:bg-[#e4f4f3] transition bg-white"
+                  style={{ padding: '8px', textDecoration: 'none' }}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                  </svg>
+                  카카오맵에서 크게 보기
+                </a>
+              )}
+            </div>
+          )}
+
           {/* 파일 다운로드 링크 */}
           {message.fileDownload && (
             <div

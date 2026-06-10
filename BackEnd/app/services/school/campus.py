@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 import re
 import urllib.parse
@@ -154,18 +154,16 @@ async def _search_db_with_room(keyword: str) -> tuple[Building | None, Room | No
 
 async def _find_location_from_question(question: str) -> tuple[Building | None, Room | None, str | None]:
     candidates = _make_keyword_candidates(question)
-    
+
     # 질문에 호실 번호 있는지 먼저 확인
     has_room = bool(re.findall(r"\d+\s*호", question))
 
     for keyword in candidates:
         if has_room:
-            # 호실 포함 검색
             building, room = await _search_db_with_room(keyword)
         else:
-            # 건물만 검색
             building, room = await _search_db_building_only(keyword)
-        
+
         if building:
             return building, room, keyword
 
@@ -314,11 +312,12 @@ async def answer_location_question(question: str) -> dict:
         "map_card": map_card,
     }
 
+
 class CampusService:
     @staticmethod
     async def answer_location_question(question: str) -> dict:
         return await answer_location_question(question)
-    
+
     @staticmethod
     async def search_location(question: str) -> dict:
         return await answer_location_question(question)

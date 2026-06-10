@@ -41,6 +41,7 @@ export function useChat() {
         content: data.answer,
         time: getTime(),
         fileDownload: data.file_download || null, // { topic, filename, url }
+        mapCard: data.map_card || null,           // { title, address, place_url, latitude, longitude }
       }
       setMessages((prev) => [...prev, aiMsg])
     } catch (err) {

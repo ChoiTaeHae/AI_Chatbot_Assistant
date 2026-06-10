@@ -29,6 +29,7 @@ async def chat(
             session_id=request.session_id,
             file_offer=result.file_offer,
             file_download=result.file_download,
+            map_card=result.map_card,
         )
     except Exception as e:
         traceback.print_exc()

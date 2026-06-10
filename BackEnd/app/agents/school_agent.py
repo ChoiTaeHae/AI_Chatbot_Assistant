@@ -29,6 +29,7 @@ class AgentResult:
     answer: str
     file_offer: dict | None = None      # { topic, filename }
     file_download: dict | None = None   # { topic, filename, url }
+    map_card: dict | None = None        # { title, address, place_url, latitude, longitude }
 
 
 class SchoolAgent:
@@ -50,6 +51,9 @@ class SchoolAgent:
         intent = classify_intent(question)
         print(f"[Agent] 키워드 분류: {intent}")
 
+        if intent == IntentType.CAMPUS:
+            return await self._handle_campus(question)
+
         if intent != IntentType.GENERAL:
             answer = await self._dispatch(intent, question, student_id, db)
             return self._with_file_offer(answer, intent.value)
@@ -61,6 +65,8 @@ class SchoolAgent:
 
         if routed is not None:
             print(f"[Agent] 임베딩 라우팅 → {routed}")
+            if routed == IntentType.CAMPUS:
+                return await self._handle_campus(question)
             answer = await self._dispatch(routed, question, student_id, db)
             return self._with_file_offer(answer, routed.value)
 
@@ -113,8 +119,6 @@ class SchoolAgent:
             return await answer_schedule_question(question)
         elif intent == IntentType.LEAVE:
             return await answer_leave_question(question)
-        elif intent == IntentType.CAMPUS:
-            return await self._handle_campus(question)
         elif intent == IntentType.SCHOLARSHIP:
             return await answer_scholarship_question(question)
         elif intent == IntentType.OT:
@@ -124,15 +128,11 @@ class SchoolAgent:
         # 안전망
         return await chat_service.answer(question)
 
-    async def _handle_campus(self, question: str) -> str:
-        from app.agents.classifier import CAMPUS_KEYWORDS
-        keyword = question
-        for kw in CAMPUS_KEYWORDS:
-            if kw in question:
-                keyword = kw
-                break
+    async def _handle_campus(self, question: str) -> AgentResult:
         result = await campus_service.search_location(question)
-        return result.get("answer", "위치 정보를 찾을 수 없습니다.")
+        answer = result.get("answer", "위치 정보를 찾을 수 없습니다.")
+        map_card = result.get("map_card") if result.get("found") else None
+        return AgentResult(answer=answer, map_card=map_card)
 
 
 # 싱글톤 인스턴스
