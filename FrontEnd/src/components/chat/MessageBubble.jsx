@@ -1,5 +1,32 @@
 import MascotAvatar from '../common/MascotAvatar'
 
+const API_BASE = 'http://localhost:8000'
+
+/**
+ * 인증 헤더를 포함해서 파일을 fetch한 뒤 blob URL로 다운로드.
+ * <a href> 직접 연결 시 Authorization 헤더가 전송되지 않으므로 이 방식 사용.
+ */
+async function downloadFileWithAuth(url, filename) {
+  const token = sessionStorage.getItem('wsu_token')
+  try {
+    const res = await fetch(`${API_BASE}${url}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) throw new Error('서버 응답 오류')
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(objectUrl)
+  } catch {
+    alert('파일 다운로드에 실패했습니다.')
+  }
+}
+
 function MessageActions() {
   return (
     <div className="flex items-center gap-3 text-slate-400" style={{ marginTop: '12px' }}>
@@ -60,6 +87,28 @@ export default function MessageBubble({ message }) {
           <div className="whitespace-pre-wrap break-words">
             {message.content}
           </div>
+
+          {/* 파일 다운로드 링크 */}
+          {message.fileDownload && (
+            <div
+              className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50"
+              style={{ marginTop: '14px', padding: '10px 14px' }}
+            >
+              <svg className="h-5 w-5 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+              </svg>
+              <button
+                type="button"
+                onClick={() =>
+                  downloadFileWithAuth(message.fileDownload.url, message.fileDownload.filename)
+                }
+                className="text-blue-600 underline underline-offset-2 hover:text-blue-800 transition text-sm font-medium truncate"
+              >
+                {message.fileDownload.filename}
+              </button>
+            </div>
+          )}
+
           <div className="flex justify-between items-end" style={{ marginTop: '12px' }}>
             <span className="text-xs text-slate-400">{message.time}</span>
             <MessageActions />

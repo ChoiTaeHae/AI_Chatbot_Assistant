@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Frontend
     FRONTEND_ORIGINS: str = "http://localhost:5173"
 
+    # JWT
+    SECRET_KEY: str = "changeme-set-strong-key-in-production"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24   # 24시간
+
     # 개발 모드 (True 시 LLM 로딩 스킵)
     DEV_MODE: bool = False
 
