@@ -29,7 +29,6 @@ def classify_intent(question: str) -> IntentType:
     for keyword in CAMPUS_KEYWORDS:
         if keyword in question:
             return IntentType.CAMPUS
-    # 건물 코드 패턴 감지 (W15, E3, S1 등)
     if _BUILDING_CODE_RE.search(question):
         return IntentType.CAMPUS
     for keyword in SCHOLARSHIP_KEYWORDS:
