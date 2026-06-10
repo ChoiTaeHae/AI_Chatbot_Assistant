@@ -1,10 +1,12 @@
+import { authFetch } from './utils'
+
 const BASE = 'http://localhost:8000/api'
 
-export async function sendMessage(question, session_id = null, student_no = null) {
-  const res = await fetch(`${BASE}/chat`, {
+export async function sendMessage(question, session_id = null, pendingFile = null) {
+  const res = await authFetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, session_id, student_no }),
+    body: JSON.stringify({ question, session_id, pending_file: pendingFile }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

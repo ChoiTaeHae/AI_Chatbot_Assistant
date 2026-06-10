@@ -16,3 +16,4 @@ class ChatResponse(BaseModel):
     answer: str
     session_id: Optional[str] = None
     attachment: List[Attachment] = []  # 리스트 추가
+

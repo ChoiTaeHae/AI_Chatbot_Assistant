@@ -8,6 +8,10 @@ CAMPUS_KEYWORDS      = ["건물", "위치", "캠퍼스", "강의실", "학과사
 SCHOLARSHIP_KEYWORDS = ["장학금", "장학", "장학생", "장학신청", "성적장학", "국가장학", "장학금신청", "장학금조건", "장학금지원"]
 OT_KEYWORDS          = ["오리엔테이션", "OT","ot", "신입생 OT", "학과 OT", "오티", "OT 안내", "OT 일정","신입생 오리엔테이션","신입생행사","입학행사","솔숲","솔숲 OT","SOL_SUP"]
 
+# 건물 코드 패턴: W(서캠), E(동캠), S(기타) + 숫자 (예: W15, E3, S1)
+_BUILDING_CODE_RE = re.compile(r'[WwEeSs]\d{1,2}')
+
+
 def classify_intent(question: str) -> IntentType:
     for keyword in SPECIAL_CREDIT_KEYWORDS:
         if keyword in question:
@@ -24,6 +28,9 @@ def classify_intent(question: str) -> IntentType:
     for keyword in CAMPUS_KEYWORDS:
         if keyword in question:
             return IntentType.CAMPUS
+    # 건물 코드 패턴 감지 (W15, E3, S1 등)
+    if _BUILDING_CODE_RE.search(question):
+        return IntentType.CAMPUS
     for keyword in SCHOLARSHIP_KEYWORDS:
         if keyword in question:
             return IntentType.SCHOLARSHIP
