@@ -72,6 +72,7 @@ class RagService:
         if not text or not text.strip():
             return 0
 
+
         # smart_split은 list[dict] 반환
         # {"chunk_id", "chapter", "article", "path", "text", "embedding_text"}
         chunk_dicts = smart_split(text)
@@ -84,6 +85,20 @@ class RagService:
         chunk_texts = [c["text"] for c in chunk_dicts]
 
         embeddings = self.embedding.embed_texts(embedding_texts)
+
+        chunks = split_by_article(text)
+        print(f"[RAG] chunk 개수: {len(chunks)}")
+
+        if not chunks:
+            print("[RAG] chunk 생성 실패")
+            return 0
+        
+        print("[RAG] embedding 시작")
+        embeddings = self.embedding.embed_texts(chunks)
+        print("[RAG] embedding 완료")
+
+        print("[RAG] qdrant 저장 시작")
+
         self.vector_store.upsert_chunks(
             chunks=chunk_texts,
             embeddings=embeddings,
@@ -102,7 +117,10 @@ class RagService:
                 for c in chunk_dicts
             ],
         )
+
+        print("[RAG] qdrant 저장 완료")
         return len(chunk_dicts)
+
 
     def search(self, question: str, limit: int | None = None, source: str | None = None, topic: str | None = None) -> list[SearchResult]:
         return self.retriever.search(question=question, limit=limit, source=source, topic=topic)

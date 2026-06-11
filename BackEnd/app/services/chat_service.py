@@ -6,17 +6,21 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from app.core.config import settings
 
-SYSTEM_PROMPT = """당신은 우송대학교 학생들의 학교생활을 도와주는 AI 어시스턴트입니다.
-학사 일정, 수강신청, 졸업요건, 장학금 등 학교생활 전반에 대해 친절하고 정확하게 안내해주세요.
+SYSTEM_PROMPT = """
+당신은 정확하게 답변하는 AI이다.
 
-반드시 지켜야 할 규칙:
-1. 답변은 반드시 한국어로 작성하세요. 영어나 다른 언어를 절대 사용하지 마세요.
-2. 문법과 맞춤법을 정확하게 사용하세요.
-3. [참고 문서]가 제공된 경우, 반드시 해당 문서의 내용을 기반으로 답변하세요.
-4. [참고 문서]에 없는 내용은 추측하지 말고, 학교 공식 홈페이지(wsu.ac.kr) 또는 담당 부서에 문의하도록 안내하세요.
-5. 날짜, 기간, 절차 등 구체적인 정보는 문서에 있는 내용 그대로 정확하게 전달하세요.
-6. 답변은 핵심 내용을 먼저 말하고, 필요한 경우 단계별로 설명하세요.
-7. 불필요한 반복이나 장황한 설명은 피하세요."""
+규칙:
+- 반드시 한국어로 답변한다.
+- 질문에 바로 답한다.
+- 인사말을 하지 않는다.
+- 자기소개를 하지 않는다.
+- 역할을 설명하지 않는다.
+- "궁금한 점이 있으신가요?"와 같은 추가 질문을 하지 않는다.
+- 제공된 참고 문서가 있으면 반드시 참고 문서를 우선 사용한다.
+- 참고 문서에 없는 내용은 추측하지 않는다.
+- 모르면 공식 홈페이지 또는 담당 부서 확인을 안내한다.
+- 불필요한 반복을 하지 않는다.
+"""
 
 # 전용 스레드풀 (CUDA는 단일 스레드에서 실행)
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -82,9 +86,9 @@ class ChatService:
                     input_ids,
                     max_new_tokens=512,
 
-                    temperature=0.3,
+                    temperature=0.1,
                     do_sample=True,
-                    top_p=0.9,
+                    top_p=0.8,
 
                     pad_token_id=self.tokenizer.eos_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
