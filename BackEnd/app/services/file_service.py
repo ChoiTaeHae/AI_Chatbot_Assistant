@@ -23,6 +23,25 @@ ALLOWED_EXTENSIONS = {
     ".txt", ".md", ".jpg", ".jpeg", ".png",
 }
 
+# ── 전역 파일 캐시 ────────────────────────────────────────────
+# 서버 시작 시 + 관리자 업로드/삭제 시 갱신.
+# school_agent 에서 O(1) 로 "이 topic 에 파일 있냐" 확인에 사용.
+AVAILABLE_FILES: dict[str, list[str]] = {}
+
+
+def refresh_available_files() -> None:
+    """documents/ 폴더를 스캔해서 AVAILABLE_FILES 업데이트"""
+    global AVAILABLE_FILES
+    for topic in VALID_TOPICS:
+        folder = DOCUMENTS_BASE / topic
+        folder.mkdir(parents=True, exist_ok=True)
+        AVAILABLE_FILES[topic] = [
+            f.name for f in sorted(folder.iterdir())
+            if f.is_file() and not f.name.startswith((".", "_"))
+        ]
+    total = sum(len(v) for v in AVAILABLE_FILES.values())
+    print(f"[FileService] 파일 캐시 갱신 완료 — 총 {total}개")
+
 
 class FileService:
     """다운로드 파일 관리 서비스"""
@@ -38,7 +57,6 @@ class FileService:
             raise ValueError(f"지원하지 않는 확장자: {ext}. 허용: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
     def safe_filename(self, filename: str) -> str:
-        """경로 탈출(path traversal) 방지 — 파일명만 추출"""
         name = Path(filename).name
         if not name or name.startswith("."):
             raise ValueError("유효하지 않은 파일명")
@@ -55,7 +73,6 @@ class FileService:
 
     # ── 비즈니스 로직 ──────────────────────────────────────
     def list_files(self) -> dict:
-        """전체 topic의 파일 목록 반환"""
         result: dict[str, list[dict]] = {}
         for topic in VALID_TOPICS:
             folder = self._topic_dir(topic)
@@ -73,13 +90,14 @@ class FileService:
         return {"files": result, "labels": TOPIC_LABELS}
 
     def save_file(self, topic: str, filename: str, content: bytes) -> dict:
-        """파일을 documents/{topic}/ 에 저장"""
         self.validate_topic(topic)
         self.validate_extension(filename)
         clean_name = self.safe_filename(filename)
 
         dest = self._file_path(topic, clean_name)
         dest.write_bytes(content)
+
+        refresh_available_files()   # 캐시 갱신
 
         return {
             "success": True,
@@ -90,7 +108,6 @@ class FileService:
         }
 
     def delete_file(self, topic: str, filename: str) -> dict:
-        """파일 삭제"""
         self.validate_topic(topic)
         path = self._file_path(topic, filename)
 
@@ -98,6 +115,8 @@ class FileService:
             raise FileNotFoundError(f"파일을 찾을 수 없습니다: {filename}")
 
         path.unlink()
+        refresh_available_files()   # 캐시 갱신
+
         return {
             "success": True,
             "topic": topic,
@@ -106,7 +125,6 @@ class FileService:
         }
 
     def get_file_path(self, topic: str, filename: str) -> Path:
-        """다운로드용 파일 경로 반환"""
         self.validate_topic(topic)
         path = self._file_path(topic, filename)
 

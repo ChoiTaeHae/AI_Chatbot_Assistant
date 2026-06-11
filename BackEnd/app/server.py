@@ -8,9 +8,12 @@ from app.core.Database import Base, engine
 from app.api.chat import router as chat_router
 from app.api.auth import router as auth_router
 from app.api.admins import router as admins_router
+from app.api.files import router as files_router
+from app.api.campus import router as campus_router
 import asyncio
 from app.services.chat_service import chat_service
 from app.services.rag_service import rag_service
+from app.services.file_service import refresh_available_files
 from app.agents.topic_router import topic_router
 
 
@@ -26,6 +29,9 @@ async def lifespan(app: FastAPI):
 
     # LLM 모델 GPU 로드
     chat_service.load_model()
+
+    # 다운로드 파일 캐시 초기화
+    refresh_available_files()
 
     # ── 임베딩 인스턴스 공유 ──────────────────────────────
     # rag_service와 topic_router가 동일한 BaaiEmbedding 객체를 사용하도록 연결.
@@ -65,6 +71,8 @@ def create_app() -> FastAPI:
     # 라우터 등록
     app.include_router(auth_router,   prefix="/api/auth",   tags=["인증"])
     app.include_router(chat_router,   prefix="/api",        tags=["챗봇"])
+    app.include_router(files_router,  prefix="/api",        tags=["파일"])
+    app.include_router(campus_router, prefix="/api",        tags=["캠퍼스"])
     app.include_router(admins_router, prefix="/api/admins", tags=["관리자"])
 
     @app.get("/health", tags=["상태확인"])

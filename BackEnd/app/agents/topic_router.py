@@ -8,15 +8,25 @@ from app.agents.intent import IntentType
 from app.rag.Embedding import BaaiEmbedding
 
 # topic별 대표 문장 (임베딩 대상)
-TOPIC_PROTOTYPES = {    
-    IntentType.GRADUATION: "졸업 학점 졸업요건 전공필수 교양필수 졸업가능 졸업조건",
+TOPIC_PROTOTYPES: dict[IntentType, str] = {
 
-    IntentType.CAMPUS: "건물 위치 강의실 도서관 식당 캠퍼스",
+    IntentType.GRADUATION:
+    """
+    졸업 학점 졸업요건 전공필수 교양필수
+    졸업가능 졸업조건
+    """,
 
-    IntentType.RAG_GENERAL: 
+    IntentType.CAMPUS:
+    """
+    건물 위치 강의실 도서관 식당
+    캠퍼스 학과사무실
+    """,
+
+    IntentType.RAG_GENERAL:
     """
     장학금 특별학점 오리엔테이션
     수강신청 휴학 복학 학사일정
+    기숙사 생활관 증명서 학생증
     """
 }
 

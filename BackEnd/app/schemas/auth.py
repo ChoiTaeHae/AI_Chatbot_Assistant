@@ -1,4 +1,4 @@
-﻿from pydantic import BaseModel
+from pydantic import BaseModel
 
 
 class LoginRequest(BaseModel):
@@ -7,6 +7,8 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
     student_no: str
     name: str
     dept_id: int | None = None
