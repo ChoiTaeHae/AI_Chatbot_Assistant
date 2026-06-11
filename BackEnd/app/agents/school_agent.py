@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.intent import IntentType
 from app.agents.topic_router import topic_router
+from app.models.DB_Table import ChatLog
 from app.services.chat_service import chat_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
@@ -82,26 +83,31 @@ class SchoolAgent:
         # 1단계: 키워드 기반 캠퍼스 분류 (빠름, 0ms)
         if _is_campus_question(question):
             print("[Agent] 키워드 분류 → CAMPUS")
+            await self._log(db, student_id, "campus")
             return await self._handle_campus(question)
 
         # 2단계: 임베딩 기반 topic 분류
-        print("[Agent] 임베딩 기반 topic 분류 시작")
-
+        print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
         loop = asyncio.get_event_loop()
-
-        intent = await loop.run_in_executor(
-            None,
-            topic_router.route,
-            question,
-        )
+        try:
+            intent = await loop.run_in_executor(None, topic_router.route, question)
+        except Exception as e:
+            print(f"[Agent] topic 라우터 실패 (무시): {e}")
+            intent = None
 
         if intent is None:
             intent = IntentType.GENERAL
 
         print(f"[Agent] 최종 intent → {intent}")
 
+        # 3단계: 인텐트에 따른 서비스 라우팅 및 답변 생성
         if intent == IntentType.CAMPUS:
+            await self._log(db, student_id, "campus")
             return await self._handle_campus(question)
+
+        # RAG_GENERAL은 세부 topic으로 기록
+        log_intent = _resolve_topic(question) if intent == IntentType.RAG_GENERAL else intent.value
+        await self._log(db, student_id, log_intent)
 
         answer = await self._dispatch(
             intent=intent,
@@ -110,22 +116,21 @@ class SchoolAgent:
             db=db,
         )
 
-
-        # 2단계: 임베딩 기반 topic 분류
-        print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
-        loop = asyncio.get_event_loop()
-        try:
-            routed = await loop.run_in_executor(None, topic_router.route, question)
-        except Exception as e:
-            print(f"[Agent] topic 라우터 실패 (무시): {e}")
-            routed = None
-
+        # 4단계: 결과물 포장 및 파일 제안(Offer) 추가
         if intent == IntentType.RAG_GENERAL:
             file_topic = _resolve_topic(question)
             return self._with_file_offer(answer, file_topic)
 
-
         return self._with_file_offer(answer, intent.value)
+
+    # ───────────────── 로그 ─────────────────
+
+    async def _log(self, db: AsyncSession, student_id: int | None, intent: str) -> None:
+        try:
+            db.add(ChatLog(student_id=student_id, intent=intent))
+            await db.commit()
+        except Exception as e:
+            print(f"[Agent] 채팅 로그 저장 실패 (무시): {e}")
 
     # ───────────────── 파일 관련 ─────────────────
 

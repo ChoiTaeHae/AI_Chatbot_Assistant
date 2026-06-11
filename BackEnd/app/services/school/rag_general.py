@@ -27,6 +27,12 @@ def _resolve_topic(question: str) -> str:
     if "특별학점" in question:
         return "special_credit"
 
+    if "성적" in question or "학점" in question or "gpa" in question:
+        return "grades"
+
+    if "학칙" in question or "규정" in question or "규칙" in question:
+        return "school_rules"
+
     return "general"
 
 

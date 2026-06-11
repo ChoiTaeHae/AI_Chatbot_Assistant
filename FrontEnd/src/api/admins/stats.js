@@ -13,3 +13,9 @@ export async function fetchDashboard() {
   if (!res.ok) throw new Error('대시보드 조회 실패')
   return res.json()
 }
+
+export async function fetchChatStats() {
+  const res = await authFetch(`${BASE}/chat-stats`)
+  if (!res.ok) throw new Error('채팅 통계 조회 실패')
+  return res.json()
+}
