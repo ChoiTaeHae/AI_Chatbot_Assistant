@@ -31,10 +31,10 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  return (
+  return ( 
     // 배경을 흰색으로, 중앙 정렬 컨테이너를 조금 더 넓게 설정
     <main className="flex min-h-screen bg-[#e8eaed] items-center justify-center py-8 px-6">
-      <div className="flex flex-col w-full max-w-[700px] h-[calc(100vh-64px)] bg-white rounded-2xl shadow-2xl overflow-hidden ">
+      <div className="flex flex-col w-full max-w-[600px] h-[calc(100vh-64px)] bg-white rounded-2xl shadow-2xl overflow-hidden ">
 
         {/* 헤더 */}
         <header className="shrink-0 bg-[#005956] flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>

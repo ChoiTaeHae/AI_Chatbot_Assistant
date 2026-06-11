@@ -6,7 +6,6 @@ export default function ChatInput({ onSend, disabled }) {
   const [text, setText] = useState('')
   const textareaRef = useRef(null)
 
-  // 전송 후 또는 disabled 해제 시 입력창에 포커스 복귀
   useEffect(() => {
     if (!disabled) {
       textareaRef.current?.focus()
@@ -19,7 +18,6 @@ export default function ChatInput({ onSend, disabled }) {
     if (!trimmed || disabled) return
     onSend(trimmed)
     setText('')
-    // 전송 즉시 포커스 (disabled로 전환되기 전에도 커서 유지)
     textareaRef.current?.focus()
   }
 
@@ -31,9 +29,9 @@ export default function ChatInput({ onSend, disabled }) {
   }
 
   return (
-    <div className="shrink-0 bg-white px-8 pb-8 pt-4 flex justify-center">
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl">
-        <div className="relative rounded-2xl border border-slate-200 bg-white px-6 py-4 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] focus-within:border-[#004d4a] focus-within:ring-1 focus-within:ring-[#004d4a] transition">
+    <div style={{ flexShrink: 0, background: '#fff', padding: '10px 16px 16px' }}>
+      <form onSubmit={handleSubmit}>
+        <div style={{ position: 'relative', borderRadius: '16px', border: '1px solid #e2e8f0', background: '#fff', padding: '10px 14px', boxShadow: '0 2px 8px -4px rgba(0,0,0,0.06)' }}>
           <textarea
             ref={textareaRef}
             value={text}
@@ -42,29 +40,57 @@ export default function ChatInput({ onSend, disabled }) {
             placeholder="메시지를 입력하세요..."
             disabled={disabled}
             rows={2}
-            className="w-full resize-none bg-transparent text-[15px] font-medium leading-6 text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-50"
-            style={{ maxHeight: '140px', paddingLeft: '12px', paddingRight: '56px', paddingTop: '8px' }}
+            style={{
+              width: '100%',
+              resize: 'none',
+              background: 'transparent',
+              fontSize: '14px',
+              fontWeight: 500,
+              lineHeight: '1.5',
+              color: '#1e293b',
+              outline: 'none',
+              paddingLeft: '4px',
+              paddingRight: '44px',
+              paddingTop: '2px',
+              maxHeight: '110px',
+              opacity: disabled ? 0.5 : 1,
+            }}
             onInput={(e) => {
               e.target.style.height = 'auto'
-              e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px'
+              e.target.style.height = Math.min(e.target.scrollHeight, 110) + 'px'
             }}
           />
-          <div className="flex items-center justify-between mt-2" style={{ paddingLeft: '12px', marginTop: '-8px' }}>
-            <span className="text-xs text-slate-400 font-medium">{text.length} / {MAX_LENGTH}</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: '4px', marginTop: '-4px' }}>
+            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 500 }}>{text.length} / {MAX_LENGTH}</span>
             <button
               type="submit"
               disabled={!text.trim() || disabled}
-              // 배경색을 짙은 녹색으로 변경, 둥근 형태 유지
-              className="h-10 w-10 rounded-full bg-[#004d4a] text-white flex items-center justify-center hover:bg-[#003634] disabled:opacity-40 disabled:cursor-not-allowed transition shadow-sm absolute right-6 bottom-4"
+              style={{
+                position: 'absolute',
+                right: '12px',
+                bottom: '10px',
+                height: '34px',
+                width: '34px',
+                borderRadius: '50%',
+                background: '#004d4a',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: !text.trim() || disabled ? 'not-allowed' : 'pointer',
+                opacity: !text.trim() || disabled ? 0.4 : 1,
+                border: 'none',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                transition: 'background 0.15s',
+              }}
             >
-              {/* 종이비행기 아이콘 (Filled) */}
-              <svg className="h-5 w-5 ml-1" viewBox="0 0 24 24" fill="currentColor">
+              <svg style={{ height: '16px', width: '16px', marginLeft: '2px' }} viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
               </svg>
             </button>
           </div>
         </div>
-        <p className="mt-4 text-center text-[13px] text-slate-400">
+        <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '11px', color: '#94a3b8' }}>
           AI의 답변은 참고용이며, 정확한 정보는 공식 문서를 확인해주세요.
         </p>
       </form>
