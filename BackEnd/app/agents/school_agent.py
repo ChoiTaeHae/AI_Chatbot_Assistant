@@ -7,11 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.intent import IntentType
 from app.agents.topic_router import topic_router
+from app.models.DB_Table import ChatLog
 from app.services.chat_service import chat_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
-from app.services.school.scholarship import answer_scholarship_question
 
 campus_service = CampusService()
 
@@ -24,11 +24,17 @@ _CAMPUS_KEYWORDS = [
     "서캠체육관", "SICA", "시카", "우송타워", "솔파인",
     "Culinary Center", "컬리너리", "식품건축관", "식품관", "건축관", "우송식품건축관",
     "학생회관", "미디어융합관", "미디어관", "우송예술회관", "예술회관",
-    "Endicott Building", "엔디콧",
+    "Endicott Building", "엔디콧", "엔디컷",
     "테크노디자인센터", "테크노관", "국제경영센터", "국제관", "학술정보관",
     "대학본부", "자립관", "청솔관", "단정관", "독행관",
     "크로톤빌센터", "크로톤빌", "스터디홀",
-    "어학센터", "어학원", "IT교육센터", "뷰티센터", "뷰티관", "애견센터", "오토센터",
+    "어학센터", "어학원", "IT교육센터", "IT센터", "아이티센터",
+    "뷰티센터", "뷰티관",
+    "애견센터", "애견관",
+    "오토센터", "자동차센터", "솔카오토테크", "우송솔카오토테크", "카오토테크",
+    "스포츠센터", "우송스포츠센터",
+    "유학생숙소",
+    "보건의료관", "사회복지관", "국제경영관", "예술관",
 ]
 _BUILDING_CODE_RE = re.compile(r'[WwEeSs]\d{1,2}')
 
@@ -57,7 +63,6 @@ class AgentResult:
     file_offer: dict | None = None
     file_download: dict | None = None
     map_card: dict | None = None
-    pending_context: dict | None = None
 
 
 class SchoolAgent:
@@ -69,53 +74,40 @@ class SchoolAgent:
         student_id: int,
         db: AsyncSession,
         pending_file: dict | None = None,
-        pending_context: dict | None = None,
     ) -> AgentResult:
 
         # 파일 제안에 대한 긍정 응답 처리
         if pending_file and self._is_confirmation(question):
             return self._build_file_download(pending_file)
 
-        # 멀티턴 장학금 대화 처리 (학점/소득분위 수집 중)
-        if pending_context and pending_context.get("type") == "scholarship":
-            answer, next_context = await answer_scholarship_question(
-                question, student_id=student_id, db=db, pending_context=pending_context
-            )
-            return AgentResult(answer=answer, pending_context=next_context)
-
         # 1단계: 키워드 기반 캠퍼스 분류 (빠름, 0ms)
         if _is_campus_question(question):
             print("[Agent] 키워드 분류 → CAMPUS")
+            await self._log(db, student_id, "campus")
             return await self._handle_campus(question)
 
         # 2단계: 임베딩 기반 topic 분류
-        print("[Agent] 임베딩 기반 topic 분류 시작")
-
+        print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
         loop = asyncio.get_event_loop()
-
-        intent = await loop.run_in_executor(
-            None,
-            topic_router.route,
-            question,
-        )
+        try:
+            intent = await loop.run_in_executor(None, topic_router.route, question)
+        except Exception as e:
+            print(f"[Agent] topic 라우터 실패 (무시): {e}")
+            intent = None
 
         if intent is None:
             intent = IntentType.GENERAL
 
         print(f"[Agent] 최종 intent → {intent}")
 
+        # 3단계: 인텐트에 따른 서비스 라우팅 및 답변 생성
         if intent == IntentType.CAMPUS:
+            await self._log(db, student_id, "campus")
             return await self._handle_campus(question)
 
-        if intent == IntentType.RAG_GENERAL:
-            file_topic = _resolve_topic(question)
-            if file_topic == "scholarship":
-                answer, next_context = await answer_scholarship_question(
-                    question, student_id=student_id, db=db
-                )
-                return AgentResult(answer=answer, pending_context=next_context)
-            answer = await answer_rag_general_question(question)
-            return self._with_file_offer(answer, file_topic)
+        # RAG_GENERAL은 세부 topic으로 기록
+        log_intent = _resolve_topic(question) if intent == IntentType.RAG_GENERAL else intent.value
+        await self._log(db, student_id, log_intent)
 
         answer = await self._dispatch(
             intent=intent,
@@ -124,7 +116,21 @@ class SchoolAgent:
             db=db,
         )
 
+        # 4단계: 결과물 포장 및 파일 제안(Offer) 추가
+        if intent == IntentType.RAG_GENERAL:
+            file_topic = _resolve_topic(question)
+            return self._with_file_offer(answer, file_topic)
+
         return self._with_file_offer(answer, intent.value)
+
+    # ───────────────── 로그 ─────────────────
+
+    async def _log(self, db: AsyncSession, student_id: int | None, intent: str) -> None:
+        try:
+            db.add(ChatLog(student_id=student_id, intent=intent))
+            await db.commit()
+        except Exception as e:
+            print(f"[Agent] 채팅 로그 저장 실패 (무시): {e}")
 
     # ───────────────── 파일 관련 ─────────────────
 

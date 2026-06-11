@@ -31,10 +31,10 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  return (
+  return ( 
     // 배경을 흰색으로, 중앙 정렬 컨테이너를 조금 더 넓게 설정
     <main className="flex min-h-screen bg-[#e8eaed] items-center justify-center py-8 px-6">
-      <div className="flex flex-col w-full max-w-[700px] h-[calc(100vh-64px)] bg-white rounded-2xl shadow-2xl overflow-hidden ">
+      <div className="flex flex-col w-full max-w-[600px] h-[calc(100vh-64px)] bg-white rounded-2xl shadow-2xl overflow-hidden ">
 
         {/* 헤더 */}
         <header className="shrink-0 bg-[#005956] flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>
@@ -44,13 +44,6 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button className="relative text-white hover:text-slate-200 transition">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-red-500" />
-            </button>
-
             {/* 프로필 드롭다운 */}
             <div className="relative" ref={profileRef}>
               <button

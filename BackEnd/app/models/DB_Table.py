@@ -145,7 +145,23 @@ class StudentCourse(Base):
     is_passed = Column(Boolean, default=True)
 
 # ==========================================
-# 12. JWT 토큰 블랙리스트 (token_blacklist)
+# 12. 채팅 로그 (chat_log)
+# ==========================================
+class ChatLog(Base):
+    __tablename__ = "chat_log"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(Integer, ForeignKey("student.id"), nullable=True)
+    intent     = Column(String(50), nullable=True)   # campus / graduation / leave / scholarship / dormitory / course_registration / special_credit / general
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_chat_log_created_at", "created_at"),
+        Index("ix_chat_log_student_id", "student_id"),
+    )
+
+# ==========================================
+# 13. JWT 토큰 블랙리스트 (token_blacklist)
 # ==========================================
 class TokenBlacklist(Base):
     __tablename__ = "token_blacklist"
