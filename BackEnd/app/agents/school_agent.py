@@ -61,7 +61,11 @@ class SchoolAgent:
         # 2단계: 임베딩 기반 topic 분류
         print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
         loop = asyncio.get_event_loop()
-        routed = await loop.run_in_executor(None, topic_router.route, question)
+        try:
+            routed = await loop.run_in_executor(None, topic_router.route, question)
+        except Exception as e:
+            print(f"[Agent] topic 라우터 실패 (무시): {e}")
+            routed = None
 
         if routed is not None:
             print(f"[Agent] 임베딩 라우팅 → {routed}")
