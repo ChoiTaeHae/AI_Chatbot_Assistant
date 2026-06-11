@@ -6,20 +6,24 @@ Admin 서비스 — 관리자 기능 비즈니스 로직
 """
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, Date
 
 from app.core.config import settings
-from app.models.DB_Table import Student, Department, Course
+from app.models.DB_Table import Student, Department, Course, ChatLog
 from app.rag.ingest import ingest_file
 from app.services.rag_service import rag_service
 from app.services.chat_service import chat_service
 from app.schemas.admins import (
+    ChatStatsResponse,
+    DailyCount,
     DashboardResponse,
     StatsResponse,
     SettingsResponse,
+    TopicCount,
     UserItem,
     UserListResponse,
     DocumentListItem,
@@ -29,7 +33,8 @@ from app.schemas.admins import (
 
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
-VALID_TOPICS        = {"graduation", "schedule", "leave", "campus", "scholarship", "special_credit", "absence"}
+VALID_TOPICS        = {"graduation", "schedule", "leave", "campus", "scholarship", "dormitory", "course_registration", "special_credit", "grades", "school_rules", "general"}
+
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 VALID_ROLES         = {"student", "admin"}
 
@@ -71,6 +76,73 @@ class AdminService:
             total_departments=dept_count or 0,
             total_courses=course_count or 0,
             total_admins=admin_count or 0,
+        )
+
+    # ── 채팅 통계 ───────────────────────────────────────────
+    async def get_chat_stats(self, db: AsyncSession) -> ChatStatsResponse:
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_ago = now - timedelta(days=7)
+
+        total_chats = await db.scalar(select(func.count(ChatLog.id))) or 0
+        today_chats = await db.scalar(
+            select(func.count(ChatLog.id)).where(ChatLog.created_at >= today_start)
+        ) or 0
+        active_students_7d = await db.scalar(
+            select(func.count(func.distinct(ChatLog.student_id)))
+            .where(ChatLog.created_at >= week_ago, ChatLog.student_id.isnot(None))
+        ) or 0
+
+        # 최근 7일 일별 질문 수
+        daily_rows = await db.execute(
+            select(
+                cast(ChatLog.created_at, Date).label("day"),
+                func.count(ChatLog.id).label("cnt"),
+            )
+            .where(ChatLog.created_at >= week_ago)
+            .group_by("day")
+            .order_by("day")
+        )
+        daily_map = {str(row.day): row.cnt for row in daily_rows}
+        daily_counts = []
+        for i in range(6, -1, -1):
+            d = (now - timedelta(days=i)).date()
+            daily_counts.append(DailyCount(date=d.strftime("%m-%d"), count=daily_map.get(str(d), 0)))
+
+        # 주제별 분포 (전체 기간)
+        topic_labels = {
+            "campus":              "캠퍼스",
+            "graduation":          "졸업요건",
+            "leave":               "휴학/복학",
+            "scholarship":         "장학금",
+            "dormitory":           "기숙사",
+            "course_registration": "수강신청",
+            "special_credit":      "특별학점",
+            "grades":              "성적",
+            "school_rules":        "학칙/규정",
+            "general":             "일반",
+        }
+        topic_rows = await db.execute(
+            select(ChatLog.intent, func.count(ChatLog.id).label("cnt"))
+            .where(ChatLog.intent.isnot(None))
+            .group_by(ChatLog.intent)
+            .order_by(func.count(ChatLog.id).desc())
+        )
+        topic_counts = [
+            TopicCount(
+                intent=row.intent,
+                count=row.cnt,
+                label=topic_labels.get(row.intent, row.intent),
+            )
+            for row in topic_rows
+        ]
+
+        return ChatStatsResponse(
+            total_chats=total_chats,
+            today_chats=today_chats,
+            active_students_7d=active_students_7d,
+            daily_counts=daily_counts,
+            topic_counts=topic_counts,
         )
 
     # ── 서비스 설정 ─────────────────────────────────────────

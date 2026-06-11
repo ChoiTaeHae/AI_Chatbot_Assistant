@@ -8,7 +8,7 @@ from pathlib import Path
 
 DOCUMENTS_BASE = Path("documents")
 
-VALID_TOPICS = {"graduation", "schedule", "leave", "campus", "scholarship", "dormitory", "course_registration", "special_credit", "general"}
+VALID_TOPICS = {"graduation", "schedule", "leave", "campus", "scholarship", "dormitory", "course_registration", "special_credit", "grades", "school_rules", "general"}
 TOPIC_LABELS = {
     "graduation":          "졸업요건",
     "schedule":            "학사일정",
@@ -18,6 +18,8 @@ TOPIC_LABELS = {
     "dormitory":           "기숙사/생활관",
     "course_registration": "수강신청",
     "special_credit":      "특별학점",
+    "grades":              "성적",
+    "school_rules":        "학칙/규정",
     "general":             "일반",
 }
 
