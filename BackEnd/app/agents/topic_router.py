@@ -62,10 +62,17 @@ class TopicRouter:
     def route(self, question: str) -> IntentType | None:
         """
         질문 임베딩 후 가장 유사한 topic 반환.
-        모든 topic이 임계값 미달이면 None (= 진짜 일반 질문).
+        모든 topic이 임계값 미달이거나 warmup 실패 시 None 반환.
         """
         if self._proto_vecs is None:
-            self.warmup()
+            try:
+                self.warmup()
+            except Exception as e:
+                print(f"[TopicRouter] warmup 재시도 실패: {e}")
+                return None
+
+        if self._proto_vecs is None:
+            return None
 
         q_vec = self.embedding.embed_text(question)
 

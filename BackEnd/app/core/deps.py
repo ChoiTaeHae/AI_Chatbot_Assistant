@@ -6,6 +6,8 @@ FastAPI 의존성 — 인증/권한 검사
     @router.get("/...", dependencies=[Depends(require_admin)])       # 관리자 필요
     async def endpoint(current_user: Student = Depends(get_current_user)):  # 유저 정보 필요
 """
+from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
@@ -14,7 +16,7 @@ from sqlalchemy import select
 
 from app.core.Database import get_db
 from app.core.security import decode_access_token
-from app.models.DB_Table import Student
+from app.models.DB_Table import Student, TokenBlacklist
 
 bearer_scheme = HTTPBearer()
 
@@ -23,15 +25,23 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> Student:
-    """Bearer 토큰 검증 후 Student 반환"""
+    """Bearer 토큰 검증 후 Student 반환. 블랙리스트 토큰은 401 반환."""
     token = credentials.credentials
     try:
         payload = decode_access_token(token)
         student_no: str | None = payload.get("sub")
-        if not student_no:
+        jti: str | None = payload.get("jti")
+        if not student_no or not jti:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰")
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰")
+
+    # 블랙리스트 확인 (로그아웃된 토큰 차단)
+    blacklisted = await db.execute(
+        select(TokenBlacklist).where(TokenBlacklist.jti == jti)
+    )
+    if blacklisted.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="로그아웃된 토큰입니다")
 
     result = await db.execute(select(Student).where(Student.student_no == student_no))
     student = result.scalar_one_or_none()
