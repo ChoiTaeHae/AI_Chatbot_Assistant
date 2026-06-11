@@ -8,14 +8,15 @@ from pathlib import Path
 
 DOCUMENTS_BASE = Path("documents")
 
-VALID_TOPICS = {"graduation", "schedule", "leave", "campus", "scholarship", "general"}
+VALID_TOPICS = {"graduation", "schedule", "leave", "campus", "scholarship", "special_credit", "absence"}
 TOPIC_LABELS = {
     "graduation":  "졸업요건",
     "schedule":    "학사일정",
     "leave":       "휴학/복학",
     "campus":      "캠퍼스/시설",
     "scholarship": "장학금",
-    "general":     "일반",
+    "special_credit": "특별학점",
+    "absence":        "공결서류"
 }
 
 ALLOWED_EXTENSIONS = {

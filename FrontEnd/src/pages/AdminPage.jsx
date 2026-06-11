@@ -695,7 +695,8 @@ export default function AdminPage() {
                 <option value="leave">휴학/복학</option>
                 <option value="campus">캠퍼스/시설</option>
                 <option value="scholarship">장학금</option>
-                <option value="general">일반</option>
+                <option value="special_credit">특별학점</option>
+                <option value="absence">공결 서류</option>
               </select>
             </div>
 

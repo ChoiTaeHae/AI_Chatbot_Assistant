@@ -92,7 +92,7 @@ class GraduationService:
     async def _search_rag(self, question: str) -> str:
         """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
         loop = asyncio.get_event_loop()
-        context = await loop.run_in_executor(None, rag_service.search_context, question)
+        context = await loop.run_in_executor(None, rag_service.search_context, question, "graduation")
         if context:
             return context[:500]
         return "관련 공식 문서를 찾지 못했습니다."
