@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.intent import IntentType
 from app.agents.topic_router import topic_router
+from app.models.DB_Table import ChatLog
 from app.services.chat_service import chat_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
@@ -82,6 +83,7 @@ class SchoolAgent:
         # 1단계: 키워드 기반 캠퍼스 분류 (빠름, 0ms)
         if _is_campus_question(question):
             print("[Agent] 키워드 분류 → CAMPUS")
+            await self._log(db, student_id, "campus")
             return await self._handle_campus(question)
 
         # 2단계: 임베딩 기반 topic 분류
@@ -100,7 +102,12 @@ class SchoolAgent:
 
         # 3단계: 인텐트에 따른 서비스 라우팅 및 답변 생성
         if intent == IntentType.CAMPUS:
+            await self._log(db, student_id, "campus")
             return await self._handle_campus(question)
+
+        # RAG_GENERAL은 세부 topic으로 기록
+        log_intent = _resolve_topic(question) if intent == IntentType.RAG_GENERAL else intent.value
+        await self._log(db, student_id, log_intent)
 
         answer = await self._dispatch(
             intent=intent,
@@ -114,8 +121,16 @@ class SchoolAgent:
             file_topic = _resolve_topic(question)
             return self._with_file_offer(answer, file_topic)
 
-        # RAG_GENERAL이 아닌 경우 기본 intent.value로 파일 제안 시도
         return self._with_file_offer(answer, intent.value)
+
+    # ───────────────── 로그 ─────────────────
+
+    async def _log(self, db: AsyncSession, student_id: int | None, intent: str) -> None:
+        try:
+            db.add(ChatLog(student_id=student_id, intent=intent))
+            await db.commit()
+        except Exception as e:
+            print(f"[Agent] 채팅 로그 저장 실패 (무시): {e}")
 
     # ───────────────── 파일 관련 ─────────────────
 

@@ -4,7 +4,7 @@ import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
 import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus } from '../api/admins/documents'
-import { fetchDashboard, fetchStats } from '../api/admins/stats'
+import { fetchDashboard, fetchStats, fetchChatStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
 import { fetchFiles, uploadFile, deleteFile, downloadFile } from '../api/admins/files'
@@ -24,11 +24,6 @@ const NAV_ITEMS = [
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  )},
-  { id: 'stats', label: '사용 통계', icon: (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
     </svg>
   )},
   { id: 'security', label: '보안 및 권한', icon: (
@@ -83,13 +78,17 @@ export default function AdminPage() {
   const [category, setCategory] = useState('')
   // 대시보드
   const [dashboard, setDashboard] = useState(null)
-  // 사용 통계
+  // DB 현황 통계
   const [stats, setStats] = useState(null)
+  // 채팅 사용 통계
+  const [chatStats, setChatStats] = useState(null)
   // 서비스 설정
   const [settings, setSettings] = useState(null)
   // 보안/권한
   const [users, setUsers] = useState([])
   const [roleLoading, setRoleLoading] = useState(null) // 변경 중인 user id
+  const [userPage, setUserPage] = useState(1)
+  const USERS_PER_PAGE = 10
 
   // 파일 관리
   const [files, setFiles] = useState({})           // { graduation: [{name,size,topic,label}, ...], ... }
@@ -108,8 +107,7 @@ export default function AdminPage() {
   // 탭 전환 시 해당 데이터 로드
   useEffect(() => {
     if (activeNav === 'documents') loadDocuments()
-    if (activeNav === 'dashboard') loadDashboard()
-    if (activeNav === 'stats') loadStats()
+    if (activeNav === 'dashboard') { loadDashboard(); loadStats(); loadChatStats() }
     if (activeNav === 'settings') loadSettings()
     if (activeNav === 'security') loadUsers()
     if (activeNav === 'files') loadFiles()
@@ -131,6 +129,9 @@ export default function AdminPage() {
   }
   async function loadStats() {
     try { setStats(await fetchStats()) } catch (e) { console.error(e) }
+  }
+  async function loadChatStats() {
+    try { setChatStats(await fetchChatStats()) } catch (e) { console.error(e) }
   }
   async function loadSettings() {
     try { setSettings(await fetchSettings()) } catch (e) { console.error(e) }
@@ -406,58 +407,146 @@ export default function AdminPage() {
 
           {/* 대시보드 */}
           {activeNav === 'dashboard' && (
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '24px' }}>
-              <h2 className="text-base font-black text-[#05263d]">대시보드 요약</h2>
-              {!dashboard ? (
-                <p className="text-slate-400 text-sm">불러오는 중...</p>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    {[
-                      { label: '등록 문서 수', value: `${dashboard.total_documents}건`, color: 'bg-blue-50 text-blue-700' },
-                      { label: '총 청크 수', value: `${dashboard.total_chunks}개`, color: 'bg-emerald-50 text-emerald-700' },
-                      { label: '모델 상태', value: dashboard.model_status === 'loaded' ? '로드됨' : '미로드', color: dashboard.model_status === 'loaded' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700' },
-                      { label: 'DEV MODE', value: dashboard.dev_mode ? 'ON' : 'OFF', color: dashboard.dev_mode ? 'bg-yellow-50 text-yellow-700' : 'bg-slate-50 text-slate-600' },
-                    ].map(({ label, value, color }) => (
-                      <div key={label} className={`rounded-xl p-5 ${color}`}>
-                        <p className="text-xs font-semibold opacity-70 mb-1">{label}</p>
-                        <p className="text-2xl font-black">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <p className="text-xs font-bold text-slate-500 mb-1">모델 경로</p>
-                    <p className="text-sm text-slate-700 font-mono">{dashboard.model_path}</p>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+            <div className="flex-1 flex flex-col overflow-y-auto" style={{ gap: '20px' }}>
 
-          {/* 사용 통계 */}
-          {activeNav === 'stats' && (
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '24px' }}>
-              <h2 className="text-base font-black text-[#05263d]">사용 통계</h2>
-              {!stats ? (
-                <p className="text-slate-400 text-sm">불러오는 중...</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { label: '전체 학생 수', value: `${stats.total_students}명`, icon: '🎓' },
-                    { label: '학과 수', value: `${stats.total_departments}개`, icon: '🏫' },
-                    { label: '과목 수', value: `${stats.total_courses}개`, icon: '📚' },
-                    { label: '관리자 수', value: `${stats.total_admins}명`, icon: '🔑' },
-                  ].map(({ label, value, icon }) => (
-                    <div key={label} className="bg-slate-50 rounded-xl p-5 flex items-center" style={{ gap: '16px' }}>
-                      <span className="text-3xl">{icon}</span>
-                      <div>
-                        <p className="text-xs font-semibold text-slate-500">{label}</p>
-                        <p className="text-2xl font-black text-[#05263d]">{value}</p>
+              {/* 요약 카드 행 */}
+              <div className="grid grid-cols-4 gap-4">
+                {[
+                  { label: '전체 질문 수', value: chatStats ? chatStats.total_chats.toLocaleString() : '-', sub: '누적', color: '#005956' },
+                  { label: '오늘 질문 수', value: chatStats ? chatStats.today_chats.toLocaleString() : '-', sub: '오늘', color: '#1d4ed8' },
+                  { label: '활성 학생 (7일)', value: chatStats ? chatStats.active_students_7d.toLocaleString() : '-', sub: '최근 7일', color: '#7c3aed' },
+                  { label: '전체 학생 수', value: stats ? stats.total_students.toLocaleString() : '-', sub: `관리자 ${stats?.total_admins ?? '-'}명 포함`, color: '#b45309' },
+                ].map(({ label, value, sub, color }) => (
+                  <div key={label} className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '20px 24px' }}>
+                    <p className="text-xs font-semibold text-slate-400" style={{ marginBottom: '8px' }}>{label}</p>
+                    <p className="text-3xl font-black" style={{ color, marginBottom: '6px' }}>{value}</p>
+                    <p className="text-xs text-slate-400">{sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* 그래프 행 */}
+              <div className="grid grid-cols-2 gap-4">
+
+                {/* 일별 질문 수 바 차트 */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '20px' }}>최근 7일 질문 수</p>
+                  {!chatStats ? (
+                    <p className="text-slate-400 text-sm">불러오는 중...</p>
+                  ) : (() => {
+                    const data = chatStats.daily_counts
+                    const max = Math.max(...data.map(d => d.count), 1)
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', height: '130px', gap: '10px', padding: '0 4px' }}>
+                        {data.map(d => (
+                          <div key={d.date} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: '5px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#475569', minHeight: '16px' }}>{d.count > 0 ? d.count : ''}</span>
+                            <div style={{
+                              width: '100%',
+                              borderRadius: '5px 5px 0 0',
+                              height: `${Math.max((d.count / max) * 88, d.count > 0 ? 6 : 2)}px`,
+                              background: d.count > 0 ? '#005956' : '#e2e8f0',
+                              transition: 'height 0.3s',
+                            }} />
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>{d.date}</span>
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })()}
                 </div>
-              )}
+
+                {/* 주제별 분포 도넛 차트 */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '20px' }}>주제별 질문 분포</p>
+                  {!chatStats || chatStats.topic_counts.length === 0 ? (
+                    <p className="text-slate-400 text-sm">아직 데이터가 없습니다</p>
+                  ) : (() => {
+                    const COLORS = ['#005956','#1d4ed8','#7c3aed','#b45309','#0891b2','#16a34a','#dc2626','#9333ea']
+                    const total = chatStats.topic_counts.reduce((s, t) => s + t.count, 0)
+                    const r = 50, cx = 68, cy = 68, stroke = 20
+                    const circumference = 2 * Math.PI * r
+                    let offset = 0
+                    const segments = chatStats.topic_counts.map((t, i) => {
+                      const dash = (t.count / total) * circumference
+                      const seg = { ...t, dash, offset, color: COLORS[i % COLORS.length] }
+                      offset += dash
+                      return seg
+                    })
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                        <svg width="136" height="136" viewBox="0 0 136 136" style={{ flexShrink: 0 }}>
+                          {segments.map((s, i) => (
+                            <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+                              stroke={s.color} strokeWidth={stroke}
+                              strokeDasharray={`${s.dash} ${circumference - s.dash}`}
+                              strokeDashoffset={-s.offset + circumference * 0.25}
+                              style={{ transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` }}
+                            />
+                          ))}
+                          <text x={cx} y={cy - 7} textAnchor="middle" fontSize="17" fontWeight="900" fill="#05263d">{total}</text>
+                          <text x={cx} y={cy + 11} textAnchor="middle" fontSize="10" fill="#94a3b8">전체</text>
+                        </svg>
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '7px' }}>
+                          {segments.map((s, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: '12px', color: '#475569' }}>{s.label}</span>
+                              </div>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b' }}>{s.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+
+              {/* 시스템 상태 + DB 현황 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '18px' }}>시스템 상태</p>
+                  {!dashboard ? <p className="text-slate-400 text-sm">불러오는 중...</p> : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {[
+                        { label: 'RAG 문서', value: `${dashboard.total_documents}건 / ${dashboard.total_chunks}청크` },
+                        { label: '모델 상태', value: dashboard.model_status === 'loaded' ? '✅ 로드됨' : '❌ 미로드' },
+                        { label: 'DEV MODE', value: dashboard.dev_mode ? '⚠️ ON' : 'OFF' },
+                        { label: '모델 경로', value: dashboard.model_path },
+                      ].map(({ label, value }) => (
+                        <div key={label} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '10px', gap: '12px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', flexShrink: 0, width: '80px' }}>{label}</span>
+                          <span style={{ fontSize: '12px', color: '#334155', fontFamily: 'monospace', textAlign: 'right', wordBreak: 'break-all' }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '18px' }}>DB 현황</p>
+                  {!stats ? <p className="text-slate-400 text-sm">불러오는 중...</p> : (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      {[
+                        { label: '전체 학생', value: stats.total_students, unit: '명' },
+                        { label: '관리자', value: stats.total_admins, unit: '명' },
+                        { label: '학과', value: stats.total_departments, unit: '개' },
+                        { label: '과목', value: stats.total_courses, unit: '개' },
+                      ].map(({ label, value, unit }) => (
+                        <div key={label} style={{ background: '#f8fafc', borderRadius: '12px', padding: '14px 16px' }}>
+                          <p style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>{label}</p>
+                          <p style={{ fontSize: '22px', fontWeight: 900, color: '#05263d' }}>
+                            {value.toLocaleString()}
+                            <span style={{ fontSize: '11px', fontWeight: 400, color: '#94a3b8', marginLeft: '4px' }}>{unit}</span>
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -494,49 +583,98 @@ export default function AdminPage() {
               <h2 className="text-base font-black text-[#05263d]">보안 및 권한 관리</h2>
               {users.length === 0 ? (
                 <p className="text-slate-400 text-sm">불러오는 중...</p>
-              ) : (
-                <div className="overflow-y-auto">
-                  <table className="w-full text-sm table-fixed">
-                    <colgroup>
-                      <col style={{ width: '15%' }} />
-                      <col style={{ width: '20%' }} />
-                      <col style={{ width: '25%' }} />
-                      <col style={{ width: '20%' }} />
-                      <col style={{ width: '20%' }} />
-                    </colgroup>
-                    <thead>
-                      <tr className="border-b border-slate-100">
-                        {['학번', '이름', '학과', '현재 권한', '권한 변경'].map(h => (
-                          <th key={h} className="text-left text-xs font-bold text-slate-500 whitespace-nowrap" style={{ padding: '10px 12px' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map(u => (
-                        <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
-                          <td className="font-mono text-xs text-slate-600" style={{ padding: '12px' }}>{u.student_no}</td>
-                          <td className="font-medium text-slate-700" style={{ padding: '12px' }}>{u.name}</td>
-                          <td className="text-slate-500 text-xs truncate" style={{ padding: '12px' }}>{u.department}</td>
-                          <td style={{ padding: '12px' }}>
-                            <span className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-500'}`}>
-                              {u.role === 'admin' ? '관리자' : '학생'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '12px' }}>
-                            <button
-                              onClick={() => handleRoleChange(u.id, u.role === 'admin' ? 'student' : 'admin')}
-                              disabled={roleLoading === u.id}
-                              className="text-xs font-bold border border-slate-200 hover:border-[#005956] hover:text-[#005956] text-slate-500 transition disabled:opacity-40 rounded-lg px-3 py-1"
-                            >
-                              {roleLoading === u.id ? '변경 중...' : u.role === 'admin' ? '학생으로 변경' : '관리자로 변경'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              ) : (() => {
+                const totalPages = Math.ceil(users.length / USERS_PER_PAGE)
+                const pageUsers = users.slice((userPage - 1) * USERS_PER_PAGE, userPage * USERS_PER_PAGE)
+                return (
+                  <>
+                    <div className="overflow-y-auto">
+                      <table className="w-full text-sm table-fixed">
+                        <colgroup>
+                          <col style={{ width: '15%' }} />
+                          <col style={{ width: '20%' }} />
+                          <col style={{ width: '25%' }} />
+                          <col style={{ width: '20%' }} />
+                          <col style={{ width: '20%' }} />
+                        </colgroup>
+                        <thead>
+                          <tr className="border-b border-slate-100">
+                            {['학번', '이름', '학과', '현재 권한', '권한 변경'].map(h => (
+                              <th key={h} className="text-left text-xs font-bold text-slate-500 whitespace-nowrap" style={{ padding: '10px 12px' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pageUsers.map(u => (
+                            <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
+                              <td className="font-mono text-xs text-slate-600" style={{ padding: '12px' }}>{u.student_no}</td>
+                              <td className="font-medium text-slate-700" style={{ padding: '12px' }}>{u.name}</td>
+                              <td className="text-slate-500 text-xs truncate" style={{ padding: '12px' }}>{u.department}</td>
+                              <td style={{ padding: '12px' }}>
+                                <span className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-500'}`}>
+                                  {u.role === 'admin' ? '관리자' : '학생'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                <button
+                                  onClick={() => handleRoleChange(u.id, u.role === 'admin' ? 'student' : 'admin')}
+                                  disabled={roleLoading === u.id}
+                                  className="text-xs font-bold border border-slate-200 hover:border-[#005956] hover:text-[#005956] text-slate-500 transition disabled:opacity-40 rounded-lg px-3 py-1"
+                                >
+                                  {roleLoading === u.id ? '변경 중...' : u.role === 'admin' ? '학생으로 변경' : '관리자로 변경'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* 페이지네이션 */}
+                    <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100" style={{ paddingTop: '16px' }}>
+                      <span>총 {users.length}명</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setUserPage(p => p - 1)}
+                          disabled={userPage === 1}
+                          className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                          .filter(p => p === 1 || p === totalPages || Math.abs(p - userPage) <= 1)
+                          .reduce((acc, p, idx, arr) => {
+                            if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...')
+                            acc.push(p)
+                            return acc
+                          }, [])
+                          .map((p, idx) =>
+                            p === '...' ? (
+                              <span key={`dots-${idx}`} className="w-7 h-7 flex items-center justify-center text-xs text-slate-400">…</span>
+                            ) : (
+                              <button
+                                key={p}
+                                onClick={() => setUserPage(p)}
+                                className={`w-7 h-7 rounded-lg text-xs font-bold transition ${userPage === p ? 'bg-[#005956] text-white' : 'border border-slate-200 hover:bg-slate-50'}`}
+                              >{p}</button>
+                            )
+                          )}
+                        <button
+                          onClick={() => setUserPage(p => p + 1)}
+                          disabled={userPage === totalPages}
+                          className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           )}
 
