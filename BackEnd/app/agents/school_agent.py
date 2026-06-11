@@ -85,21 +85,20 @@ class SchoolAgent:
             return await self._handle_campus(question)
 
         # 2단계: 임베딩 기반 topic 분류
-        print("[Agent] 임베딩 기반 topic 분류 시작")
-
+        print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
         loop = asyncio.get_event_loop()
-
-        intent = await loop.run_in_executor(
-            None,
-            topic_router.route,
-            question,
-        )
+        try:
+            intent = await loop.run_in_executor(None, topic_router.route, question)
+        except Exception as e:
+            print(f"[Agent] topic 라우터 실패 (무시): {e}")
+            intent = None
 
         if intent is None:
             intent = IntentType.GENERAL
 
         print(f"[Agent] 최종 intent → {intent}")
 
+        # 3단계: 인텐트에 따른 서비스 라우팅 및 답변 생성
         if intent == IntentType.CAMPUS:
             return await self._handle_campus(question)
 
@@ -110,21 +109,12 @@ class SchoolAgent:
             db=db,
         )
 
-
-        # 2단계: 임베딩 기반 topic 분류
-        print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
-        loop = asyncio.get_event_loop()
-        try:
-            routed = await loop.run_in_executor(None, topic_router.route, question)
-        except Exception as e:
-            print(f"[Agent] topic 라우터 실패 (무시): {e}")
-            routed = None
-
+        # 4단계: 결과물 포장 및 파일 제안(Offer) 추가
         if intent == IntentType.RAG_GENERAL:
             file_topic = _resolve_topic(question)
             return self._with_file_offer(answer, file_topic)
 
-
+        # RAG_GENERAL이 아닌 경우 기본 intent.value로 파일 제안 시도
         return self._with_file_offer(answer, intent.value)
 
     # ───────────────── 파일 관련 ─────────────────
