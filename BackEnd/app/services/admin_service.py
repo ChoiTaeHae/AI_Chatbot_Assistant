@@ -33,7 +33,7 @@ from app.schemas.admins import (
 
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
-VALID_TOPICS        = {"graduation", "schedule", "leave", "campus", "scholarship", "general"}
+VALID_TOPICS        = {"graduation", "schedule", "leave", "campus", "scholarship", "dormitory", "course_registration", "special_credit", "grades", "school_rules", "general"}
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 VALID_ROLES         = {"student", "admin"}
 
@@ -117,6 +117,8 @@ class AdminService:
             "dormitory":           "기숙사",
             "course_registration": "수강신청",
             "special_credit":      "특별학점",
+            "grades":              "성적",
+            "school_rules":        "학칙/규정",
             "general":             "일반",
         }
         topic_rows = await db.execute(
