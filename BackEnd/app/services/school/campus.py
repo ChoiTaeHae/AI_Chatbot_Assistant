@@ -252,17 +252,10 @@ async def _search_kakao_place(building: Building) -> dict | None:
         if not data:
             continue
         documents = data.get("documents", [])
-        if not documents:
-            continue
 
-        # DB의 place_url ID와 일치하는 결과 우선 반환
-        if target_id:
-            for doc in documents:
-                if target_id in doc.get("place_url", ""):
-                    return doc
-
-        # 일치하는 결과 없으면 첫 번째 반환
-        return documents[0]
+        for doc in documents:
+            if target_id and target_id in doc.get("place_url", ""):
+                return doc
 
     return None
 

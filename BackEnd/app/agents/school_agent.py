@@ -1,4 +1,5 @@
 import asyncio
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +13,30 @@ from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
 
 campus_service = CampusService()
+
+# ── 캠퍼스 키워드 분류 (classifier.py 역할) ──────────────────
+_CAMPUS_KEYWORDS = [
+    "건물", "위치", "캠퍼스", "강의실", "학과사무실", "도서관", "체육관", "식당", "호실", "층",
+    "우송도서관", "산학협력관", "산학관", "학군단", "유학생기숙사", "기숙사",
+    "철도물류관", "철도관", "보건의료과학관", "보건관", "교양교육관", "교양관",
+    "우송관", "우송유치원", "유치원", "정례원", "사회복지융합관", "사복관",
+    "서캠체육관", "SICA", "시카", "우송타워", "솔파인",
+    "Culinary Center", "컬리너리", "식품건축관", "식품관", "건축관", "우송식품건축관",
+    "학생회관", "미디어융합관", "미디어관", "우송예술회관", "예술회관",
+    "Endicott Building", "엔디콧",
+    "테크노디자인센터", "테크노관", "국제경영센터", "국제관", "학술정보관",
+    "대학본부", "자립관", "청솔관", "단정관", "독행관",
+    "크로톤빌센터", "크로톤빌", "스터디홀",
+    "어학센터", "어학원", "IT교육센터", "뷰티센터", "뷰티관", "애견센터", "오토센터",
+]
+_BUILDING_CODE_RE = re.compile(r'[WwEeSs]\d{1,2}')
+
+
+def _is_campus_question(question: str) -> bool:
+    if any(kw in question for kw in _CAMPUS_KEYWORDS):
+        return True
+    return bool(_BUILDING_CODE_RE.search(question))
+
 
 # 긍정 응답 키워드
 POSITIVE_KEYWORDS = [
@@ -48,6 +73,12 @@ class SchoolAgent:
         if pending_file and self._is_confirmation(question):
             return self._build_file_download(pending_file)
 
+        # 1단계: 키워드 기반 캠퍼스 분류 (빠름, 0ms)
+        if _is_campus_question(question):
+            print("[Agent] 키워드 분류 → CAMPUS")
+            return await self._handle_campus(question)
+
+        # 2단계: 임베딩 기반 topic 분류
         print("[Agent] 임베딩 기반 topic 분류 시작")
 
         loop = asyncio.get_event_loop()
