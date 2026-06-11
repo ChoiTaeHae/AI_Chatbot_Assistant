@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime , Boolean, Text
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime, Boolean, Text, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -143,3 +143,14 @@ class StudentCourse(Base):
     student_id = Column(Integer, ForeignKey("student.id"))
     course_code = Column(String, ForeignKey("course.code"))
     is_passed = Column(Boolean, default=True)
+
+# ==========================================
+# 12. JWT 토큰 블랙리스트 (token_blacklist)
+# ==========================================
+class TokenBlacklist(Base):
+    __tablename__ = "token_blacklist"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    jti = Column(String(36), unique=True, nullable=False, index=True)  # JWT ID
+    expires_at = Column(DateTime(timezone=True), nullable=False)        # 토큰 만료 시각
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
