@@ -10,16 +10,20 @@ from app.core.Database import AsyncSessionLocal
 from app.core.config import settings
 from app.models.DB_Table import Building, Room
 from app.services.chat_service import chat_service
+from app.language import detect_language, pick
 
 
 KAKAO_KEYWORD_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 CAMPUS_KEYWORD = "우송대학교"
 
-LOCATION_NOT_FOUND = (
-    "요청하신 위치를 찾지 못했습니다. "
-    "건물명, 학과명, 강의실 번호를 조금 더 정확하게 입력해주세요. "
-    "예: 우송도서관, 학생회관, 공학관, 401호"
-)
+
+def _location_not_found(lang: str) -> str:
+    return pick(
+        lang,
+        ko="요청하신 위치를 찾지 못했습니다. 건물명, 학과명, 강의실 번호를 조금 더 정확하게 입력해주세요. 예: 우송도서관, 학생회관, 공학관, 401호",
+        en="Could not find the location. Please enter the building name, department, or room number more precisely. e.g. Wusong Library, Student Hall, Room 401",
+        zh="未能找到该位置，请更准确地输入楼栋名称、学院名称或教室编号。",
+    )
 
 REMOVE_WORDS = [
     "어디",
@@ -306,15 +310,25 @@ def _build_map_card(building: Building, place: dict | None) -> dict:
     return map_card
 
 
-def _build_answer(building: Building, room: Room | None) -> str:
+def _build_answer(building: Building, room: Room | None, lang: str = 'ko') -> str:
     if room:
-        return f"{building.name} {room.floor}층 {room.room_no} 위치를 찾았습니다. 지도에서 건물 위치를 확인해보세요."
-
-    return f"{building.name} 위치를 찾았습니다. 지도에서 확인해보세요."
+        return pick(
+            lang,
+            ko=f"{building.name} {room.floor}층 {room.room_no} 위치를 찾았습니다. 지도에서 건물 위치를 확인해보세요.",
+            en=f"Found {building.name}, Floor {room.floor}, Room {room.room_no}. Check the map below.",
+            zh=f"已找到 {building.name} {room.floor}层 {room.room_no}室，请查看下方地图。",
+        )
+    return pick(
+        lang,
+        ko=f"{building.name} 위치를 찾았습니다. 지도에서 확인해보세요.",
+        en=f"Found {building.name}. Check the map below.",
+        zh=f"已找到 {building.name}，请查看下方地图。",
+    )
 
 
 async def answer_location_question(question: str) -> dict:
     print("[LOCATION] 위치 검색 시작")
+    lang = detect_language(question)
 
     building, room, matched_keyword = await _find_location_from_question(question)
 
@@ -322,7 +336,7 @@ async def answer_location_question(question: str) -> dict:
         return {
             "type": "location",
             "found": False,
-            "answer": LOCATION_NOT_FOUND,
+            "answer": _location_not_found(lang),
             "matched_keyword": matched_keyword,
             "target": None,
             "map_card": None,
@@ -340,7 +354,12 @@ async def answer_location_question(question: str) -> dict:
         return {
             "type": "location",
             "found": False,
-            "answer": f"{building.name} 위치 정보를 가져오지 못했습니다.",
+            "answer": pick(
+                lang,
+                ko=f"{building.name} 위치 정보를 가져오지 못했습니다.",
+                en=f"Could not retrieve location information for {building.name}.",
+                zh=f"无法获取 {building.name} 的位置信息。",
+            ),
             "matched_keyword": matched_keyword,
             "target": _build_target_payload(building, room),
             "map_card": None,
@@ -349,7 +368,7 @@ async def answer_location_question(question: str) -> dict:
     return {
         "type": "location",
         "found": True,
-        "answer": _build_answer(building, room),
+        "answer": _build_answer(building, room, lang),
         "matched_keyword": matched_keyword,
         "target": _build_target_payload(building, room),
         "map_card": map_card,

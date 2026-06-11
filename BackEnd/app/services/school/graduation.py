@@ -10,6 +10,7 @@ from app.models.DB_Table import (
 )
 from app.services.chat_service import chat_service
 from app.services.rag_service import rag_service
+from app.language import detect_language, pick
 
 # 개인 현황 질문 키워드 (DB 조회 경로)
 _PERSONAL_KEYWORDS = ["내", "나의", "나는", "나", "제", "저의", "저는", "저", "내가", "제가", "내 졸업", "제 졸업"]
@@ -26,17 +27,18 @@ class GraduationService:
 
     async def answer_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
         """Agent가 호출하는 메인 함수 - 질문 유형에 따라 DB/RAG/둘 다 경로 선택"""
+        lang = detect_language(question)
         question_type = self._classify_question(question)
         print(f"[Graduation] 질문 유형: {question_type}")
 
         if question_type == "personal":
-            return await self._answer_from_db(question, student_id, db)
+            return await self._answer_from_db(question, student_id, db, lang)
 
         elif question_type == "document":
-            return await self._answer_from_rag(question)
+            return await self._answer_from_rag(question, lang)
 
         else:  # both
-            return await self._answer_from_db_and_rag(question, student_id, db)
+            return await self._answer_from_db_and_rag(question, student_id, db, lang)
 
     def _classify_question(self, question: str) -> str:
         """personal: 개인 현황 / document: 공식 문서 / both: 둘 다"""
@@ -53,24 +55,24 @@ class GraduationService:
     # 경로 1: 개인 현황 (DB)
     # =============================================
 
-    async def _answer_from_db(self, question: str, student_id: int, db: AsyncSession) -> str:
-        report = await self._check_graduation_status(db, student_id)
+    async def _answer_from_db(self, question: str, student_id: int, db: AsyncSession, lang: str = 'ko') -> str:
+        report = await self._check_graduation_status(db, student_id, lang)
         if "error" in report:
             return report["error"]
         context = self._build_db_context(report)
-        prompt = self._build_db_prompt(question, context)
+        prompt = self._build_db_prompt(question, context, lang)
         return await chat_service.answer(prompt)
 
     # =============================================
     # 경로 2: 공식 문서 (RAG)
     # =============================================
 
-    async def _answer_from_rag(self, question: str) -> str:
+    async def _answer_from_rag(self, question: str, lang: str = 'ko') -> str:
         import time
         t1 = time.time()
         rag_context = await self._search_rag(question)
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
-        prompt = self._build_rag_prompt(question, rag_context)
+        prompt = self._build_rag_prompt(question, rag_context, lang)
         t2 = time.time()
         result = await chat_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
@@ -80,13 +82,13 @@ class GraduationService:
     # 경로 3: 개인 현황 + 공식 문서 (DB + RAG)
     # =============================================
 
-    async def _answer_from_db_and_rag(self, question: str, student_id: int, db: AsyncSession) -> str:
+    async def _answer_from_db_and_rag(self, question: str, student_id: int, db: AsyncSession, lang: str = 'ko') -> str:
         report, rag_context = await asyncio.gather(
-            self._check_graduation_status(db, student_id),
+            self._check_graduation_status(db, student_id, lang),
             self._search_rag(question),
         )
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
-        prompt = self._build_combined_prompt(question, db_context, rag_context)
+        prompt = self._build_combined_prompt(question, db_context, rag_context, lang)
         return await chat_service.answer(prompt)
 
     async def _search_rag(self, question: str) -> str:
@@ -150,7 +152,7 @@ class GraduationService:
     # 졸업 여부 계산
     # =============================================
 
-    async def _check_graduation_status(self, db: AsyncSession, student_id: int) -> dict:
+    async def _check_graduation_status(self, db: AsyncSession, student_id: int, lang: str = 'ko') -> dict:
         """졸업 요건 충족 여부 종합 계산"""
         is_graduated = True
         insufficient_details = []
@@ -158,7 +160,11 @@ class GraduationService:
         # 학생 조회
         student = await self._get_student(db, student_id)
         if not student:
-            return {"error": "등록된 학생을 찾을 수 없습니다."}
+            return {"error": pick(lang,
+                ko="등록된 학생을 찾을 수 없습니다.",
+                en="Student not found.",
+                zh="未找到该学生信息。",
+            )}
 
         # 입학연도 추출
         try:
@@ -170,9 +176,17 @@ class GraduationService:
         # 졸업요건 조회
         req_set, rule = await self._get_requirement_rule(db, student.dept_id, admission_year)
         if not req_set:
-            return {"error": f"학과(ID: {student.dept_id}) {admission_year}년도 졸업요건이 없습니다."}
+            return {"error": pick(lang,
+                ko=f"학과(ID: {student.dept_id}) {admission_year}년도 졸업요건이 없습니다.",
+                en=f"No graduation requirements found for department (ID: {student.dept_id}), year {admission_year}.",
+                zh=f"未找到学院(ID: {student.dept_id}) {admission_year}年的毕业要求。",
+            )}
         if not rule:
-            return {"error": "졸업요건 세부 규칙이 설정되어 있지 않습니다."}
+            return {"error": pick(lang,
+                ko="졸업요건 세부 규칙이 설정되어 있지 않습니다.",
+                en="Graduation requirement details are not configured.",
+                zh="毕业要求的详细规则尚未设置。",
+            )}
 
         # 이수 학점 계산 (DB category 값: "전공필수", "교양필수")
         passed_credits = await self._get_earned_credits(db, student_id)
@@ -239,37 +253,49 @@ class GraduationService:
             f"영어 공인성적: {'취득 완료' if not report['insufficient_details'] or '영어 공인성적 미취득' not in report['insufficient_details'] else '미취득'}\n"
         )
 
-    def _build_db_prompt(self, question: str, context: str) -> str:
+    def _build_db_prompt(self, question: str, context: str, lang: str = 'ko') -> str:
         """DB 데이터 기반 프롬프트"""
+        lang_rule = pick(lang,
+            ko="한국어로 친절하고 자세하게 설명하고 부족한 부분을 명확하게 안내해주세요.",
+            en="Please respond in English, clearly explaining any missing requirements.",
+            zh="请用中文详细说明，并明确指出不足之处。",
+        )
         return (
             f"{context}\n\n"
             f"위 데이터는 DB에서 정확하게 계산된 100% 실제 데이터입니다.\n"
             f"임의로 수정하거나 추측하지 마세요.\n"
-            f"학생 질문('{question}')에 대해 위 데이터를 기반으로 "
-            f"친절하고 자세하게 설명하고 부족한 부분을 명확하게 안내해주세요."
+            f"학생 질문('{question}')에 대해 위 데이터를 기반으로 {lang_rule}"
         )
 
-    def _build_rag_prompt(self, question: str, rag_context: str) -> str:
+    def _build_rag_prompt(self, question: str, rag_context: str, lang: str = 'ko') -> str:
         """RAG 문서 기반 프롬프트"""
+        lang_rule = pick(lang,
+            ko="친절하고 명확하게 답변해주세요.",
+            en="Please respond in English clearly.",
+            zh="请用中文明确回答。",
+        )
         return (
             f"[공식 졸업 관련 문서 검색 결과]\n"
             f"{rag_context}\n\n"
             f"위 내용은 학교 공식 문서에서 검색된 자료입니다.\n"
             f"검색된 내용을 벗어난 추측은 하지 마세요.\n"
-            f"학생 질문('{question}')에 대해 위 문서를 근거로 "
-            f"친절하고 명확하게 답변해주세요."
+            f"학생 질문('{question}')에 대해 위 문서를 근거로 {lang_rule}"
         )
 
-    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str) -> str:
+    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str, lang: str = 'ko') -> str:
         """DB + RAG 데이터 통합 프롬프트"""
+        lang_rule = pick(lang,
+            ko="친절하고 자세하게 답변해주세요.",
+            en="Please respond in English with a detailed answer.",
+            zh="请用中文详细回答。",
+        )
         return (
             f"{db_context}\n\n"
             f"[공식 졸업 관련 문서 검색 결과]\n"
             f"{rag_context}\n\n"
             f"위 [졸업 요건 조회 결과]는 DB에서 계산된 실제 데이터이며, "
             f"[공식 문서]는 학교 규정집에서 검색된 내용입니다.\n"
-            f"두 정보를 모두 활용하여 학생 질문('{question}')에 대해 "
-            f"친절하고 자세하게 답변해주세요."
+            f"두 정보를 모두 활용하여 학생 질문('{question}')에 대해 {lang_rule}"
         )
 
 

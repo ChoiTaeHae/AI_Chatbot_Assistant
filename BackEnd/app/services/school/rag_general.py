@@ -2,6 +2,7 @@ import asyncio
 
 from app.services.chat_service import chat_service
 from app.services.rag_service import rag_service
+from app.language import detect_language
 
 MAX_CONTEXT_LENGTH = 1000
 
@@ -79,7 +80,7 @@ async def answer_rag_general_question(question: str) -> str:
 - 참고 문서에 있는 내용만 근거로 답변한다.
 - 문서에 없는 일정, 기간, 비용, 운영 여부는 추측하지 않는다.
 - 필요한 경우 공식 홈페이지, 대학정보시스템, 학과사무실 또는 담당 부서 확인을 안내한다.
-- 답변은 간결하고 자연스러운 한국어로 작성한다.
+- {lang_rule}
 
 [참고 문서]
 {context}

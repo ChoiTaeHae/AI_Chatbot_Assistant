@@ -1,6 +1,7 @@
 import asyncio
 from app.services.chat_service import chat_service
 from app.services.rag_service import rag_service
+from app.language import detect_language
 
 ABSENCE_KNOWLEDGE = """
 [우송대학교 공결(병결) 안내]
@@ -39,10 +40,20 @@ async def answer_absence_question(question: str) -> str:
     loop = asyncio.get_event_loop()
     context = await loop.run_in_executor(None, _search_rag, question)
     print("[ABSENCE] RAG 검색 완료, LLM 호출")
+
+    lang = detect_language(question)
+
+    if lang == 'en':
+        lang_rule = "Respond in English"
+    elif lang == 'zh':
+        lang_rule = "请用中文回答。"
+    else:
+        lang_rule = "한국어로 간결하게 답변하세요."
+
     prompt = (
         f"아래는 우송대학교 공결(병결) 관련 공식 안내 내용입니다."
         f"{context}\n\n"
-        f"위 내용을 참고하여 한국어로만 간결하게 답변하세요.\n"
+        f"위 내용을 참고하여 답변하세요. {lang_rule}\n"
         f"위 내용에 없는 정보는 각 학과의 학과사무실로 문의하시기 바랍니다."
         f"질문 : {question}"
     )

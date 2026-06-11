@@ -7,6 +7,12 @@ import { logout } from '../api/auth'
 import { useAuth } from '../store/AuthContext'
 import { useChat } from '../hooks/useChat'
 
+const LANGUAGES = [
+  { code: 'ko', label: '한국어' },
+  { code: 'en', label: 'English' },
+  { code: 'zh', label: '中文' },
+]
+
 export default function ChatPage() {
   const { messages, isLoading, send, reset } = useChat()
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -43,7 +49,25 @@ export default function ChatPage() {
             <span className="text-white font-bold text-lg">AI 어시스턴트</span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+
+            {/* 언어 선택 버튼 */}
+            <div className="flex items-center gap-1 bg-white/10 rounded-xl p-1">
+              {LANGUAGES.map(({ code, label }) => (
+                <button
+                  key={code}
+                  onClick={() => setLang(code)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                    lang === code
+                      ? 'bg-white text-[#005956]'
+                      : 'text-white/70 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            
             {/* 프로필 드롭다운 */}
             <div className="relative" ref={profileRef}>
               <button

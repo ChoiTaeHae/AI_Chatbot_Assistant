@@ -13,6 +13,8 @@ from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
 
+from app.language import detect_language, pick
+
 campus_service = CampusService()
 
 # ── 캠퍼스 키워드 분류 (classifier.py 역할) ──────────────────
@@ -70,35 +72,30 @@ class SchoolAgent:
 
     async def run(
         self,
-        question: str,
-        student_id: int,
-        db: AsyncSession,
-        pending_file: dict | None = None,
+        question,
+        student_id,
+        db,
+        pending_file = None
     ) -> AgentResult:
+        lang = detect_language(question)
 
         # 파일 제안에 대한 긍정 응답 처리
         if pending_file and self._is_confirmation(question):
-            return self._build_file_download(pending_file)
+            return self._build_file_download(pending_file, lang)
 
         # 1단계: 키워드 기반 캠퍼스 분류 (빠름, 0ms)
         if _is_campus_question(question):
             print("[Agent] 키워드 분류 → CAMPUS")
             return await self._handle_campus(question)
-
-        # 2단계: 임베딩 기반 topic 분류
-        print("[Agent] 임베딩 기반 topic 분류 시작")
-
+        
         loop = asyncio.get_event_loop()
-
         intent = await loop.run_in_executor(
             None,
             topic_router.route,
             question,
         )
-
         if intent is None:
             intent = IntentType.GENERAL
-
         print(f"[Agent] 최종 intent → {intent}")
 
         if intent == IntentType.CAMPUS:
@@ -112,21 +109,12 @@ class SchoolAgent:
         )
 
 
-        # 2단계: 임베딩 기반 topic 분류
-        print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
-        loop = asyncio.get_event_loop()
-        try:
-            routed = await loop.run_in_executor(None, topic_router.route, question)
-        except Exception as e:
-            print(f"[Agent] topic 라우터 실패 (무시): {e}")
-            routed = None
-
         if intent == IntentType.RAG_GENERAL:
             file_topic = _resolve_topic(question)
-            return self._with_file_offer(answer, file_topic)
+            return self._with_file_offer(answer, file_topic, lang)
 
 
-        return self._with_file_offer(answer, intent.value)
+        return self._with_file_offer(answer, intent.value, lang)
 
     # ───────────────── 파일 관련 ─────────────────
 
@@ -136,13 +124,18 @@ class SchoolAgent:
 
         return any(kw in text for kw in POSITIVE_KEYWORDS)
 
-    def _build_file_download(self, pending_file: dict) -> AgentResult:
+    def _build_file_download(self, pending_file: dict, lang: str = 'ko') -> AgentResult:
         topic = pending_file["topic"]
         filename = pending_file["filename"]
         stem = Path(filename).stem
 
         return AgentResult(
-            answer=f"네, {stem}을 보내드릴게요!",
+            answer=pick(
+                lang,
+                ko=f"네, {stem}을 보내드릴게요!",
+                en=f"Here is {stem} for you!",
+                zh=f"好的，为您发送 {stem}！",
+            ),
             file_download={
                 "topic": topic,
                 "filename": filename,
@@ -150,7 +143,7 @@ class SchoolAgent:
             },
         )
 
-    def _with_file_offer(self, answer: str, topic: str) -> AgentResult:
+    def _with_file_offer(self, answer: str, topic: str, lang: str = 'ko') -> AgentResult:
         from app.services.file_service import AVAILABLE_FILES
 
         files = AVAILABLE_FILES.get(topic, [])
@@ -162,7 +155,12 @@ class SchoolAgent:
         stem = Path(filename).stem
 
         return AgentResult(
-            answer=answer + f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?",
+            answer=answer + pick(
+                lang,
+                ko=f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?",
+                en=f"\n\nWould you like me to send you the **{stem}** file?",
+                zh=f"\n\n需要我为您发送 **{stem}** 文件吗？",
+            ),
             file_offer={
                 "topic": topic,
                 "filename": filename,
