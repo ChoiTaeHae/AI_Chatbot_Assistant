@@ -45,6 +45,25 @@ class StatsResponse(BaseModel):
     total_admins: int
 
 
+class DailyCount(BaseModel):
+    date: str   # "MM-DD"
+    count: int
+
+
+class TopicCount(BaseModel):
+    intent: str
+    count: int
+    label: str
+
+
+class ChatStatsResponse(BaseModel):
+    total_chats: int
+    today_chats: int
+    active_students_7d: int
+    daily_counts: list[DailyCount]     # 최근 7일 일별 질문 수
+    topic_counts: list[TopicCount]     # 주제별 질문 분포
+
+
 # ── 서비스 설정 관련 ────────────────────────────────────
 class SettingsResponse(BaseModel):
     dev_mode: bool
