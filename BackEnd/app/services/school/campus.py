@@ -46,11 +46,26 @@ REMOVE_WORDS = [
 ]
 
 
+# 건물 코드 추출 (w15가 → W15)
+_CODE_EXTRACT_RE = re.compile(r'^[WwEeSs]\d{1,2}')
+
+# 한국어 조사 제거: "크로톤빌은" → "크로톤빌", "동캠퍼스의" → "동캠퍼스"
+# 긴 조사를 먼저 배치해야 올바르게 제거됨 (에서 > 에, 으로 > 로)
+_KO_PARTICLE_RE = re.compile(
+    r'(에서|으로|이라고|이라|라고|에게|부터|까지|처럼|만큼|보다|은|는|이|가|을|를|의|에|로|와|과|도|만|요)$'
+)
+
+
 def _normalize_text(text: str) -> str:
     text = text.strip()
     text = re.sub(r"[^\w가-힣\s]", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def _strip_particles(token: str) -> str:
+    """한국어 조사를 제거한 형태 반환. 변화 없으면 원본 반환."""
+    return _KO_PARTICLE_RE.sub('', token)
 
 
 def _make_keyword_candidates(question: str) -> list[str]:
@@ -73,6 +88,13 @@ def _make_keyword_candidates(question: str) -> list[str]:
     tokens = [token for token in cleaned.split() if len(token) >= 2]
     candidates.extend(tokens)
 
+    # 조사 제거 버전도 후보에 추가
+    # 예: "크로톤빌은" → "크로톤빌", "동캠퍼스의" → "동캠퍼스"
+    for token in tokens:
+        stripped = _strip_particles(token)
+        if stripped != token and len(stripped) >= 2:
+            candidates.append(stripped)
+
     if normalized and normalized not in candidates:
         candidates.append(normalized)
 
@@ -83,7 +105,19 @@ def _make_keyword_candidates(question: str) -> list[str]:
         if candidate and candidate not in unique_candidates:
             unique_candidates.append(candidate)
 
-    return unique_candidates
+    # 건물 코드(w15, w15가 어디야 등) → 대문자 코드(W15)를 앞에 추가
+    # re.match로 토큰 앞부분에서 코드를 추출하므로 'w15가' 같은 혼합 토큰도 처리
+    result: list[str] = []
+    for c in unique_candidates:
+        m = _CODE_EXTRACT_RE.match(c)
+        if m:
+            upper = m.group().upper()   # 'w15가' → 'W15'
+            if upper not in result:
+                result.append(upper)
+        if c not in result:
+            result.append(c)
+
+    return result
 
 
 async def _extract_location_keyword(question: str) -> str | None:
@@ -200,24 +234,28 @@ def _call_kakao_keyword_api(query: str) -> dict | None:
 
 
 async def _search_kakao_place(building: Building) -> dict | None:
-    queries = []
+    # DB에 저장된 place_url에서 Kakao place ID 추출
+    # 예: https://place.map.kakao.com/17561317 → "17561317"
+    target_id = None
+    if building.place_url:
+        m = re.search(r'/(\d+)$', building.place_url)
+        if m:
+            target_id = m.group(1)
 
-    if building.address:
-        queries.append(str(building.address))
-
-    queries.append(f"{CAMPUS_KEYWORD} {building.name}")
-    queries.append(str(building.name))
+    queries = [
+        f"{CAMPUS_KEYWORD} {building.name}",  # "우송대학교 식품건축관"
+        str(building.name),                    # "식품건축관"
+    ]
 
     for query in queries:
         data = await asyncio.to_thread(_call_kakao_keyword_api, query)
-
         if not data:
             continue
-
         documents = data.get("documents", [])
 
-        if documents:
-            return documents[0]
+        for doc in documents:
+            if target_id and target_id in doc.get("place_url", ""):
+                return doc
 
     return None
 
@@ -293,14 +331,19 @@ async def answer_location_question(question: str) -> dict:
     place = await _search_kakao_place(building)
     map_card = _build_map_card(building, place)
 
-    if "latitude" not in map_card or "longitude" not in map_card:
+    # place_url이 있으면 found: True — 좌표 없어도 카카오맵 링크로 위치 확인 가능
+    # (DB에 저장된 place_url이 있는 한 항상 True)
+    has_info = bool(map_card.get("place_url") or
+                    (map_card.get("latitude") and map_card.get("longitude")))
+
+    if not has_info:
         return {
             "type": "location",
             "found": False,
-            "answer": f"{building.name} 정보는 찾았지만 지도 좌표를 가져오지 못했습니다.",
+            "answer": f"{building.name} 위치 정보를 가져오지 못했습니다.",
             "matched_keyword": matched_keyword,
             "target": _build_target_payload(building, room),
-            "map_card": map_card,
+            "map_card": None,
         }
 
     return {

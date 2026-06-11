@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, topic_router.warmup)
         print("topic 라우터 워밍업 완료 (rag_service와 임베딩 공유)")
+    
     except Exception as e:
         print(f"topic 라우터 워밍업 실패 (무시): {e}")
 

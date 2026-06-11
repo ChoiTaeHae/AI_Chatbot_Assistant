@@ -16,5 +16,9 @@ export async function login(student_no, password) {
 }
 
 export async function logout() {
-  await authFetch(`${BASE}/auth/logout`, { method: 'POST' }) // ← fetch → authFetch
+  const token = sessionStorage.getItem('wsu_token')
+  await fetch(`${BASE}/auth/logout`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
 }
