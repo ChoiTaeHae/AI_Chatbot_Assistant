@@ -1,6 +1,7 @@
 ﻿import re
 from app.agents.intent import IntentType
 
+ABSENCE_KEYWORDS     = ["공결", "공결서류", "병결", "병결서류", "출석", "출석인정","결석", "결석계", "출석 인정"]
 SPECIAL_CREDIT_KEYWORDS = ["특별학점", "학점인정", "재수강", "비교과", "자격증학점","학점취득", "특별이수", "비교과학점", "학점 인정"]
 GRADUATION_KEYWORDS  = ["졸업", "학점", "필수과목", "전공필수", "교양필수", "이수", "졸업요건", "졸업조건", "졸업학점"]
 SCHEDULE_KEYWORDS    = ["수강신청", "학사일정", "중간고사", "기말고사", "방학", "개강", "종강", "시험일정", "수업일정"]
@@ -14,6 +15,9 @@ _BUILDING_CODE_RE = re.compile(r'[WwEeSs]\d{1,2}')
 
 
 def classify_intent(question: str) -> IntentType:
+    for keyword in ABSENCE_KEYWORDS:
+        if keyword in question:
+            return IntentType.ABSENCE
     for keyword in SPECIAL_CREDIT_KEYWORDS:
         if keyword in question:
             return IntentType.SPECIAL_CREDIT

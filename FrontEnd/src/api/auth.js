@@ -1,3 +1,5 @@
+import { authFetch } from './utils'
+
 const BASE = 'http://localhost:8000/api'
 
 export async function login(student_no, password) {
@@ -14,5 +16,5 @@ export async function login(student_no, password) {
 }
 
 export async function logout() {
-  await fetch(`${BASE}/auth/logout`, { method: 'POST' })
+  await authFetch(`${BASE}/auth/logout`, { method: 'POST' }) // ← fetch → authFetch
 }

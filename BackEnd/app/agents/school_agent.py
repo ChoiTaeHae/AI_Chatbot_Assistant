@@ -15,6 +15,7 @@ from app.services.school.campus import CampusService
 from app.services.school.scholarship import answer_scholarship_question
 from app.services.school.ot import answer_ot_question
 from app.services.school.special_credit import answer_special_credit_question
+from app.services.school.absence import answer_absence_question
 
 campus_service = CampusService()
 
@@ -125,6 +126,8 @@ class SchoolAgent:
             return await answer_ot_question(question)
         elif intent == IntentType.SPECIAL_CREDIT:
             return await answer_special_credit_question(question)
+        elif intent == IntentType.ABSENCE:
+            return await answer_absence_question(question)
         # 안전망
         return await chat_service.answer(question)
 
