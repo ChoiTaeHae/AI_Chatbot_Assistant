@@ -11,6 +11,7 @@ from app.services.chat_service import chat_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
+from app.services.school.scholarship import answer_scholarship_question
 
 campus_service = CampusService()
 
@@ -56,6 +57,7 @@ class AgentResult:
     file_offer: dict | None = None
     file_download: dict | None = None
     map_card: dict | None = None
+    pending_context: dict | None = None
 
 
 class SchoolAgent:
@@ -67,11 +69,19 @@ class SchoolAgent:
         student_id: int,
         db: AsyncSession,
         pending_file: dict | None = None,
+        pending_context: dict | None = None,
     ) -> AgentResult:
 
         # 파일 제안에 대한 긍정 응답 처리
         if pending_file and self._is_confirmation(question):
             return self._build_file_download(pending_file)
+
+        # 멀티턴 장학금 대화 처리 (학점/소득분위 수집 중)
+        if pending_context and pending_context.get("type") == "scholarship":
+            answer, next_context = await answer_scholarship_question(
+                question, student_id=student_id, db=db, pending_context=pending_context
+            )
+            return AgentResult(answer=answer, pending_context=next_context)
 
         # 1단계: 키워드 기반 캠퍼스 분류 (빠름, 0ms)
         if _is_campus_question(question):
@@ -97,16 +107,22 @@ class SchoolAgent:
         if intent == IntentType.CAMPUS:
             return await self._handle_campus(question)
 
+        if intent == IntentType.RAG_GENERAL:
+            file_topic = _resolve_topic(question)
+            if file_topic == "scholarship":
+                answer, next_context = await answer_scholarship_question(
+                    question, student_id=student_id, db=db
+                )
+                return AgentResult(answer=answer, pending_context=next_context)
+            answer = await answer_rag_general_question(question)
+            return self._with_file_offer(answer, file_topic)
+
         answer = await self._dispatch(
             intent=intent,
             question=question,
             student_id=student_id,
             db=db,
         )
-
-        if intent == IntentType.RAG_GENERAL:
-            file_topic = _resolve_topic(question)
-            return self._with_file_offer(answer, file_topic)
 
         return self._with_file_offer(answer, intent.value)
 
