@@ -64,6 +64,7 @@ class QdrantVectorStore:
         source: str,
         metadata: dict | None = None,
         topic: str | None = None,
+        chunk_metas: list[dict] | None = None,  # chapter, article, path 메타데이터
     ) -> None:
         if not chunks:
             return
@@ -90,6 +91,8 @@ class QdrantVectorStore:
                     "topic": topic,
                     "chunk_index": index,
                     "text": chunk,
+                    # chapter, article, path 저장 (없으면 None)
+                    **(chunk_metas[index] if chunk_metas else {}),
                 },
             )
             for index, (chunk, embedding) in enumerate(zip(chunks, embeddings))
@@ -157,7 +160,6 @@ class QdrantVectorStore:
 
     def delete_by_source(self, source: str) -> int:
         """source 기준으로 문서 청크 전체 삭제. 삭제된 포인트 수 반환."""
-        # 삭제 전 개수 파악
         count_result = qdrant_client.count(
             collection_name=self.collection_name,
             count_filter=Filter(
@@ -193,6 +195,7 @@ class QdrantVectorStore:
                 seen[source] = {
                     "source": source,
                     "file_name": payload.get("file_name", ""),
+                    "topic": payload.get("topic", ""),
                     "chunks": 1,
                 }
             else:
