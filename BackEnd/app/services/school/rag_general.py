@@ -9,6 +9,9 @@ MAX_CONTEXT_LENGTH = 1000
 def _resolve_topic(question: str) -> str:
     question = question.lower()
 
+    if "공결" in question or "병결" in question or "결석" in question or "출석인정" in question:
+        return "absence"
+
     if "휴학" in question or "복학" in question:
         return "leave"
 
