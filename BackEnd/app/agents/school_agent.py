@@ -111,9 +111,20 @@ class SchoolAgent:
             db=db,
         )
 
+
+        # 2단계: 임베딩 기반 topic 분류
+        print("[Agent] 키워드 미매칭 → 임베딩 기반 topic 분류 시작")
+        loop = asyncio.get_event_loop()
+        try:
+            routed = await loop.run_in_executor(None, topic_router.route, question)
+        except Exception as e:
+            print(f"[Agent] topic 라우터 실패 (무시): {e}")
+            routed = None
+
         if intent == IntentType.RAG_GENERAL:
             file_topic = _resolve_topic(question)
             return self._with_file_offer(answer, file_topic)
+
 
         return self._with_file_offer(answer, intent.value)
 

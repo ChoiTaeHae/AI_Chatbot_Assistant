@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.rag.Chunking import split_by_article
+from app.rag.Chunking import smart_split
 from app.rag.Embedding import BaaiEmbedding
 from app.rag.Loader import DoclingLoader
 from app.rag.Loader.fast_loader import FastLoader
@@ -72,6 +72,20 @@ class RagService:
         if not text or not text.strip():
             return 0
 
+
+        # smart_split은 list[dict] 반환
+        # {"chunk_id", "chapter", "article", "path", "text", "embedding_text"}
+        chunk_dicts = smart_split(text)
+        if not chunk_dicts:
+            return 0
+
+        # 임베딩은 경로+텍스트가 합쳐진 embedding_text로 (문맥 보존)
+        embedding_texts = [c["embedding_text"] for c in chunk_dicts]
+        # Qdrant 저장용 원본 텍스트
+        chunk_texts = [c["text"] for c in chunk_dicts]
+
+        embeddings = self.embedding.embed_texts(embedding_texts)
+
         chunks = split_by_article(text)
         print(f"[RAG] chunk 개수: {len(chunks)}")
 
@@ -84,15 +98,29 @@ class RagService:
         print("[RAG] embedding 완료")
 
         print("[RAG] qdrant 저장 시작")
+
         self.vector_store.upsert_chunks(
-            chunks=chunks,
+            chunks=chunk_texts,
             embeddings=embeddings,
             source=source_name,
-            metadata={"file_name": path.name},
+            metadata={
+                "file_name": path.name,
+                "topic": topic,
+            },
             topic=topic,
+            chunk_metas=[
+                {
+                    "chapter": c.get("chapter"),
+                    "article": c.get("article"),
+                    "path": c.get("path"),
+                }
+                for c in chunk_dicts
+            ],
         )
+
         print("[RAG] qdrant 저장 완료")
-        return len(chunks)
+        return len(chunk_dicts)
+
 
     def search(self, question: str, limit: int | None = None, source: str | None = None, topic: str | None = None) -> list[SearchResult]:
         return self.retriever.search(question=question, limit=limit, source=source, topic=topic)

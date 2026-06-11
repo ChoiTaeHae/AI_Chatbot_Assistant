@@ -68,6 +68,7 @@ def main() -> None:
     parser.add_argument("--file", help="Single document path to ingest.")
     parser.add_argument("--dir", help="Directory path to ingest recursively.")
     parser.add_argument("--source", help="Source name stored in Qdrant payload.")
+    parser.add_argument("--topic", help="Topic tag stored in Qdrant payload.")
     args = parser.parse_args()
 
     if not args.file and not args.dir:
@@ -77,7 +78,7 @@ def main() -> None:
         parser.error("use only one of --file or --dir")
 
     if args.file:
-        ingest_file(args.file, source=args.source)
+        ingest_file(args.file, source=args.source, topic=args.topic)
         return
 
     ingest_directory(args.dir, source_prefix=args.source)
