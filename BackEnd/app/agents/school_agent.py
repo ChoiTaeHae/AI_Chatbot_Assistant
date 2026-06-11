@@ -1,4 +1,3 @@
-```python
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +9,7 @@ from app.agents.topic_router import topic_router
 from app.services.chat_service import chat_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
-from app.services.school.rag_general import answer_rag_general_question
+from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
 
 campus_service = CampusService()
 
@@ -73,6 +72,10 @@ class SchoolAgent:
             student_id=student_id,
             db=db,
         )
+
+        if intent == IntentType.RAG_GENERAL:
+            file_topic = _resolve_topic(question)
+            return self._with_file_offer(answer, file_topic)
 
         return self._with_file_offer(answer, intent.value)
 
@@ -159,4 +162,3 @@ class SchoolAgent:
 
 # 싱글톤
 school_agent = SchoolAgent()
-```
