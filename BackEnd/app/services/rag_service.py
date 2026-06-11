@@ -73,10 +73,17 @@ class RagService:
             return 0
 
         chunks = split_by_article(text)
-        if not chunks:
-            return 0
+        print(f"[RAG] chunk 개수: {len(chunks)}")
 
+        if not chunks:
+            print("[RAG] chunk 생성 실패")
+            return 0
+        
+        print("[RAG] embedding 시작")
         embeddings = self.embedding.embed_texts(chunks)
+        print("[RAG] embedding 완료")
+
+        print("[RAG] qdrant 저장 시작")
         self.vector_store.upsert_chunks(
             chunks=chunks,
             embeddings=embeddings,
@@ -84,6 +91,7 @@ class RagService:
             metadata={"file_name": path.name},
             topic=topic,
         )
+        print("[RAG] qdrant 저장 완료")
         return len(chunks)
 
     def search(self, question: str, limit: int | None = None, source: str | None = None, topic: str | None = None) -> list[SearchResult]:
