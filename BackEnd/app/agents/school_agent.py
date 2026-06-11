@@ -27,9 +27,10 @@ QUESTION_KEYWORDS  = ["어떻게", "언제", "뭐야", "뭔데", "왜", "어디"
 @dataclass
 class AgentResult:
     answer: str
-    file_offer: dict | None = None      # { topic, filename }
-    file_download: dict | None = None   # { topic, filename, url }
-    map_card: dict | None = None        # { title, address, place_url, latitude, longitude }
+    file_offer: dict | None = None       # { topic, filename }
+    file_download: dict | None = None    # { topic, filename, url }
+    map_card: dict | None = None         # { title, address, place_url, latitude, longitude }
+    pending_context: dict | None = None  # { type: "scholarship" } 멀티턴 대화 상태
 
 
 class SchoolAgent:
@@ -41,11 +42,19 @@ class SchoolAgent:
         student_id: int,
         db: AsyncSession,
         pending_file: dict | None = None,
+        pending_context: dict | None = None,
     ) -> AgentResult:
 
         # 0단계: 파일 제안에 대한 긍정 응답 처리
         if pending_file and self._is_confirmation(question):
             return self._build_file_download(pending_file)
+
+        # 0단계: 멀티턴 장학금 대화 처리 (GPA/소득분위 수집 중)
+        if pending_context and pending_context.get("type") == "scholarship":
+            answer, next_context = await answer_scholarship_question(
+                question, student_id=student_id, db=db, pending_context=pending_context
+            )
+            return AgentResult(answer=answer, pending_context=next_context)
 
         # 1단계: 키워드 매칭 (빠름, 0ms)
         intent = classify_intent(question)
@@ -53,6 +62,10 @@ class SchoolAgent:
 
         if intent == IntentType.CAMPUS:
             return await self._handle_campus(question)
+
+        if intent == IntentType.SCHOLARSHIP:
+            answer, next_context = await answer_scholarship_question(question, student_id=student_id, db=db)
+            return AgentResult(answer=answer, pending_context=next_context)
 
         if intent != IntentType.GENERAL:
             answer = await self._dispatch(intent, question, student_id, db)
@@ -67,6 +80,9 @@ class SchoolAgent:
             print(f"[Agent] 임베딩 라우팅 → {routed}")
             if routed == IntentType.CAMPUS:
                 return await self._handle_campus(question)
+            if routed == IntentType.SCHOLARSHIP:
+                answer, next_context = await answer_scholarship_question(question, student_id=student_id, db=db)
+                return AgentResult(answer=answer, pending_context=next_context)
             answer = await self._dispatch(routed, question, student_id, db)
             return self._with_file_offer(answer, routed.value)
 
@@ -119,8 +135,6 @@ class SchoolAgent:
             return await answer_schedule_question(question)
         elif intent == IntentType.LEAVE:
             return await answer_leave_question(question)
-        elif intent == IntentType.SCHOLARSHIP:
-            return await answer_scholarship_question(question, student_id=student_id, db=db)
         elif intent == IntentType.OT:
             return await answer_ot_question(question)
         elif intent == IntentType.SPECIAL_CREDIT:

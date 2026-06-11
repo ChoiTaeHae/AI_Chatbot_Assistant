@@ -74,19 +74,25 @@ class ChatService:
             inputs = self.tokenizer(text, return_tensors="pt")
             inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
             input_ids = inputs["input_ids"]
-
+            attention_mask = inputs["attention_mask"]  # ← 이 줄 추가
+            
             device = self.model.device
             print(f"[LLM] 디바이스: {device} | 입력 토큰: {input_ids.shape[-1]}")
 
+            #test GPU 캐시 비우기
+            torch.cuda.empty_cache()
             t1 = time.time()
             with torch.no_grad():
                 output_ids = self.model.generate(
                     input_ids,
+                    attention_mask=attention_mask,   # ← 추가 (74번 줄에서 꺼낸 값)
+
                     max_new_tokens=512,
 
                     temperature=0.3,
                     do_sample=True,
                     top_p=0.9,
+                    repetition_penalty=1.2,         # ← 추가
 
                     pad_token_id=self.tokenizer.eos_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
