@@ -13,6 +13,12 @@ const LANGUAGES = [
   { code: 'zh', label: '中文' },
 ]
 
+const T = {
+  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', logout: '로그아웃' },
+  en: { title: 'AI Assistant',   admin: 'Admin Page',    logout: 'Logout'    },
+  zh: { title: 'AI助手',          admin: '管理员页面',      logout: '退出登录'   },
+}
+
 export default function ChatPage() {
   const [lang, setLang] = useState('ko')
   const { messages, isLoading, send, reset } = useChat(lang)
@@ -47,27 +53,24 @@ export default function ChatPage() {
         <header className="shrink-0 bg-[#005956] flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>
           <div className="flex items-center gap-3">
             <MascotAvatar className="h-13 w-13 object-contain" />
-            <span className="text-white font-bold text-lg">AI 어시스턴트</span>
+            <span className="text-white font-bold text-lg">{T[lang].title}</span>
           </div>
 
           <div className="flex items-center gap-3">
 
-            {/* 언어 선택 버튼 */}
-            <div className="flex items-center gap-1 bg-white/10 rounded-xl p-1">
+            {/* 언어 선택 드롭다운 */}
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              className="text-xs font-semibold bg-white/10 text-white border border-white/20 rounded-lg outline-none cursor-pointer hover:bg-white/20 transition"
+              style={{ padding: '5px 8px' }}
+            >
               {LANGUAGES.map(({ code, label }) => (
-                <button
-                  key={code}
-                  onClick={() => setLang(code)}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                    lang === code
-                      ? 'bg-white text-[#005956]'
-                      : 'text-white/70 hover:text-white'
-                  }`}
-                >
+                <option key={code} value={code} className="text-slate-800 bg-white">
                   {label}
-                </button>
+                </option>
               ))}
-            </div>
+            </select>
             
             {/* 프로필 드롭다운 */}
              <div className="relative" ref={profileRef}>
@@ -102,7 +105,7 @@ export default function ChatPage() {
                       <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0H3" />
                       </svg>
-                      관리자 페이지
+                      {T[lang].admin}
                     </button>
                   )}
 
@@ -115,7 +118,7 @@ export default function ChatPage() {
                     <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
                     </svg>
-                    로그아웃
+                    {T[lang].logout}
                   </button>
                 </div>
               )}
@@ -124,8 +127,8 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 flex flex-col min-h-0">
-          <ChatWindow messages={messages} isLoading={isLoading} />
-          <ChatInput onSend={send} disabled={isLoading} />
+          <ChatWindow messages={messages} isLoading={isLoading} lang={lang} />
+          <ChatInput onSend={send} disabled={isLoading} lang={lang} />
         </div>
       </div>
     </main>

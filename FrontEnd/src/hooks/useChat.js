@@ -5,6 +5,12 @@ function getTime() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
+const ERR = {
+  ko: '오류가 발생했습니다',
+  en: 'An error occurred',
+  zh: '发生了错误',
+}
+
 export function useChat(lang = 'ko') {
   const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
@@ -49,7 +55,7 @@ export function useChat(lang = 'ko') {
       const errMsg = {
         id: Date.now() + 1,
         role: 'ai',
-        content: `오류가 발생했습니다: ${err.message}`,
+        content: `${ERR[lang]}: ${err.message}`,
         time: getTime(),
       }
       setMessages((prev) => [...prev, errMsg])
