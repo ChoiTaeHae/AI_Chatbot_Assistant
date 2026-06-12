@@ -1,4 +1,7 @@
-﻿import uvicorn
+﻿import sys
+sys.dont_write_bytecode = True
+
+import uvicorn
 
 from app.server import create_app
 

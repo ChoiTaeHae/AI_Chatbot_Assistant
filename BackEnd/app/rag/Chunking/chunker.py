@@ -222,3 +222,20 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
         start = next_start
 
     return chunks
+
+
+def split_by_length(
+    text: str,
+    chunk_size: int = 800,
+    overlap: int = 120,
+) -> list[str]:
+    chunks = _build_chunks(
+        text=text,
+        chapter=None,
+        article=None,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        min_length=1,
+    )
+
+    return [chunk["text"] for chunk in chunks]

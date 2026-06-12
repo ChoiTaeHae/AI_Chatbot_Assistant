@@ -227,7 +227,6 @@ export default function AdminPage() {
         setSelectedFile(null)
         setDocTitle('')
         setTopic('')
-        setTags([])
         await loadDocuments()
       } else {
         setUploadMsg({ type: 'error', text: final.message || 'RAG 처리 중 오류가 발생했습니다.' })
@@ -678,6 +677,7 @@ export default function AdminPage() {
                 <h2 className="text-base font-black text-[#05263d]">새 문서 업로드</h2>
                 <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD</p>
               </div>
+              <div className="flex flex-col" style={{ gap: '8px' }}>
               <div className="flex items-end" style={{ gap: '12px' }}>
 
                 {/* 파일 드롭 영역 */}
@@ -741,50 +741,52 @@ export default function AdminPage() {
                   </select>
                 </div>
 
-                {/* 버튼 + 메시지 */}
-                <div className="flex flex-col items-end shrink-0" style={{ gap: '6px' }}>
-                  <div className="flex" style={{ gap: '8px', alignItems: 'flex-end' }}>
-                    <button
-                      onClick={handleUpload}
-                      disabled={uploading || !selectedFile}
-                      className="flex items-center justify-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      style={{ gap: '6px', borderRadius: '8px', padding: '10px 18px' }}
-                    >
-                      {uploading ? (
-                        <>
-                          <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          업로드 중...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                          </svg>
-                          RAG 지식 추가
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => { setSelectedFile(null); setDocTitle(''); setUploadMsg(null) }}
-                      className="border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition"
-                      style={{ borderRadius: '8px', padding: '10px 14px' }}
-                    >
-                      취소
-                    </button>
-                  </div>
-                  {uploadMsg && (
-                    <p className={`text-xs font-medium ${
-                      uploadMsg.type === 'success' ? 'text-[#005956]' :
-                      uploadMsg.type === 'info' ? 'text-blue-500' :
-                      'text-red-500'
-                    }`}>
-                      {uploadMsg.type === 'info' && '⏳ '}{uploadMsg.text}
-                    </p>
-                  )}
+                {/* 버튼 */}
+                <div className="flex shrink-0" style={{ gap: '8px', alignItems: 'flex-end' }}>
+                  <button
+                    onClick={handleUpload}
+                    disabled={uploading || !selectedFile}
+                    className="flex items-center justify-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ gap: '6px', borderRadius: '8px', padding: '10px 18px' }}
+                  >
+                    {uploading ? (
+                      <>
+                        <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        업로드 중...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                        RAG 지식 추가
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => { setSelectedFile(null); setDocTitle(''); setUploadMsg(null) }}
+                    className="border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition"
+                    style={{ borderRadius: '8px', padding: '10px 14px' }}
+                  >
+                    취소
+                  </button>
                 </div>
+
+              </div>
+
+              {/* 업로드 결과 메시지 — 행 아래 별도 표시 */}
+              {uploadMsg && (
+                <p className={`text-xs font-medium truncate ${
+                  uploadMsg.type === 'success' ? 'text-[#005956]' :
+                  uploadMsg.type === 'info'    ? 'text-blue-500' :
+                  'text-red-500'
+                }`} title={uploadMsg.text}>
+                  {uploadMsg.type === 'info' && '⏳ '}{uploadMsg.text}
+                </p>
+              )}
 
               </div>
             </div>

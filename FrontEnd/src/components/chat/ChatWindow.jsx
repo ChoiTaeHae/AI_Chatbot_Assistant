@@ -3,7 +3,13 @@ import MessageBubble from './MessageBubble'
 import LoadingDots from '../common/LoadingDots'
 import MascotAvatar from '../common/MascotAvatar'
 
-export default function ChatWindow({ messages, isLoading }) {
+const T = {
+  ko: { greeting: '안녕하세요! 무엇을 도와드릴까요? 👋', subtitle: '학사 관련 질문을 입력하면 AI가 답변해드립니다.' },
+  en: { greeting: 'Hello! How can I help you? 👋',       subtitle: 'Ask any academic questions and the AI will answer.' },
+  zh: { greeting: '你好！有什么可以帮您？👋',                subtitle: '请输入与学业相관的问题，AI将为您解答。' },
+}
+
+export default function ChatWindow({ messages, isLoading, lang = 'ko' }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -17,10 +23,10 @@ export default function ChatWindow({ messages, isLoading }) {
         {/* 웰컴 헤더 (말풍선 밖으로 뺌) */}
         <div className="mb-12 mt-4 px-4">
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            안녕하세요! 무엇을 도와드릴까요? 👋
+            {T[lang].greeting}
           </h2>
           <p className="mt-3 text-base text-slate-500">
-            학사 관련 질문을 입력하면 AI가 답변해드립니다.
+            {T[lang].subtitle}
           </p>
         </div>
 
