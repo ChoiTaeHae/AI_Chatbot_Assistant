@@ -63,6 +63,7 @@ class QdrantVectorStore:
             field_schema=models.PayloadSchemaType.KEYWORD,
         )
         
+        # topic도 나중을 위해 만듦
         qdrant_client.create_payload_index(
             collection_name=self.collection_name,
             field_name="topic",
