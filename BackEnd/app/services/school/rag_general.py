@@ -16,12 +16,6 @@ def _resolve_topic(question: str) -> str:
     if "휴학" in question or "복학" in question:
         return "leave"
 
-    if "졸업" in question:
-        return "graduation"
-
-    if "장학금" in question:
-        return "scholarship"
-
     if "기숙사" in question or "생활관" in question:
         return "dormitory"
 
@@ -48,7 +42,7 @@ def _search_rag(question: str) -> str:
 
         context = rag_service.search_context(
             question,
-            topic=topic,
+            # topic=topic,
         )
 
         print("\n========== RAG CONTEXT ==========")
