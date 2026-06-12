@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, uuid5
+from qdrant_client import models
 
 from qdrant_client.models import (
     Distance,
@@ -42,7 +43,6 @@ class QdrantVectorStore:
                     distance=Distance.COSINE,
                 ),
             )
-            return
 
         collection_info = qdrant_client.get_collection(
             collection_name=self.collection_name
@@ -56,6 +56,18 @@ class QdrantVectorStore:
                 f"collection={self.collection_name}, "
                 f"existing={existing_vector_size}, current={vector_size}"
             )
+        
+        qdrant_client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="file_name",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        
+        qdrant_client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="topic",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
 
     def upsert_chunks(
         self,
