@@ -47,6 +47,23 @@ export async function fetchDocuments() {
   return res.json()
 }
 
+export async function crawlDocument(url, source = null, topic = null) {
+  const formData = new FormData()
+  formData.append('url', url)
+  if (source) formData.append('source', source)
+  if (topic) formData.append('topic', topic)
+
+  const res = await authFetch(`${BASE}/documents/crawl`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '크롤링 요청에 실패했습니다.')
+  }
+  return res.json()
+}
+
 export async function deleteDocument(source) {
   const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
     method: 'DELETE',

@@ -35,6 +35,30 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/documents/crawl", summary="URL 크롤링 및 RAG 등록")
+async def crawl_document(
+    url: str = Form(...),
+    source: str = Form(None),
+    topic: str = Form(None),
+):
+    try:
+        source_name = source or url
+        job_id = admin_service.submit_crawl(
+            url=url,
+            source=source_name,
+            topic=topic or None,
+        )
+        return {
+            "success": True,
+            "job_id": job_id,
+            "source": source_name,
+            "topic": topic,
+            "message": "크롤링 시작. 백그라운드에서 처리 중입니다.",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/documents/status/{job_id}", summary="업로드 처리 상태 확인")
 async def get_upload_status(job_id: str):
     try:
