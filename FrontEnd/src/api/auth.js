@@ -1,3 +1,5 @@
+import { authFetch } from './utils'
+
 const BASE = 'http://localhost:8000/api'
 
 export async function login(student_no, password) {

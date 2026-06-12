@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 
 const MAX_LENGTH = 1000
 
-export default function ChatInput({ onSend, disabled }) {
+const T = {
+  ko: { placeholder: '메시지를 입력하세요...', disclaimer: 'AI의 답변은 참고용이며, 정확한 정보는 공식 문서를 확인해주세요.' },
+  en: { placeholder: 'Type a message...',     disclaimer: 'AI responses are for reference only. Please verify with official documents.' },
+  zh: { placeholder: '输入消息...',             disclaimer: 'AI回答仅供参考，请以官方文件为准。' },
+}
+
+export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
   const [text, setText] = useState('')
   const textareaRef = useRef(null)
 
@@ -37,7 +43,7 @@ export default function ChatInput({ onSend, disabled }) {
             value={text}
             onChange={(e) => setText(e.target.value.slice(0, MAX_LENGTH))}
             onKeyDown={handleKeyDown}
-            placeholder="메시지를 입력하세요..."
+            placeholder={T[lang].placeholder}
             disabled={disabled}
             rows={2}
             style={{
@@ -91,7 +97,7 @@ export default function ChatInput({ onSend, disabled }) {
           </div>
         </div>
         <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '11px', color: '#94a3b8' }}>
-          AI의 답변은 참고용이며, 정확한 정보는 공식 문서를 확인해주세요.
+          {T[lang].disclaimer}
         </p>
       </form>
     </div>
