@@ -14,7 +14,8 @@ const LANGUAGES = [
 ]
 
 export default function ChatPage() {
-  const { messages, isLoading, send, reset } = useChat()
+  const [lang, setLang] = useState('ko')
+  const { messages, isLoading, send, reset } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const profileRef = useRef(null)
   const { user, clearUser } = useAuth()
@@ -69,7 +70,7 @@ export default function ChatPage() {
             </div>
             
             {/* 프로필 드롭다운 */}
-            <div className="relative" ref={profileRef}>
+             <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setDropdownOpen(v => !v)}
                 className="flex items-center gap-2 text-white hover:bg-white/10 rounded-xl px-2 py-1.5 transition"
@@ -125,7 +126,7 @@ export default function ChatPage() {
         <div className="flex-1 flex flex-col min-h-0">
           <ChatWindow messages={messages} isLoading={isLoading} />
           <ChatInput onSend={send} disabled={isLoading} />
-        </div>      
+        </div>
       </div>
     </main>
   )
