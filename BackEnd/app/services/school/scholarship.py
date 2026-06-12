@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.chat_service import chat_service
 from app.services.rag_service import rag_service
 
-MAX_CONTEXT_LENGTH = 2000
+MAX_CONTEXT_LENGTH = 1000
 
 # 맞춤 조회 의도가 명확한 키워드 (단순 "나", "내" 같은 일반 대명사 제외)
 _ELIGIBILITY_KEYWORDS = [
@@ -13,6 +13,14 @@ _ELIGIBILITY_KEYWORDS = [
     "맞춤", "내가 받", "제가 받", "나 받", "저 받",
     "신청 가능", "신청가능", "자격 되", "자격이 되",
 ]
+
+_PROMPT_RULES = (
+    "[답변 규칙 - 반드시 준수]\n"
+    "1. 위 문서에 이름이 명시된 장학금만 언급하세요. 문서에 없는 장학금 이름은 절대 만들지 마세요.\n"
+    "2. 금액, 조건, 기준이 문서에 명확히 적혀 있을 때만 해당 내용을 답하세요.\n"
+    "3. 문서에서 확인되지 않는 내용은 '문서에서 확인되지 않습니다'라고 하세요.\n"
+    "4. 확실하지 않으면 학생처 장학팀(wsu.ac.kr) 문의를 안내하세요.\n"
+)
 
 NO_DOCS_MESSAGE = (
     "현재 장학금 관련 문서가 등록되어 있지 않습니다.\n"
@@ -70,9 +78,8 @@ async def _rag_and_llm(question: str, gpa: float, income: int) -> str:
         f"[학생 조건]\n"
         f"- 학점(GPA): {gpa}\n"
         f"- 소득분위: {income}분위\n\n"
-        f"위 장학금 안내 문서를 참고하여, 이 학생이 받을 수 있는 장학금을 알려주세요.\n"
-        f"조건에 맞는 장학금이 없으면 없다고 답하세요.\n"
-        f"문서에 없는 내용은 추측하지 마세요.\n"
+        f"{_PROMPT_RULES}\n"
+        f"위 규칙을 지켜 이 학생이 받을 수 있는 장학금을 알려주세요.\n"
         f"질문: {question}\n답변:"
     )
     return await chat_service.answer(prompt)
@@ -154,8 +161,8 @@ async def answer_scholarship_question(
     print("[SCHOLARSHIP] RAG 검색 완료, LLM 호출")
     prompt = (
         f"[참고 문서]\n{context}\n\n"
-        f"위 내용을 바탕으로 다음 장학금 관련 질문에 정확하게 답변해주세요.\n"
-        f"문서에 없는 내용은 학생처 장학팀에 문의하도록 안내하세요.\n\n"
+        f"{_PROMPT_RULES}\n"
+        f"위 규칙을 지켜 다음 질문에 답변해주세요.\n"
         f"질문: {question}\n답변:"
     )
     return await chat_service.answer(prompt), None
