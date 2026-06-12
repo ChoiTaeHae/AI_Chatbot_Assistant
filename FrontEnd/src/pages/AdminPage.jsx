@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
-import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus } from '../api/admins/documents'
+import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus, crawlDocument } from '../api/admins/documents'
 import { fetchDashboard, fetchStats, fetchChatStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
@@ -74,6 +74,12 @@ export default function AdminPage() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [topic, setTopic] = useState('')
   const [category, setCategory] = useState('')
+  const [uploadMode, setUploadMode] = useState('document') // 'document' | 'crawl'
+  const [crawlUrl, setCrawlUrl] = useState('')
+  const [crawlSource, setCrawlSource] = useState('')
+  const [crawlTopic, setCrawlTopic] = useState('')
+  const [crawling, setCrawling] = useState(false)
+  const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
   // 대시보드
   const [dashboard, setDashboard] = useState(null)
   // DB 현황 통계
@@ -235,6 +241,41 @@ export default function AdminPage() {
       setUploadMsg({ type: 'error', text: e.message })
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function handleCrawl() {
+    if (!crawlUrl) {
+      setCrawlMsg({ type: 'error', text: 'URL을 입력해주세요.' })
+      return
+    }
+    setCrawling(true)
+    setCrawlMsg({ type: 'info', text: '크롤링 요청 중...' })
+    try {
+      const source = crawlSource || crawlUrl
+      const result = await crawlDocument(crawlUrl, source, crawlTopic || null)
+
+      setCrawlMsg({ type: 'info', text: '크롤링 및 RAG 처리 중입니다. 잠시 기다려주세요...' })
+
+      const final = await pollUploadStatus(result.job_id, (status) => {
+        if (status.status === 'processing') {
+          setCrawlMsg({ type: 'info', text: '페이지 파싱 및 임베딩 중...' })
+        }
+      })
+
+      if (final.status === 'done') {
+        setCrawlMsg({ type: 'success', text: final.message })
+        setCrawlUrl('')
+        setCrawlSource('')
+        setCrawlTopic('')
+        await loadDocuments()
+      } else {
+        setCrawlMsg({ type: 'error', text: final.message || 'RAG 처리 중 오류가 발생했습니다.' })
+      }
+    } catch (e) {
+      setCrawlMsg({ type: 'error', text: e.message })
+    } finally {
+      setCrawling(false)
     }
   }
 
@@ -671,12 +712,36 @@ export default function AdminPage() {
           {activeNav === 'documents' && (
           <div className="flex flex-col flex-1 min-h-0" style={{ gap: '16px' }}>
 
-            {/* 업로드 패널 — 가로형 */}
+            {/* 업로드 패널 */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 shrink-0" style={{ padding: '20px 24px' }}>
-              <div style={{ marginBottom: '14px' }}>
-                <h2 className="text-base font-black text-[#05263d]">새 문서 업로드</h2>
-                <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD</p>
+              {/* 헤더 행: 제목 + 탭 */}
+              <div className="flex items-center justify-between" style={{ marginBottom: '14px' }}>
+                <div>
+                  <h2 className="text-base font-black text-[#05263d]">RAG 지식 추가</h2>
+                  <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>
+                    {uploadMode === 'document' ? 'RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD' : '웹페이지를 크롤링하여 RAG 지식베이스에 추가'}
+                  </p>
+                </div>
+                <div className="flex border border-slate-200 overflow-hidden text-sm font-bold" style={{ borderRadius: '8px' }}>
+                  <button
+                    onClick={() => setUploadMode('document')}
+                    className={`transition ${uploadMode === 'document' ? 'bg-[#005956] text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                    style={{ padding: '7px 16px' }}
+                  >
+                    문서 업로드
+                  </button>
+                  <button
+                    onClick={() => setUploadMode('crawl')}
+                    className={`border-l border-slate-200 transition ${uploadMode === 'crawl' ? 'bg-[#005956] text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                    style={{ padding: '7px 16px' }}
+                  >
+                    URL 크롤링
+                  </button>
+                </div>
               </div>
+
+              {/* 문서 업로드 폼 */}
+              {uploadMode === 'document' && (
               <div className="flex flex-col" style={{ gap: '8px' }}>
               <div className="flex items-end" style={{ gap: '12px' }}>
 
@@ -777,7 +842,7 @@ export default function AdminPage() {
 
               </div>
 
-              {/* 업로드 결과 메시지 — 행 아래 별도 표시 */}
+              {/* 업로드 결과 메시지 */}
               {uploadMsg && (
                 <p className={`text-xs font-medium truncate ${
                   uploadMsg.type === 'success' ? 'text-[#005956]' :
@@ -787,8 +852,112 @@ export default function AdminPage() {
                   {uploadMsg.type === 'info' && '⏳ '}{uploadMsg.text}
                 </p>
               )}
+              </div>
+              )}
+
+              {/* URL 크롤링 폼 */}
+              {uploadMode === 'crawl' && (
+              <div className="flex flex-col" style={{ gap: '8px' }}>
+              <div className="flex items-end" style={{ gap: '12px' }}>
+
+                {/* URL 입력 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
+                  <label className="text-xs font-bold text-slate-500">크롤링 URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://..."
+                    value={crawlUrl}
+                    onChange={(e) => setCrawlUrl(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+
+                {/* 문서명 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500">문서명 (source)</label>
+                  <input
+                    type="text"
+                    placeholder="문서명을 입력하세요"
+                    value={crawlSource}
+                    onChange={(e) => setCrawlSource(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+
+                {/* 주제 분류 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500">주제 분류 (RAG 검색 필터)</label>
+                  <select
+                    value={crawlTopic}
+                    onChange={(e) => setCrawlTopic(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition bg-white w-full"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  >
+                    <option value="">선택 안 함 (전체 검색 대상)</option>
+                    <option value="graduation">졸업요건</option>
+                    <option value="schedule">학사일정</option>
+                    <option value="leave">휴학/복학</option>
+                    <option value="campus">캠퍼스/시설</option>
+                    <option value="scholarship">장학금</option>
+                    <option value="dormitory">기숙사/생활관</option>
+                    <option value="course_registration">수강신청</option>
+                    <option value="special_credit">특별학점</option>
+                    <option value="grades">성적</option>
+                    <option value="school_rules">학칙/규정</option>
+                    <option value="general">일반</option>
+                  </select>
+                </div>
+
+                {/* 버튼 */}
+                <div className="flex shrink-0" style={{ gap: '8px', alignItems: 'flex-end' }}>
+                  <button
+                    onClick={handleCrawl}
+                    disabled={crawling || !crawlUrl}
+                    className="flex items-center justify-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ gap: '6px', borderRadius: '8px', padding: '10px 18px' }}
+                  >
+                    {crawling ? (
+                      <>
+                        <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        크롤링 중...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                        </svg>
+                        크롤링 시작
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => { setCrawlUrl(''); setCrawlSource(''); setCrawlTopic(''); setCrawlMsg(null) }}
+                    className="border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition"
+                    style={{ borderRadius: '8px', padding: '10px 14px' }}
+                  >
+                    취소
+                  </button>
+                </div>
 
               </div>
+
+              {/* 크롤링 결과 메시지 */}
+              {crawlMsg && (
+                <p className={`text-xs font-medium truncate ${
+                  crawlMsg.type === 'success' ? 'text-[#005956]' :
+                  crawlMsg.type === 'info'    ? 'text-blue-500' :
+                  'text-red-500'
+                }`} title={crawlMsg.text}>
+                  {crawlMsg.type === 'info' && '⏳ '}{crawlMsg.text}
+                </p>
+              )}
+              </div>
+              )}
             </div>
 
             {/* 문서 목록 — 전체 너비 */}
