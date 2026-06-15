@@ -227,7 +227,6 @@ export default function AdminPage() {
         setSelectedFile(null)
         setDocTitle('')
         setTopic('')
-        setTags([])
         await loadDocuments()
       } else {
         setUploadMsg({ type: 'error', text: final.message || 'RAG 처리 중 오류가 발생했습니다.' })

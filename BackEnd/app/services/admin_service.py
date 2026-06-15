@@ -284,9 +284,13 @@ class AdminService:
         return job
 
     def list_documents(self) -> DocumentListResponse:
-        sources = rag_service.vector_store.list_sources()
-        items = [DocumentListItem(**s) for s in sources]
-        return DocumentListResponse(documents=items, total=len(items))
+        try:
+            sources = rag_service.vector_store.list_sources()
+            items = [DocumentListItem(**s) for s in sources]
+            return DocumentListResponse(documents=items, total=len(items))
+        except Exception as e:
+            print(f"[AdminService] list_documents 오류: {e}")
+            raise
 
     def delete_document(self, source: str) -> DocumentDeleteResponse:
         deleted = rag_service.vector_store.delete_by_source(source)
