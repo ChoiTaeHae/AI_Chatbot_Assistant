@@ -1,6 +1,3 @@
-from FlagEmbedding import FlagReranker
-
-
 class BgeReranker:
 
     def __init__(self):
@@ -9,6 +6,7 @@ class BgeReranker:
     @property
     def model(self):
         if self._model is None:
+            from FlagEmbedding import FlagReranker
             print("[Reranker] 모델 로딩")
 
             self._model = FlagReranker(
