@@ -26,7 +26,10 @@ def _resolve_topic(question: str) -> str:
 
     if "학칙" in question or "규정" in question or "규칙" in question:
         return "school_rules"
-    
+
+    if "공결" in question or "출석인정" in question:
+        return "absence"
+
     if "솔숲" in question or "오티" in question or "OT" in question or "카드" in question:
         return "student_support"
 
@@ -41,7 +44,7 @@ def _search_rag(question: str) -> str:
 
         context = rag_service.search_context(
             question,
-            # topic=topic,
+            topic=topic,
         )
 
         print("\n========== RAG CONTEXT ==========")
@@ -79,7 +82,7 @@ async def answer_rag_general_question(question: str) -> str:
 - 참고 문서에 있는 내용만 근거로 답변한다.
 - 문서에 없는 일정, 기간, 비용, 운영 여부는 추측하지 않는다.
 - 필요한 경우 공식 홈페이지, 대학정보시스템, 학과사무실 또는 담당 부서 확인을 안내한다.
-- 답변은 간결하고 자연스러운 한국어로 작성한다.
+- 답변은 상세하되 적당히 간결하고 자연스러운 한국어로 작성한다.
 
 [참고 문서]
 {context}

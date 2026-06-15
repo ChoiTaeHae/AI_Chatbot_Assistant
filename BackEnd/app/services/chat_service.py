@@ -1,9 +1,15 @@
-﻿import asyncio
+import asyncio
+import os
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+# Windows: llama-cpp-python이 CUDA DLL을 찾을 수 있도록 torch lib 경로 추가
+if sys.platform == "win32":
+    import torch as _torch
+    os.add_dll_directory(os.path.join(os.path.dirname(_torch.__file__), "lib"))
 
+from llama_cpp import Llama
 from app.core.config import settings
 
 SYSTEM_PROMPT = """당신은 우송대학교 학생들의 학교생활을 도와주는 AI 어시스턴트입니다.
@@ -18,14 +24,12 @@ SYSTEM_PROMPT = """당신은 우송대학교 학생들의 학교생활을 도와
 6. 답변은 핵심 내용을 먼저 말하고, 필요한 경우 단계별로 설명하세요.
 7. 불필요한 반복이나 장황한 설명은 피하세요."""
 
-# 전용 스레드풀 (CUDA는 단일 스레드에서 실행)
+# 전용 스레드풀 (llama-cpp는 단일 스레드에서 실행)
 _executor = ThreadPoolExecutor(max_workers=1)
-
 
 class ChatService:
     def __init__(self):
-        self.tokenizer = None
-        self.model = None
+        self.model: Llama | None = None
 
     def load_model(self):
         if settings.DEV_MODE:
@@ -33,79 +37,39 @@ class ChatService:
             return
 
         print(f"모델 로딩 중: {settings.MODEL_PATH}")
-        self.tokenizer = AutoTokenizer.from_pretrained(settings.MODEL_PATH)
-
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
+        self.model = Llama(
+            model_path=settings.MODEL_PATH,
+            n_gpu_layers=28,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
+            n_ctx=2048,
+            n_batch=512,
+            verbose=False,
         )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            settings.MODEL_PATH,
-            quantization_config=bnb_config,
-            torch_dtype=torch.float16,
-            device_map="auto"
-        )
-        self.model.eval()
-        device = next(self.model.parameters()).device
-        print(f"모델 로딩 완료! 디바이스: {device}")
+        print("모델 로딩 완료! (llama-cpp-python, GPU 28레이어)")
 
     def _generate(self, question: str) -> str:
         if settings.DEV_MODE:
             return f"[DEV_MODE] 질문 수신: {question}"
 
-        import time
         try:
             t0 = time.time()
             print("[LLM] 추론 시작")
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": question},
-            ]
 
-            text = self.tokenizer.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-                tokenize=False,
+            response = self.model.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": question},
+                ],
+                max_tokens=512,
+                temperature=0.3,
+                top_p=0.9,
+                repeat_penalty=1.2,
             )
-            inputs = self.tokenizer(text, return_tensors="pt")
-            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-            input_ids = inputs["input_ids"]
-            attention_mask = inputs["attention_mask"]  # ← 이 줄 추가
-            
-            device = self.model.device
-            print(f"[LLM] 디바이스: {device} | 입력 토큰: {input_ids.shape[-1]}")
 
-            #test GPU 캐시 비우기
-            torch.cuda.empty_cache()
-            t1 = time.time()
-            with torch.no_grad():
-                output_ids = self.model.generate(
-                    input_ids,
-                    attention_mask=attention_mask,   # ← 추가 (74번 줄에서 꺼낸 값)
-
-                    max_new_tokens=512,
-
-                    temperature=0.3,
-                    do_sample=True,
-                    top_p=0.9,
-                    repetition_penalty=1.2,         # ← 추가
-
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id,
-                )
-            t2 = time.time()
-
-            new_tokens = output_ids[0][input_ids.shape[-1]:]
-            result = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
-            print(f"[LLM] 생성 완료 | 출력 토큰: {len(new_tokens)} | 토크나이징: {t1-t0:.1f}s | 생성: {t2-t1:.1f}s")
+            result = response["choices"][0]["message"]["content"]
+            usage = response.get("usage", {})
+            print(f"[LLM] 생성 완료 | 출력 토큰: {usage.get('completion_tokens', '?')} | 생성: {time.time()-t0:.1f}s")
             return result
 
-        except torch.cuda.OutOfMemoryError:
-            torch.cuda.empty_cache()
-            print("[LLM] CUDA OOM 발생!")
-            return "죄송합니다. 서버 메모리가 부족합니다. 잠시 후 다시 시도해주세요."
         except Exception as e:
             print(f"[LLM] 추론 오류: {type(e).__name__}: {e}")
             raise
@@ -117,4 +81,3 @@ class ChatService:
 
 # 싱글톤 인스턴스
 chat_service = ChatService()
-
