@@ -1,5 +1,6 @@
 import re
 
+#region 정규식들
 # 1. 조문 감지 및 분할용 정규식
 ARTICLE_DETECT_PATTERN = re.compile(
     r"(?:^|\n)제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*\([^)]*\))?",
@@ -11,53 +12,56 @@ ARTICLE_SPLIT_PATTERN = re.compile(
 )
 
 # 2. 장 감지용 정규식
-CHAPTER_PATTERN = re.compile(r"(?:^|\n)(제\s*\d+\s*장\s+[^\n]+)", re.MULTILINE)
+CHAPTER_PATTERN = re.compile(
+    r"(?:^|\n)(제\s*\d+\s*장\s+[^\n]+)", 
+    re.MULTILINE
+)
 
 # 3. 항/호 단위(①, ②, 1., 2.) 분할용 정규식
 CLAUSE_SPLIT_PATTERN = re.compile(r"\n(?=[①-⑳]|\d+\.)")
+#endregion
 
-
-def make_chunk(
-    chunk_id: int,
-    chapter: str | None,
-    article: str | None,
-    text: str,
+def make_chunk(             # 최종 Chunk 생성기
+    chunk_id: int,          # Chunk 번호
+    chapter: str | None,    # 장 정보
+    article: str | None,    # 조 정보
+    text: str,              # 실제 정보
 ) -> dict:
-    """[피드백 3] 메타데이터 및 RAG 최적화 임베딩 텍스트 생성"""
-    path_parts = []
+    """메타데이터 및 RAG 최적화 임베딩 텍스트 생성"""
+    path_parts = []     # 빈 리스트 생성
 
-    if chapter:
-        path_parts.append(chapter)
-    if article:
-        path_parts.append(article)
+    if chapter:                     # chapter가 있으면
+        path_parts.append(chapter)  # chapter="제1장 총칙" -> ["제1장 총칙"]
+    if article:                     # article이 있으면
+        path_parts.append(article)  # article="제1조 목적" -> ["제1조 목적"]
 
-    path = " > ".join(path_parts)
+    path = " > ".join(path_parts)   # path 생성 후 리스트를 문자열로 합침 / 제1장 총칙 > 제1조 목적
 
-    return {
+    return {                   # 위의 정보 넣기
         "chunk_id": chunk_id,
         "chapter": chapter,
         "article": article,
         "path": path,
         "text": text,
-        # 벡터 DB 임베딩용 (경로와 텍스트를 합쳐서 문맥 보존)
+        # 벡터 DB 임베딩용 (경로와 텍스트를 합쳐서 문맥 보존) *****
         "embedding_text": f"{path}\n{text}" if path else text,
     }
 
 
-def smart_split(
+def smart_split(             # 실제 진입점
     text: str,
     chunk_size: int = 1200,
     overlap: int = 150,
     min_length: int = 50,
 ) -> list[dict]:
-    articles = ARTICLE_DETECT_PATTERN.findall(text)
-    total_lines = max(len(text.splitlines()), 1)
+    articles = ARTICLE_DETECT_PATTERN.findall(text)    # 정규식에 맞는 것 전부 찾음
+    total_lines = max(len(text.splitlines()), 1)       # 줄 단위 분리
     
     # 조문 비율 체크
-    if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:
-        raw_chunks = split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)
+    if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
+        raw_chunks = split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
     else:
-        raw_chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)
+        raw_chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
 
     # 최종 반환 시 make_chunk를 통과시키며 순차적으로 chunk_id 부여
     return [
@@ -70,73 +74,93 @@ def smart_split(
         for i, c in enumerate(raw_chunks)
     ]
 
-
+# 조문 단위 문서
 def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, overlap: int = 150) -> list[dict]:
     parts = ARTICLE_SPLIT_PATTERN.split(text)
 
-    if len(parts) <= 1:
-        return split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)
+    if len(parts) <= 1:     # 조문 체크 / 패턴이 없으면 parts가 1개
+        return split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)  # parts가 1개면 실행
 
-    chunks: list[dict] = []
-    current_chapter = None
+    chunks: list[dict] = []    # 최종 청크 저장 리스트
+    current_chapter = None     # 현재 장 / "제1장 총칙"을 만나면 / current_chapter="제1장 총칙"
 
-    preamble = parts[0].strip()
-    chap_matches = list(CHAPTER_PATTERN.finditer(preamble))
+    preamble = parts[0].strip()    # 첫 번째 조문 이전 내용 / 문서 제목, 개요 등
+    chap_matches = list(CHAPTER_PATTERN.finditer(preamble))    # 서론 안에 장 제목이 있으면 current_chapter에 저장
     if chap_matches:
         current_chapter = chap_matches[-1].group(1).strip()
     
-    if preamble and len(preamble) >= min_length:
+    if preamble and len(preamble) >= min_length:    # 서론이 min_length(50자) 이상이면 청크로 저장
+
+        # _build_chunks: 길이 기준으로 자르는 헬퍼 함수
         chunks.extend(_build_chunks(preamble, current_chapter, "서론", chunk_size, overlap, min_length))
 
-    for index in range(1, len(parts), 2):
-        title = parts[index].strip()
-        body = parts[index + 1] if index + 1 < len(parts) else ""
+    for index in range(1, len(parts), 2):                           # 홀수 인덱스(1, 3, 5...)만 순회 → 조문 제목들
+        title = parts[index].strip()                                # 조문 제목: "제1조(목적)"
+        body = parts[index + 1] if index + 1 < len(parts) else ""   # 조문 내용: 다음 인덱스. 마지막 조문이면 빈 문자열
 
+        # 조문 본문 안에 장 제목이 있는지 확인
+        # 예: 본문 중간에 "제2장 학사과정"이 나오면 다음 조문부터 chapter 변경
         next_chap_matches = list(CHAPTER_PATTERN.finditer(body))
-        next_chapter = current_chapter
+        next_chapter = current_chapter  # 일단 현재 장 유지
         
         if next_chap_matches:
             match = next_chap_matches[0]
-            next_chapter = match.group(1).strip()
-            body = body[:match.start()].strip()
+            next_chapter = match.group(1).strip()   # 새 장 제목 저장
+            body = body[:match.start()].strip()     # 장 제목 이전까지만 본문으로 사용
 
-        chunk_text = f"{title}\n{body}".strip()
+        chunk_text = f"{title}\n{body}".strip()     # 제목 + 본문 합치기
 
+        # min_length(50자) 미만이면 너무 짧은 조문이므로 건너뜀
         if len(chunk_text) < min_length:
             current_chapter = next_chapter
             continue
-
+        
+        # chunk_size(1200자) 초과 시 → 항/호 단위로 분할
         if len(chunk_text) > chunk_size:
-            clauses = CLAUSE_SPLIT_PATTERN.split(body)
+            clauses = CLAUSE_SPLIT_PATTERN.split(body)   # CLAUSE_SPLIT_PATTERN: ①②③ 또는 1. 2. 3. 기준으로 분리
+            # 항/호들을 chunk_size에 맞게 합치기
+            # 제목 길이(-len(title)-10)만큼 빼서 합산 후 chunk_size 초과 방지
             merged_body_chunks = _merge_fragments(clauses, chunk_size - len(title) - 10, overlap)
             
             for sub_body in merged_body_chunks:
+                # 잘린 조각에 조문 제목 + (계속) 표시로 문맥 유지
                 chunks.append({
                     "chapter": current_chapter,
                     "article": title,
                     "text": f"{title} (계속)\n{sub_body}".strip()
                 })
         else:
+            # 적당한 크기면 그대로 저장
             chunks.append({
                 "chapter": current_chapter,
                 "article": title,
                 "text": chunk_text
             })
 
+        # 다음 조문 처리 전에 chapter 업데이트
         current_chapter = next_chapter
 
     return chunks
 
 
 def split_by_paragraph(text: str, chunk_size: int = 1200, overlap: int = 150, min_length: int = 50) -> list[dict]:
+
+    # 빈 줄(\n\n 이상)을 기준으로 문단 분리
+    # 예: "문단1\n\n문단2\n\n\n문단3" → ["문단1", "문단2", "문단3"]
     paragraphs = re.split(r"\n{2,}", text)
+
+    # 분리된 문단들을 chunk_size에 맞게 합치기
+    # 너무 짧은 문단들은 합치고, 너무 긴 문단은 자름
     merged_texts = _merge_fragments(paragraphs, chunk_size, overlap)
     
     chunks = []
     for text_chunk in merged_texts:
+        # min_length(50자) 이상인 청크만 저장
+        # chapter, article은 문단 단위 문서엔 없으므로 None
         if len(text_chunk) >= min_length:
             chunks.append({"chapter": None, "article": None, "text": text_chunk})
-            
+    
+    # 문단 분리가 안 된 경우 (빈 줄이 없는 문서) → 길이 기준으로 강제 분할
     if not chunks:
         return _build_chunks(text, None, None, chunk_size, overlap, min_length)
         
@@ -145,49 +169,60 @@ def split_by_paragraph(text: str, chunk_size: int = 1200, overlap: int = 150, mi
 
 def _merge_fragments(fragments: list[str], chunk_size: int, overlap: int) -> list[str]:
     chunks = []
-    current_frags = []
-    current_len = 0
+    current_frags = []  # 현재 쌓고 있는 조각들
+    current_len = 0     # 현재 합산 길이
 
     for frag in fragments:
         frag = frag.strip()
-        if not frag: continue
+        if not frag: continue   # 빈 조각 건너뜀
 
+        # 단일 조각이 chunk_size를 초과하는 경우 (거대 문단)
         if len(frag) > chunk_size:
+            # 현재까지 쌓인 조각들 먼저 저장
             if current_frags:
                 chunks.append("\n\n".join(current_frags))
                 current_frags = []
                 current_len = 0
-            # 내부 헬퍼 함수는 임시 dict를 반환하므로 text만 추출
+            # 거대 문단은 _build_chunks로 강제 분할
+            # _build_chunks는 dict 반환하므로 text만 추출
             chunks.extend([c["text"] for c in _build_chunks(frag, None, None, chunk_size, overlap, min_length=1)])
             continue
 
+        # 현재 조각을 추가하면 chunk_size 초과 → 청크 확정
         if current_len + len(frag) + (2 if current_frags else 0) > chunk_size:
             if current_frags:
                 chunks.append("\n\n".join(current_frags))
 
+            # overlap 처리: 이전 청크의 마지막 조각들을 다음 청크 시작에 포함
+            # 단어가 잘리지 않도록 조각 단위로 overlap 적용
             overlap_frags = []
             overlap_len = 0
             for i, p in enumerate(reversed(current_frags)):
                 if i == 0:
+                     # 가장 마지막 조각은 무조건 포함
                     overlap_frags.insert(0, p)
                     overlap_len += len(p)
                     continue
                 
+                # overlap 크기 안에 들어오면 앞에 추가
                 if overlap_len + len(p) <= overlap:
                     overlap_frags.insert(0, p)
-                    overlap_len += len(p) + 2
+                    overlap_len += len(p) + 2   # \n\n 구분자 2자 포함
                 else:
-                    break
+                    break   # overlap 초과 시 중단
 
+            # overlap 조각들 + 현재 새 조각으로 다음 청크 시작
             current_frags = overlap_frags + [frag]
+            # 길이 재계산: 각 조각 길이 + 구분자(\n\n=2자) * (조각수-1)
             current_len = sum(len(p) for p in current_frags) + (len(current_frags) - 1) * 2
         else:
-            # 길이 계산 로직 오류 완벽 수정
+            # chunk_size 안에 들어오면 현재 청크에 추가
             if current_frags:
-                current_len += 2
+                current_len += 2    # \n\n 구분자 2자 추가
             current_frags.append(frag)
             current_len += len(frag)
 
+    # 루프 종료 후 마지막에 남은 조각들 저장
     if current_frags:
         chunks.append("\n\n".join(current_frags))
 
@@ -195,19 +230,24 @@ def _merge_fragments(fragments: list[str], chunk_size: int, overlap: int) -> lis
 
 
 def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_size: int, overlap: int, min_length: int) -> list[dict]:
+    # 연속 공백/줄바꿈을 스페이스 하나로 정규화
     normalized = re.sub(r"\s+", " ", text).strip()
     chunks = []
     start = 0
 
     while start < len(normalized):
         end = start + chunk_size
+
+        # 마지막 조각 처리 (남은 텍스트가 chunk_size 이하)
         if end >= len(normalized):
             chunk = normalized[start:].strip()
             if len(chunk) >= min_length:
                 chunks.append({"chapter": chapter, "article": article, "text": chunk})
             break
-
+        
+        # 단어 중간에서 자르지 않도록 공백 위치를 역방향 탐색
         cut = normalized.rfind(" ", start, end)
+        # 공백을 못 찾거나 너무 앞에 있으면 그냥 end에서 자름
         if cut == -1 or cut <= start + overlap:
             cut = end
 
@@ -215,8 +255,9 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
         if len(chunk) >= min_length:
             chunks.append({"chapter": chapter, "article": article, "text": chunk})
 
-        # 무한 루프 완벽 방지
+        # 다음 시작점 = cut - overlap (overlap만큼 뒤로 가서 중복 포함)
         next_start = cut - overlap
+         # 무한루프 방지: next_start가 현재 start 이하면 강제로 앞으로
         if next_start <= start:
             next_start = cut
         start = next_start
@@ -229,6 +270,8 @@ def split_by_length(
     chunk_size: int = 800,
     overlap: int = 120,
 ) -> list[str]:
+    # _build_chunks를 호출하되 chapter, article 없이 순수 텍스트만 분할
+    # min_length=1로 설정해서 아주 짧은 조각도 버리지 않음
     chunks = _build_chunks(
         text=text,
         chapter=None,
@@ -238,4 +281,5 @@ def split_by_length(
         min_length=1,
     )
 
+     # _build_chunks는 dict 반환하므로 text 값만 추출해서 list[str]로 반환
     return [chunk["text"] for chunk in chunks]
