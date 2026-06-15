@@ -38,6 +38,20 @@ const NAV_ITEMS = [
   )},
 ]
 
+const TOPIC_LABELS = {
+  graduation:          '졸업요건',
+  schedule:            '학사일정',
+  leave:               '휴학/복학',
+  campus:              '캠퍼스/시설',
+  scholarship:         '장학금',
+  dormitory:           '기숙사',
+  course_registration: '수강신청',
+  special_credit:      '특별학점',
+  grades:              '성적',
+  school_rules:        '학칙/규정',
+  general:             '일반',
+}
+
 const MOCK_DOCUMENTS = [
   { id: 1, status: '활성', statusColor: 'green', category: '수강신청, 공통', title: '2026학년도 여름학기 수강편람 v2.1.pdf', version: 'v2.1', expiry: '~ 2026.08', chunks: 321, parsing: 'sLLM Advanced' },
   { id: 2, status: '활성', statusColor: 'green', category: '장학금, 컴퓨터공학', title: '2026 IT 혁신 장학 지원 기준 안내', version: 'v1.1', expiry: '~ 2026.12', chunks: 58, parsing: 'LlamaParse' },
@@ -80,6 +94,7 @@ export default function AdminPage() {
   const [crawlTopic, setCrawlTopic] = useState('')
   const [crawling, setCrawling] = useState(false)
   const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
+  const [topicFilter, setTopicFilter] = useState('all')
   // 대시보드
   const [dashboard, setDashboard] = useState(null)
   // DB 현황 통계
@@ -304,9 +319,14 @@ export default function AdminPage() {
     navigate('/login')
   }
 
-  const filtered = documents.filter(d =>
-    d.source.includes(searchText) || (d.file_name || '').includes(searchText)
-  )
+  const filtered = documents.filter(d => {
+    const matchesSearch = d.source.includes(searchText) || (d.file_name || '').includes(searchText)
+    const matchesTopic =
+      topicFilter === 'all' ? true :
+      topicFilter === 'none' ? !d.topic :
+      d.topic === topicFilter
+    return matchesSearch && matchesTopic
+  })
 
   return (
     <div className="flex h-screen bg-[#f4f6f9] overflow-hidden">
@@ -962,7 +982,7 @@ export default function AdminPage() {
 
             {/* 문서 목록 — 전체 너비 */}
             <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 min-w-0 flex flex-col min-h-0" style={{ padding: '24px 32px' }}>
-              <div className="flex items-center justify-between" style={{ marginBottom: '20px' }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: '12px' }}>
                 <h2 className="text-base font-black text-[#05263d]">
                   현재 RAG 지식 문서 목록
                   <span className="ml-2 text-slate-400 font-normal text-sm">(Active Retrieval Documents)</span>
@@ -981,17 +1001,74 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {/* 카테고리 필터 탭 */}
+              <div className="flex flex-wrap border-b border-slate-100" style={{ gap: '0', marginBottom: '8px' }}>
+                <button
+                  onClick={() => setTopicFilter('all')}
+                  className={`text-sm font-semibold transition border-b-2 ${
+                    topicFilter === 'all'
+                      ? 'border-[#005956] text-[#005956]'
+                      : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                  style={{ padding: '7px 14px', marginBottom: '-1px' }}
+                >
+                  전체
+                  <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${topicFilter === 'all' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
+                    {documents.length}
+                  </span>
+                </button>
+                {Object.entries(TOPIC_LABELS).filter(([key]) =>
+                  documents.some(d => d.topic === key)
+                ).map(([key, label]) => {
+                  const count = documents.filter(d => d.topic === key).length
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setTopicFilter(key)}
+                      className={`text-sm font-semibold transition border-b-2 ${
+                        topicFilter === key
+                          ? 'border-[#005956] text-[#005956]'
+                          : 'border-transparent text-slate-400 hover:text-slate-600'
+                      }`}
+                      style={{ padding: '7px 14px', marginBottom: '-1px' }}
+                    >
+                      {label}
+                      <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${topicFilter === key ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
+                        {count}
+                      </span>
+                    </button>
+                  )
+                })}
+                {documents.some(d => !d.topic) && (
+                  <button
+                    onClick={() => setTopicFilter('none')}
+                    className={`text-sm font-semibold transition border-b-2 ${
+                      topicFilter === 'none'
+                        ? 'border-[#005956] text-[#005956]'
+                        : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                    style={{ padding: '7px 14px', marginBottom: '-1px' }}
+                  >
+                    미분류
+                    <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${topicFilter === 'none' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
+                      {documents.filter(d => !d.topic).length}
+                    </span>
+                  </button>
+                )}
+              </div>
+
               <div className="flex-1 overflow-y-auto">
                 <table className="w-full text-sm table-fixed">
                   <colgroup>
-                    <col style={{ width: '40%' }} />
-                    <col style={{ width: '40%' }} />
+                    <col style={{ width: '32%' }} />
+                    <col style={{ width: '30%' }} />
+                    <col style={{ width: '16%' }} />
                     <col style={{ width: '12%' }} />
-                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '10%' }} />
                   </colgroup>
                   <thead>
                     <tr className="border-b border-slate-100">
-                      {['문서명 (source)', '파일명', '청크(Chunks)', '액션'].map(h => (
+                      {['문서명 (source)', '파일명', '카테고리', '청크(Chunks)', '액션'].map(h => (
                         <th key={h} className={`text-xs font-bold text-slate-500 whitespace-nowrap ${h === '청크(Chunks)' ? 'text-right' : 'text-left'}`} style={{ padding: '10px 16px' }}>{h}</th>
                       ))}
                     </tr>
@@ -999,7 +1076,7 @@ export default function AdminPage() {
                   <tbody>
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="text-center text-slate-400 text-sm" style={{ padding: '40px' }}>
+                        <td colSpan={5} className="text-center text-slate-400 text-sm" style={{ padding: '40px' }}>
                           등록된 문서가 없습니다.
                         </td>
                       </tr>
@@ -1008,6 +1085,15 @@ export default function AdminPage() {
                       <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition">
                         <td className="font-medium text-slate-700 truncate" style={{ padding: '13px 16px' }}>{doc.source}</td>
                         <td className="text-slate-500 text-xs truncate" style={{ padding: '13px 16px' }}>{doc.file_name || '-'}</td>
+                        <td style={{ padding: '13px 16px' }}>
+                          {doc.topic ? (
+                            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-[#005956]/8 text-[#005956]">
+                              {TOPIC_LABELS[doc.topic] || doc.topic}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-300">미분류</span>
+                          )}
+                        </td>
                         <td className="text-right text-slate-700 font-medium" style={{ padding: '13px 16px' }}>{doc.chunks}</td>
                         <td style={{ padding: '13px 16px' }}>
                           <button

@@ -15,6 +15,7 @@ class DocumentListItem(BaseModel):
     source: str
     file_name: Optional[str] = None
     chunks: int
+    topic: Optional[str] = None
 
 
 class DocumentListResponse(BaseModel):
