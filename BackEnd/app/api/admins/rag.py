@@ -2,10 +2,16 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
+from app.core.topics import TOPICS
 from app.schemas.admins import DocumentListResponse, DocumentDeleteResponse
 from app.services.admin_service import admin_service
 
 router = APIRouter()
+
+
+@router.get("/topics", summary="토픽 목록 조회")
+async def list_topics():
+    return TOPICS
 
 
 @router.post("/documents/upload", summary="문서 업로드 및 RAG 등록")

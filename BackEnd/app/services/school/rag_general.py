@@ -30,6 +30,12 @@ def _resolve_topic(question: str) -> str:
     if "공결" in question or "출석인정" in question:
         return "absence"
 
+    if "복수전공" in question or "부전공" in question:
+        return "multi_major"
+
+    if "전과" in question or "자퇴" in question or "재입학" in question:
+        return "academic_status"
+
     if "솔숲" in question or "오티" in question or "OT" in question or "카드" in question:
         return "student_support"
 

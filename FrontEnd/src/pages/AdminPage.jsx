@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
-import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus, crawlDocument } from '../api/admins/documents'
+import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus, crawlDocument, fetchTopics } from '../api/admins/documents'
 import { fetchDashboard, fetchStats, fetchChatStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
@@ -38,20 +38,6 @@ const NAV_ITEMS = [
   )},
 ]
 
-const TOPIC_LABELS = {
-  graduation:          '졸업요건',
-  schedule:            '학사일정',
-  leave:               '휴학/복학',
-  campus:              '캠퍼스/시설',
-  scholarship:         '장학금',
-  dormitory:           '기숙사',
-  course_registration: '수강신청',
-  special_credit:      '특별학점',
-  grades:              '성적',
-  school_rules:        '학칙/규정',
-  absence:             '공결',
-  general:             '일반',
-}
 
 const MOCK_DOCUMENTS = [
   { id: 1, status: '활성', statusColor: 'green', category: '수강신청, 공통', title: '2026학년도 여름학기 수강편람 v2.1.pdf', version: 'v2.1', expiry: '~ 2026.08', chunks: 321, parsing: 'sLLM Advanced' },
@@ -96,6 +82,7 @@ export default function AdminPage() {
   const [crawling, setCrawling] = useState(false)
   const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
   const [topicFilter, setTopicFilter] = useState('all')
+  const [topicLabels, setTopicLabels] = useState({})
   // 대시보드
   const [dashboard, setDashboard] = useState(null)
   // DB 현황 통계
@@ -123,6 +110,11 @@ export default function AdminPage() {
   const [profileOpen, setProfileOpen] = useState(false)
   const { user, clearUser } = useAuth()
   const navigate = useNavigate()
+
+  // 앱 초기 로드 시 토픽 목록 fetch
+  useEffect(() => {
+    fetchTopics().then(setTopicLabels).catch(console.error)
+  }, [])
 
   // 탭 전환 시 해당 데이터 로드
   useEffect(() => {
@@ -813,18 +805,9 @@ export default function AdminPage() {
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   >
                     <option value="">선택 안 함 (전체 검색 대상)</option>
-                    <option value="graduation">졸업요건</option>
-                    <option value="schedule">학사일정</option>
-                    <option value="leave">휴학/복학</option>
-                    <option value="campus">캠퍼스/시설</option>
-                    <option value="scholarship">장학금</option>
-                    <option value="dormitory">기숙사/생활관</option>
-                    <option value="course_registration">수강신청</option>
-                    <option value="special_credit">특별학점</option>
-                    <option value="grades">성적</option>
-                    <option value="school_rules">학칙/규정</option>
-                    <option value="absence">공결</option>
-                    <option value="general">일반</option>
+                    {Object.entries(topicLabels).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -918,18 +901,9 @@ export default function AdminPage() {
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   >
                     <option value="">선택 안 함 (전체 검색 대상)</option>
-                    <option value="graduation">졸업요건</option>
-                    <option value="schedule">학사일정</option>
-                    <option value="leave">휴학/복학</option>
-                    <option value="campus">캠퍼스/시설</option>
-                    <option value="scholarship">장학금</option>
-                    <option value="dormitory">기숙사/생활관</option>
-                    <option value="course_registration">수강신청</option>
-                    <option value="special_credit">특별학점</option>
-                    <option value="grades">성적</option>
-                    <option value="school_rules">학칙/규정</option>
-                    <option value="absence">공결</option>
-                    <option value="general">일반</option>
+                    {Object.entries(topicLabels).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1004,60 +978,31 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* 카테고리 필터 탭 */}
-              <div className="flex flex-wrap border-b border-slate-100" style={{ gap: '0', marginBottom: '8px' }}>
-                <button
-                  onClick={() => setTopicFilter('all')}
-                  className={`text-sm font-semibold transition border-b-2 ${
-                    topicFilter === 'all'
-                      ? 'border-[#005956] text-[#005956]'
-                      : 'border-transparent text-slate-400 hover:text-slate-600'
-                  }`}
-                  style={{ padding: '7px 14px', marginBottom: '-1px' }}
-                >
-                  전체
-                  <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${topicFilter === 'all' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
-                    {documents.length}
-                  </span>
-                </button>
-                {Object.entries(TOPIC_LABELS).filter(([key]) =>
-                  documents.some(d => d.topic === key)
-                ).map(([key, label]) => {
-                  const count = documents.filter(d => d.topic === key).length
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setTopicFilter(key)}
-                      className={`text-sm font-semibold transition border-b-2 ${
-                        topicFilter === key
-                          ? 'border-[#005956] text-[#005956]'
-                          : 'border-transparent text-slate-400 hover:text-slate-600'
-                      }`}
-                      style={{ padding: '7px 14px', marginBottom: '-1px' }}
-                    >
-                      {label}
-                      <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${topicFilter === key ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
-                        {count}
-                      </span>
-                    </button>
-                  )
-                })}
-                {documents.some(d => !d.topic) && (
-                  <button
-                    onClick={() => setTopicFilter('none')}
-                    className={`text-sm font-semibold transition border-b-2 ${
-                      topicFilter === 'none'
-                        ? 'border-[#005956] text-[#005956]'
-                        : 'border-transparent text-slate-400 hover:text-slate-600'
-                    }`}
-                    style={{ padding: '7px 14px', marginBottom: '-1px' }}
+              {/* 카테고리 필터 드롭다운 */}
+              <div className="flex items-center border-b border-slate-100" style={{ gap: '10px', marginBottom: '8px', paddingBottom: '10px' }}>
+                <span className="text-xs font-bold text-slate-500 shrink-0">카테고리</span>
+                <div className="relative" style={{ width: '220px' }}>
+                  <select
+                    value={topicFilter}
+                    onChange={(e) => setTopicFilter(e.target.value)}
+                    className="w-full border border-slate-200 text-sm font-semibold text-slate-600 outline-none focus:border-[#005956] transition bg-white appearance-none"
+                    style={{ borderRadius: '8px', padding: '7px 32px 7px 12px', maxHeight: '200px' }}
                   >
-                    미분류
-                    <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${topicFilter === 'none' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
-                      {documents.filter(d => !d.topic).length}
-                    </span>
-                  </button>
-                )}
+                    <option value="all">전체 ({documents.length})</option>
+                    {Object.entries(topicLabels).filter(([key]) =>
+                      documents.some(d => d.topic === key)
+                    ).map(([key, label]) => {
+                      const count = documents.filter(d => d.topic === key).length
+                      return <option key={key} value={key}>{label} ({count})</option>
+                    })}
+                    {documents.some(d => !d.topic) && (
+                      <option value="none">미분류 ({documents.filter(d => !d.topic).length})</option>
+                    )}
+                  </select>
+                  <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto">
@@ -1091,7 +1036,7 @@ export default function AdminPage() {
                         <td style={{ padding: '13px 16px' }}>
                           {doc.topic ? (
                             <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-[#005956]/8 text-[#005956]">
-                              {TOPIC_LABELS[doc.topic] || doc.topic}
+                              {topicLabels[doc.topic] || doc.topic}
                             </span>
                           ) : (
                             <span className="text-xs text-slate-300">미분류</span>
