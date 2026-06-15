@@ -5,6 +5,7 @@ Admin 서비스 — 관리자 기능 비즈니스 로직
 각 라우터는 이 서비스를 호출하고 HTTP 변환만 처리한다.
 """
 import tempfile
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -287,6 +288,72 @@ class AdminService:
         sources = rag_service.vector_store.list_sources()
         items = [DocumentListItem(**s) for s in sources]
         return DocumentListResponse(documents=items, total=len(items))
+
+    def _run_crawl(
+        self,
+        job_id: str,
+        url: str,
+        source: str,
+        topic: str | None,
+    ) -> None:
+        """URL 크롤링 및 RAG 인제스트 — ThreadPool 안에서 호출됨"""
+        from app.imsi.crawler import crawl_notice_page
+        from app.rag.Chunking import split_by_length
+        try:
+            self._upload_jobs[job_id]["status"] = "processing"
+            page = crawl_notice_page(url)
+            document_text = page.to_document_text()
+            chunks = split_by_length(document_text, chunk_size=800, overlap=120)
+            if not chunks:
+                self._upload_jobs[job_id] = {
+                    "status": "error",
+                    "message": "크롤링한 페이지에서 텍스트를 추출할 수 없습니다.",
+                }
+                return
+            embeddings = rag_service.embedding.embed_texts(chunks)
+            rag_service.vector_store.upsert_chunks(
+                chunks=chunks,
+                embeddings=embeddings,
+                source=source,
+                metadata=page.metadata(),
+                topic=topic,
+            )
+            chunk_count = len(chunks)
+            self._upload_jobs[job_id] = {
+                "status": "done",
+                "source": source,
+                "file_name": url,
+                "chunks": chunk_count,
+                "message": f"'{page.title}' 크롤링 완료 ({chunk_count}개 청크 생성)",
+            }
+            print(f"[AdminService] 크롤링 완료: {source} ({chunk_count} chunks)")
+        except Exception as e:
+            self._upload_jobs[job_id] = {"status": "error", "message": str(e)}
+            print(f"[AdminService] 크롤링 오류: {e}")
+
+    def submit_crawl(
+        self,
+        url: str,
+        source: str,
+        topic: str | None,
+    ) -> str:
+        """URL 크롤링 → ThreadPool 등록 → job_id 반환"""
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("유효하지 않은 URL 형식입니다.")
+        if topic and topic not in VALID_TOPICS:
+            raise ValueError(
+                f"유효하지 않은 주제: {topic}. "
+                f"가능한 값: {', '.join(sorted(VALID_TOPICS))}"
+            )
+        job_id = f"crawl_{uuid.uuid4().hex[:8]}"
+        self._upload_jobs[job_id] = {
+            "status": "queued",
+            "source": source,
+            "topic": topic,
+            "file_name": url,
+        }
+        _ingest_executor.submit(self._run_crawl, job_id, url, source, topic)
+        return job_id
 
     def delete_document(self, source: str) -> DocumentDeleteResponse:
         deleted = rag_service.vector_store.delete_by_source(source)

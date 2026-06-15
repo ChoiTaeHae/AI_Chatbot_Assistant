@@ -27,6 +27,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"DB 연결 실패 (나중에 연결): {e}")
 
+    # Windows TxF 스레드 오류 방지 — 스레드 전에 lazy import 모두 실행
+    try:
+        import importlib, pkgutil
+
+        # fsspec 전체 구현체 스캔
+        import fsspec
+        import fsspec.implementations as _fi
+        for _, modname, _ in pkgutil.walk_packages(_fi.__path__, prefix='fsspec.implementations.'):
+            try: importlib.import_module(modname)
+            except Exception: pass
+        fsspec.filesystem('file')
+
+        # huggingface_hub 전체 서브모듈 스캔
+        import huggingface_hub as _hf
+        for _, modname, _ in pkgutil.walk_packages(_hf.__path__, prefix='huggingface_hub.'):
+            try: importlib.import_module(modname)
+            except Exception: pass
+
+        print("[Server] fsspec/huggingface_hub 사전 초기화 완료")
+    except Exception as e:
+        print(f"[Server] 사전 초기화 실패 (무시): {e}")
+
     # LLM 모델 GPU 로드
     chat_service.load_model()
 

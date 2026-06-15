@@ -23,6 +23,7 @@ async def chat(
             student_id=current_user.id,
             db=db,
             pending_file=request.pending_file,
+            pending_context=request.pending_context,
         )
         return ChatResponse(
             answer=result.answer,
@@ -30,6 +31,7 @@ async def chat(
             file_offer=result.file_offer,
             file_download=result.file_download,
             map_card=result.map_card,
+            pending_context=result.pending_context,
         )
     except Exception as e:
         traceback.print_exc()
