@@ -1,5 +1,8 @@
 from app.rag.Embedding import BaaiEmbedding
-from app.rag.Retrieval.qdrant_store import QdrantVectorStore, SearchResult
+from app.rag.Retrieval.qdrant_store import (
+    QdrantVectorStore,
+    SearchResult,
+)
 from app.rag.Retrieval.Reranker import BgeReranker
 
 
@@ -22,6 +25,7 @@ class Retriever:
         source: str | None = None,
         topic: str | None = None,
     ) -> list[SearchResult]:
+
         question = question.strip()
 
         if not question:
@@ -29,12 +33,38 @@ class Retriever:
 
         query_embedding = self.embedding.embed_text(question)
 
-        return self.vector_store.search(
+        # Dense 검색 Top10
+        results = self.vector_store.search(
             query_embedding=query_embedding,
-            limit = 10,
-            source = source,
-            topic = topic,
+            limit=10,
+            source=source,
+            topic=topic,
         )
+
+        if not results:
+            return []
+
+        scores = self.reranker.rerank(
+            question,
+            [result.text for result in results],
+        )
+
+        reranked = sorted(
+            zip(results, scores),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        top_k = limit or 3
+
+        final_results = [
+            result
+            for result, _ in reranked[:top_k]
+        ]
+
+        print(f"[Retriever] 최종 반환 ({len(final_results)}개)")
+
+        return final_results
 
     def search_context(
         self,
@@ -43,6 +73,7 @@ class Retriever:
         source: str | None = None,
         topic: str | None = None,
     ) -> str:
+
         results = self.search(
             question=question,
             limit=limit,
