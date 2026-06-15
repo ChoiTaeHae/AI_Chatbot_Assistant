@@ -64,6 +64,12 @@ export async function crawlDocument(url, source = null, topic = null) {
   return res.json()
 }
 
+export async function fetchTopics() {
+  const res = await authFetch(`${BASE}/topics`)
+  if (!res.ok) throw new Error('토픽 목록 조회 실패')
+  return res.json()
+}
+
 export async function deleteDocument(source) {
   const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
     method: 'DELETE',

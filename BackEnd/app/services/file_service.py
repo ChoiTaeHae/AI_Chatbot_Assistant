@@ -8,21 +8,7 @@ from pathlib import Path
 
 DOCUMENTS_BASE = Path("documents")
 
-VALID_TOPICS = {"graduation", "schedule", "leave", "campus", "scholarship", "dormitory", "course_registration", "special_credit", "grades", "school_rules", "absence", "general"}
-TOPIC_LABELS = {
-    "graduation":          "졸업요건",
-    "schedule":            "학사일정",
-    "leave":               "휴학/복학",
-    "campus":              "캠퍼스/시설",
-    "scholarship":         "장학금",
-    "dormitory":           "기숙사/생활관",
-    "course_registration": "수강신청",
-    "special_credit":      "특별학점",
-    "grades":              "성적",
-    "school_rules":        "학칙/규정",
-    "absence":             "공결",
-    "general":             "일반",
-}
+from app.core.topics import TOPICS as TOPIC_LABELS, VALID_TOPICS
 
 ALLOWED_EXTENSIONS = {
     ".pdf", ".docx", ".pptx", ".xlsx", ".hwp", ".hwpx",
