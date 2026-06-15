@@ -26,6 +26,9 @@ def _resolve_topic(question: str) -> str:
 
     if "학칙" in question or "규정" in question or "규칙" in question:
         return "school_rules"
+    
+    if "솔숲" in question or "오티" in question or "OT" in question or "카드" in question:
+        return "student_support"
 
     return "general"
 

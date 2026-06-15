@@ -1,5 +1,6 @@
 from app.rag.Embedding import BaaiEmbedding
 from app.rag.Retrieval.qdrant_store import QdrantVectorStore, SearchResult
+from app.rag.Retrieval.Reranker import BgeReranker
 
 
 class Retriever:
@@ -12,6 +13,7 @@ class Retriever:
     ) -> None:
         self.embedding = embedding or BaaiEmbedding()
         self.vector_store = vector_store or QdrantVectorStore()
+        self.reranker = BgeReranker()
 
     def search(
         self,
@@ -29,9 +31,9 @@ class Retriever:
 
         return self.vector_store.search(
             query_embedding=query_embedding,
-            limit=limit,
-            source=source,
-            topic=topic,
+            limit = 10,
+            source = source,
+            topic = topic,
         )
 
     def search_context(
