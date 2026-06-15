@@ -34,7 +34,7 @@ from app.schemas.admins import (
 
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
-VALID_TOPICS        = {"graduation", "schedule", "leave", "campus", "scholarship", "dormitory", "course_registration", "special_credit", "grades", "school_rules", "general"}
+VALID_TOPICS        = {"graduation", "schedule", "leave", "campus", "scholarship", "dormitory", "course_registration", "special_credit", "grades", "school_rules", "absence", "general"}
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 VALID_ROLES         = {"student", "admin"}
 

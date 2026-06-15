@@ -49,6 +49,7 @@ const TOPIC_LABELS = {
   special_credit:      '특별학점',
   grades:              '성적',
   school_rules:        '학칙/규정',
+  absence:             '공결',
   general:             '일반',
 }
 
@@ -822,6 +823,7 @@ export default function AdminPage() {
                     <option value="special_credit">특별학점</option>
                     <option value="grades">성적</option>
                     <option value="school_rules">학칙/규정</option>
+                    <option value="absence">공결</option>
                     <option value="general">일반</option>
                   </select>
                 </div>
@@ -926,6 +928,7 @@ export default function AdminPage() {
                     <option value="special_credit">특별학점</option>
                     <option value="grades">성적</option>
                     <option value="school_rules">학칙/규정</option>
+                    <option value="absence">공결</option>
                     <option value="general">일반</option>
                   </select>
                 </div>
