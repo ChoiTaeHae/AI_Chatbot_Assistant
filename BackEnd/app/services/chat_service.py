@@ -27,9 +27,6 @@ SYSTEM_PROMPT = """당신은 우송대학교 학생들의 학교생활을 도와
 # 전용 스레드풀 (llama-cpp는 단일 스레드에서 실행)
 _executor = ThreadPoolExecutor(max_workers=1)
 
-_GGUF_PATH = "./llm/bllossom-8b-Q8_0.gguf"
-
-
 class ChatService:
     def __init__(self):
         self.model: Llama | None = None
@@ -39,9 +36,9 @@ class ChatService:
             print("DEV_MODE: LLM 로딩 스킵")
             return
 
-        print(f"모델 로딩 중: {_GGUF_PATH}")
+        print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.model = Llama(
-            model_path=_GGUF_PATH,
+            model_path=settings.MODEL_PATH,
             n_gpu_layers=28,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
             n_ctx=2048,
             n_batch=512,
