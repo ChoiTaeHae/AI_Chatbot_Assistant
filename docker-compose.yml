@@ -1,0 +1,26 @@
+services:
+  backend:
+    build: ./BackEnd
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./BackEnd/.env
+    volumes:
+      - ./BackEnd/llm:/app/llm
+      - ./BackEnd/documents:/app/documents
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  frontend:
+    build: ./FrontEnd
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
