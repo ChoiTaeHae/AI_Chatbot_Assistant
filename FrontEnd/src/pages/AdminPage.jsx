@@ -989,9 +989,7 @@ export default function AdminPage() {
                     style={{ borderRadius: '8px', padding: '7px 32px 7px 12px', maxHeight: '200px' }}
                   >
                     <option value="all">전체 ({documents.length})</option>
-                    {Object.entries(topicLabels).filter(([key]) =>
-                      documents.some(d => d.topic === key)
-                    ).map(([key, label]) => {
+                    {Object.entries(topicLabels).map(([key, label]) => {
                       const count = documents.filter(d => d.topic === key).length
                       return <option key={key} value={key}>{label} ({count})</option>
                     })}
