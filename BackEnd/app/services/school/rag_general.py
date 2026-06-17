@@ -3,10 +3,7 @@ import asyncio
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
-MAX_CONTEXT_LENGTH = 1000
-
-
-def _resolve_topic(question: str) -> str:
+def _resolve_topic(question: str) -> str | None:
     question = question.lower()
 
     if "휴학" in question or "복학" in question:
@@ -39,32 +36,46 @@ def _resolve_topic(question: str) -> str:
     if "솔숲" in question or "오티" in question or "OT" in question or "카드" in question:
         return "student_support"
 
-    return "general"
+    # 매칭되는 키워드가 없으면 Qdrant가 전체 문서를 검색하도록 None 반환
+    return None
 
 
 def _search_rag(question: str) -> tuple[str, dict]:
     try:
         topic = _resolve_topic(question)
 
-        print(f"[RAG_GENERAL] 선택된 topic: {topic}")
+        print(
+            f"[RAG_GENERAL] 선택된 topic: "
+            f"{topic if topic else '전체 검색(None)'}"
+        )
 
+        # search 결과 + metadata용 result 함께 받기
         context, results = rag_service.search_context_with_results(
             question,
             topic=topic,
         )
-        metadata = rag_service.primary_metadata(results, topic=topic)
+
+        metadata = rag_service.primary_metadata(
+            results,
+            topic=topic,
+        )
 
         print("\n========== RAG CONTEXT ==========")
         print(context)
         print("=================================\n")
 
         if context:
-            return context[:MAX_CONTEXT_LENGTH], metadata
+            # MAX_CONTEXT_LENGTH 제거
+            return context, metadata
 
     except Exception as e:
         print(f"[RAG_GENERAL] 검색 실패: {e}")
 
-    return "", {"source": None, "source_file": None, "topic": _resolve_topic(question)}
+    return "", {
+        "source": None,
+        "source_file": None,
+        "topic": _resolve_topic(question),
+    }
 
 
 async def answer_rag_general_question_with_metadata(question: str) -> tuple[str, dict]:
@@ -90,6 +101,8 @@ async def answer_rag_general_question_with_metadata(question: str) -> tuple[str,
 - 문서에 없는 일정, 기간, 비용, 운영 여부는 추측하지 않는다.
 - 필요한 경우 공식 홈페이지, 대학정보시스템, 학과사무실 또는 담당 부서 확인을 안내한다.
 - 답변은 상세하되 적당히 간결하고 자연스러운 한국어로 작성한다.
+- 관련 항목이 여러 개인 경우(동아리, 장학금, 규정 목록 등) 빠짐없이 모두 나열한다.
+- 절대로 내용을 생략하거나 "등"으로 줄이지 않는다.
 
 [참고 문서]
 {context}
