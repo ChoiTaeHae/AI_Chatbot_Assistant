@@ -11,7 +11,7 @@ from app.models.DB_Table import ChatLog
 from app.services.llm_service import llm_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
-from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
+from app.services.school.rag_general import answer_rag_general_question_with_metadata, _resolve_topic
 from app.services.school.scholarship import answer_scholarship_question
 
 campus_service = CampusService()
@@ -65,6 +65,10 @@ class AgentResult:
     file_download: dict | None = None
     map_card: dict | None = None
     pending_context: dict | None = None
+    intent: str | None = None
+    topic: str | None = None
+    source: str | None = None
+    source_file: str | None = None
 
 
 class SchoolAgent:
@@ -85,10 +89,17 @@ class SchoolAgent:
 
         # 멀티턴 장학금 대화 처리 (학점/소득분위 수집 중)
         if pending_context and pending_context.get("type") == "scholarship":
-            answer, next_context = await answer_scholarship_question(
+            answer, next_context, metadata = await answer_scholarship_question(
                 question, student_id=student_id, db=db, pending_context=pending_context
             )
-            return AgentResult(answer=answer, pending_context=next_context)
+            return AgentResult(
+                answer=answer,
+                pending_context=next_context,
+                intent="scholarship",
+                topic=metadata.get("topic"),
+                source=metadata.get("source"),
+                source_file=metadata.get("source_file"),
+            )
 
         # 1단계: 키워드 기반 캠퍼스 분류 (빠름, 0ms)
         if _is_campus_question(question):
@@ -121,12 +132,19 @@ class SchoolAgent:
 
         # 장학금 질문은 별도 처리 (멀티턴 + RAG)
         if intent == IntentType.RAG_GENERAL and log_intent == "scholarship":
-            answer, next_context = await answer_scholarship_question(
+            answer, next_context, metadata = await answer_scholarship_question(
                 question, student_id=student_id, db=db
             )
-            return AgentResult(answer=answer, pending_context=next_context)
+            return AgentResult(
+                answer=answer,
+                pending_context=next_context,
+                intent="scholarship",
+                topic=metadata.get("topic"),
+                source=metadata.get("source"),
+                source_file=metadata.get("source_file"),
+            )
 
-        answer = await self._dispatch(
+        answer, metadata = await self._dispatch(
             intent=intent,
             question=question,
             student_id=student_id,
@@ -136,9 +154,19 @@ class SchoolAgent:
         # 4단계: 결과물 포장 및 파일 제안(Offer) 추가
         if intent == IntentType.RAG_GENERAL:
             file_topic = _resolve_topic(question)
-            return self._with_file_offer(answer, file_topic)
+            result = self._with_file_offer(answer, file_topic)
+            result.intent = intent.value
+            result.topic = metadata.get("topic") or file_topic
+            result.source = metadata.get("source")
+            result.source_file = metadata.get("source_file")
+            return result
 
-        return self._with_file_offer(answer, intent.value)
+        result = self._with_file_offer(answer, intent.value)
+        result.intent = intent.value
+        result.topic = metadata.get("topic") or intent.value
+        result.source = metadata.get("source")
+        result.source_file = metadata.get("source_file")
+        return result
 
     # ───────────────── 로그 ─────────────────
 
@@ -169,6 +197,10 @@ class SchoolAgent:
                 "filename": filename,
                 "url": f"/api/files/{topic}/{filename}",
             },
+            intent=topic,
+            topic=topic,
+            source="file_download",
+            source_file=filename,
         )
 
     def _with_file_offer(self, answer: str, topic: str) -> AgentResult:
@@ -198,20 +230,24 @@ class SchoolAgent:
         question: str,
         student_id: int,
         db: AsyncSession,
-    ) -> str:
+    ) -> tuple[str, dict]:
 
         if intent == IntentType.GRADUATION:
-            return await graduation_service.answer_graduation(
+            return await graduation_service.answer_graduation_with_metadata(
                 question=question,
                 student_id=student_id,
                 db=db,
             )
 
         elif intent == IntentType.RAG_GENERAL:
-            return await answer_rag_general_question(question)
+            return await answer_rag_general_question_with_metadata(question)
 
         # GENERAL
-        return await llm_service.answer(question)
+        return await llm_service.answer(question), {
+            "source": "llm",
+            "source_file": None,
+            "topic": "general",
+        }
 
     async def _handle_campus(self, question: str) -> AgentResult:
 
@@ -227,6 +263,9 @@ class SchoolAgent:
         return AgentResult(
             answer=answer,
             map_card=map_card,
+            intent="campus",
+            topic="campus",
+            source=result.get("source"),
         )
 
 

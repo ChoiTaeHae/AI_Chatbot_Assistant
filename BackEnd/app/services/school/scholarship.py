@@ -50,29 +50,31 @@ def _parse_income(text: str) -> int | None:
     return None
 
 
-def _search_rag(question: str) -> str | None:
+def _search_rag(question: str) -> tuple[str, dict] | None:
     """RAG 검색. 문서가 없으면 None 반환."""
     try:
-        context = rag_service.search_context(question, topic="scholarship")
+        context, results = rag_service.search_context_with_results(question, topic="scholarship")
         if context:
-            return context[:MAX_CONTEXT_LENGTH]
+            return context[:MAX_CONTEXT_LENGTH], rag_service.primary_metadata(results, topic="scholarship")
     except Exception as e:
         print(f"[RAG] 검색 실패: {e}")
     return None
 
 
-async def _rag_and_llm(question: str, gpa: float, income: int) -> str:
+async def _rag_and_llm(question: str, gpa: float, income: int) -> tuple[str, dict]:
     """RAG 검색 후 문서가 있으면 LLM 맞춤 답변, 없으면 안내 메시지 반환."""
     loop = asyncio.get_event_loop()
-    context = await loop.run_in_executor(None, _search_rag, question)
+    search_data = await loop.run_in_executor(None, _search_rag, question)
 
-    if context is None:
+    if search_data is None:
         return (
             f"학점 {gpa}, 소득분위 {income}분위로 확인했지만,\n"
             f"현재 장학금 관련 문서가 등록되어 있지 않아 맞춤 조회가 어렵습니다.\n"
-            f"학생처 장학팀(wsu.ac.kr)에 문의하시거나 한국장학재단(kosaf.go.kr)을 이용하세요."
+            f"학생처 장학팀(wsu.ac.kr)에 문의하시거나 한국장학재단(kosaf.go.kr)을 이용하세요.",
+            {"source": None, "source_file": None, "topic": "scholarship"},
         )
 
+    context, metadata = search_data
     prompt = (
         f"[장학금 안내 문서]\n{context}\n\n"
         f"[학생 조건]\n"
@@ -82,7 +84,7 @@ async def _rag_and_llm(question: str, gpa: float, income: int) -> str:
         f"위 규칙을 지켜 이 학생이 받을 수 있는 장학금을 알려주세요.\n"
         f"질문: {question}\n답변:"
     )
-    return await llm_service.answer(prompt)
+    return await llm_service.answer(prompt), metadata
 
 
 async def answer_scholarship_question(
@@ -90,7 +92,7 @@ async def answer_scholarship_question(
     student_id: int = 1,
     db: AsyncSession = None,
     pending_context: dict | None = None,
-) -> tuple[str, dict | None]:
+) -> tuple[str, dict | None, dict]:
     """
     반환: (answer, next_pending_context)
     - next_pending_context가 None이면 대화 종료
@@ -118,12 +120,14 @@ async def answer_scholarship_question(
             return (
                 f"{' 와 '.join(missing)}을 알려주세요.",
                 {"type": "scholarship", "gpa": gpa, "income": income},
+                {"source": None, "source_file": None, "topic": "scholarship"},
             )
 
         else:
             # GPA + 소득분위 모두 수집 완료
             print(f"[SCHOLARSHIP] 멀티턴 완료: GPA={gpa}, 소득분위={income}")
-            return await _rag_and_llm(question, gpa, income), None
+            answer, metadata = await _rag_and_llm(question, gpa, income)
+            return answer, None, metadata
 
     # 최초 진입: 맞춤 조회 의도인지 확인
     is_personal = any(kw in question for kw in _ELIGIBILITY_KEYWORDS)
@@ -135,7 +139,8 @@ async def answer_scholarship_question(
         if gpa is not None and income is not None:
             # 한 번에 모두 입력된 경우
             print(f"[SCHOLARSHIP] 개인 조회: GPA={gpa}, 소득분위={income}")
-            return await _rag_and_llm(question, gpa, income), None
+            answer, metadata = await _rag_and_llm(question, gpa, income)
+            return answer, None, metadata
 
         # GPA나 소득분위 없음 → 멀티턴 시작
         missing = []
@@ -147,17 +152,19 @@ async def answer_scholarship_question(
             f"개인 장학금 조회를 위해 {' 와 '.join(missing)}을 알려주세요.\n"
             f"예) '학점 3.5이고 소득분위 3분위인데 받을 수 있는 장학금 있어?'",
             {"type": "scholarship", "gpa": gpa, "income": income},
+            {"source": None, "source_file": None, "topic": "scholarship"},
         )
 
     # 일반 장학금 정보 → RAG
     print("[SCHOLARSHIP] RAG 검색 시작")
     loop = asyncio.get_event_loop()
-    context = await loop.run_in_executor(None, _search_rag, question)
+    search_data = await loop.run_in_executor(None, _search_rag, question)
 
-    if context is None:
+    if search_data is None:
         print("[SCHOLARSHIP] 문서 없음 → 안내 메시지 반환")
-        return NO_DOCS_MESSAGE, None
+        return NO_DOCS_MESSAGE, None, {"source": None, "source_file": None, "topic": "scholarship"}
 
+    context, metadata = search_data
     print("[SCHOLARSHIP] RAG 검색 완료, LLM 호출")
     prompt = (
         f"[참고 문서]\n{context}\n\n"
@@ -165,4 +172,4 @@ async def answer_scholarship_question(
         f"위 규칙을 지켜 다음 질문에 답변해주세요.\n"
         f"질문: {question}\n답변:"
     )
-    return await llm_service.answer(prompt), None
+    return await llm_service.answer(prompt), None, metadata

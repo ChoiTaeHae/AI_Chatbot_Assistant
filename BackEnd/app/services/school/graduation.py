@@ -24,19 +24,24 @@ class GraduationService:
     # 메인 진입점
     # =============================================
 
-    async def answer_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
+    async def answer_graduation_with_metadata(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
         """Agent가 호출하는 메인 함수 - 질문 유형에 따라 DB/RAG/둘 다 경로 선택"""
         question_type = self._classify_question(question)
         print(f"[Graduation] 질문 유형: {question_type}")
 
         if question_type == "personal":
-            return await self._answer_from_db(question, student_id, db)
+            answer = await self._answer_from_db(question, student_id, db)
+            return answer, {"source": "database", "source_file": None, "topic": "graduation"}
 
         elif question_type == "document":
             return await self._answer_from_rag(question)
 
         else:  # both
             return await self._answer_from_db_and_rag(question, student_id, db)
+
+    async def answer_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
+        answer, _ = await self.answer_graduation_with_metadata(question, student_id, db)
+        return answer
 
     def _classify_question(self, question: str) -> str:
         """personal: 개인 현황 / document: 공식 문서 / both: 둘 다"""
@@ -65,37 +70,44 @@ class GraduationService:
     # 경로 2: 공식 문서 (RAG)
     # =============================================
 
-    async def _answer_from_rag(self, question: str) -> str:
+    async def _answer_from_rag(self, question: str) -> tuple[str, dict]:
         import time
         t1 = time.time()
-        rag_context = await self._search_rag(question)
+        rag_context, metadata = await self._search_rag(question)
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
         prompt = self._build_rag_prompt(question, rag_context)
         t2 = time.time()
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
-        return result
+        return result, metadata
 
     # =============================================
     # 경로 3: 개인 현황 + 공식 문서 (DB + RAG)
     # =============================================
 
-    async def _answer_from_db_and_rag(self, question: str, student_id: int, db: AsyncSession) -> str:
-        report, rag_context = await asyncio.gather(
+    async def _answer_from_db_and_rag(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
+        report, rag_data = await asyncio.gather(
             self._check_graduation_status(db, student_id),
             self._search_rag(question),
         )
+        rag_context, metadata = rag_data
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
         prompt = self._build_combined_prompt(question, db_context, rag_context)
-        return await llm_service.answer(prompt)
+        return await llm_service.answer(prompt), metadata
 
-    async def _search_rag(self, question: str) -> str:
+    async def _search_rag(self, question: str) -> tuple[str, dict]:
         """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
         loop = asyncio.get_event_loop()
-        context = await loop.run_in_executor(None, lambda: rag_service.search_context(question, topic="graduation"))
+        context, results = await loop.run_in_executor(
+            None,
+            lambda: rag_service.search_context_with_results(question, topic="graduation"),
+        )
         if context:
-            return context[:500]
-        return "관련 공식 문서를 찾지 못했습니다."
+            return context[:500], rag_service.primary_metadata(results, topic="graduation")
+        return (
+            "관련 공식 문서를 찾지 못했습니다.",
+            {"source": None, "source_file": None, "topic": "graduation"},
+        )
 
     # =============================================
     # DB 조회
