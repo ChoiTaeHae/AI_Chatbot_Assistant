@@ -8,4 +8,8 @@ class IntentType(str, Enum):
 
     CAMPUS = "campus"
 
+    STUDENT_SUPPORT = "student_support"
+
+    ROTC = "rotc"
+
     GENERAL = "general"

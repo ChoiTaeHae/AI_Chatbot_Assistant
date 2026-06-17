@@ -12,6 +12,8 @@ TOPICS: dict[str, str] = {
     "absence":             "공결",
     "multi_major":         "복수/부전공",
     "academic_status":     "학적변동",
+    "student_support":     "학생지원",
+    "rotc":                "ROTC/학군단",
     "general":             "일반",
 }
 

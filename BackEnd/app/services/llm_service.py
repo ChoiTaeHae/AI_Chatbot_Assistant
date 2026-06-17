@@ -90,7 +90,9 @@ class LlmService:
             "카테고리:\n"
             "- campus: 건물 위치, 강의실, 캠퍼스 시설, 학과 사무실\n"
             "- graduation: 졸업요건, 졸업학점, 이수조건\n"
-            "- rag_general: 장학금, 수강신청, 학사일정, 동아리, 기숙사, 휴학, 학칙, 증명서\n"
+            "- student_support: 오리엔테이션(OT), 학생지원 프로그램, 동아리 가입/활동, 학생카드 신청\n"
+            "- rotc: ROTC, 학군단, 사관후보생, 군사학, 장교 지원\n"
+            "- rag_general: 장학금, 수강신청, 학사일정, 기숙사, 휴학, 학칙, 증명서, 성적\n"
             "- general: 위 카테고리에 해당하지 않는 일반 대화\n\n"
             f"질문: {question}\n"
             "카테고리:"
@@ -112,7 +114,7 @@ class LlmService:
         return _parse_llm_intent(raw)
 
 
-_VALID_INTENTS = {"campus", "graduation", "rag_general", "general"}
+_VALID_INTENTS = {"campus", "graduation", "student_support", "rotc", "rag_general", "general"}
 
 
 def _parse_llm_intent(text: str) -> str:
@@ -124,7 +126,11 @@ def _parse_llm_intent(text: str) -> str:
         return "campus"
     if "졸업" in text:
         return "graduation"
-    if "장학" in text or "수강" in text or "기숙" in text or "동아리" in text or "휴학" in text:
+    if "오티" in text or "동아리" in text or "카드" in text or "학생지원" in text or "솔숲" in text or "오리엔테이션" in text:
+        return "student_support"
+    if "rotc" in text or "학군단" in text or "사관" in text or "군사" in text:
+        return "rotc"
+    if "장학" in text or "수강" in text or "기숙" in text or "휴학" in text:
         return "rag_general"
     return "general"
 
