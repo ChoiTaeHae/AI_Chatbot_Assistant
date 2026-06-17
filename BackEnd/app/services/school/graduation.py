@@ -8,7 +8,7 @@ from app.models.DB_Table import (
     Student, RequirementSet, RequirementRule,
     StudentAchievement, Course, StudentCourse
 )
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
 # 개인 현황 질문 키워드 (DB 조회 경로)
@@ -59,7 +59,7 @@ class GraduationService:
             return report["error"]
         context = self._build_db_context(report)
         prompt = self._build_db_prompt(question, context)
-        return await chat_service.answer(prompt)
+        return await llm_service.answer(prompt)
 
     # =============================================
     # 경로 2: 공식 문서 (RAG)
@@ -72,7 +72,7 @@ class GraduationService:
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
         prompt = self._build_rag_prompt(question, rag_context)
         t2 = time.time()
-        result = await chat_service.answer(prompt)
+        result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
         return result
 
@@ -87,7 +87,7 @@ class GraduationService:
         )
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
         prompt = self._build_combined_prompt(question, db_context, rag_context)
-        return await chat_service.answer(prompt)
+        return await llm_service.answer(prompt)
 
     async def _search_rag(self, question: str) -> str:
         """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
