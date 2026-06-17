@@ -9,7 +9,7 @@ from sqlalchemy import String, cast, or_, select
 from app.core.Database import AsyncSessionLocal
 from app.core.config import settings
 from app.models.DB_Table import Building, Room
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 
 
 KAKAO_KEYWORD_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
@@ -131,7 +131,7 @@ async def _extract_location_keyword(question: str) -> str | None:
     )
 
     try:
-        keyword = await chat_service.answer(prompt)
+        keyword = await llm_service.answer(prompt)
     except Exception as e:
         print(f"[LOCATION] 키워드 추출 실패: {e}")
         return None

@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.models.DB_Table import Student, Department, Course, ChatLog
 from app.rag.ingest import ingest_file
 from app.services.rag_service import rag_service
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 from app.schemas.admins import (
     ChatStatsResponse,
     DailyCount,
@@ -55,7 +55,7 @@ class AdminService:
             print(f"[AdminService] Qdrant 조회 실패: {e}")
             total_docs = total_chunks = 0
 
-        model_loaded = (chat_service.model is not None) or settings.DEV_MODE
+        model_loaded = (llm_service.model is not None) or settings.DEV_MODE
         return DashboardResponse(
             total_documents=total_docs,
             total_chunks=total_chunks,

@@ -1,6 +1,6 @@
 import asyncio
 
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
 MAX_CONTEXT_LENGTH = 1000
@@ -99,4 +99,4 @@ async def answer_rag_general_question(question: str) -> str:
 [답변]
 """
 
-    return await chat_service.answer(prompt)
+    return await llm_service.answer(prompt)
