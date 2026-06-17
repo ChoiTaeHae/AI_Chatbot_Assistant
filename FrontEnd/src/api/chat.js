@@ -14,3 +14,16 @@ export async function sendMessage(question, session_id = null, pendingFile = nul
   }
   return res.json()
 }
+
+export async function sendFeedback(message_id, is_helpful, rating = null, comment = null) {
+  const res = await authFetch(`${BASE}/chat/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_id, is_helpful, rating, comment }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '피드백 저장에 실패했습니다.')
+  }
+  return res.json()
+}
