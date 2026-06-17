@@ -150,7 +150,7 @@ export default function MessageBubble({ message }) {
                   <iframe
                     title={message.mapCard.title}
                     src={`https://www.openstreetmap.org/export/embed.html?bbox=${message.mapCard.longitude - 0.003},${message.mapCard.latitude - 0.003},${message.mapCard.longitude + 0.003},${message.mapCard.latitude + 0.003}&layer=mapnik&marker=${message.mapCard.latitude},${message.mapCard.longitude}`}
-                    style={{ width: '100%', height: '222px', border: 'none', display: 'block' }}
+                    style={{ width: '100%', height: '260px', border: 'none', display: 'block' }}
                   />
                 </div>
               ) : null}
