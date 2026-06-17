@@ -33,8 +33,11 @@ def _resolve_topic(question: str) -> str | None:
     if "전과" in question or "자퇴" in question or "재입학" in question:
         return "academic_status"
 
-    if "솔숲" in question or "오티" in question or "OT" in question or "카드" in question:
+    if "학생지원" in question or "솔숲" in question or "오티" in question or "OT" in question or "카드" in question or "동아리" in question or "오리엔테이션" in question:
         return "student_support"
+
+    if "ROTC" in question or "rotc" in question or "학군단" in question or "사관후보생" in question or "군사학" in question:
+        return "rotc"
 
     # 매칭되는 키워드가 없으면 Qdrant가 전체 문서를 검색하도록 None 반환
     return None
