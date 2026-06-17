@@ -185,28 +185,6 @@ async def _handle_scholarship(state: AgentState) -> dict:
     }
 
 
-async def _handle_student_support(state: AgentState) -> dict:
-    await _log(state["db"], state["student_id"], "student_support")
-    answer, metadata = await answer_rag_general_question_with_metadata(state["question"])
-    return {
-        "answer": answer,
-        "source": metadata.get("source"),
-        "source_file": metadata.get("source_file"),
-        "topic": "student_support",
-    }
-
-
-async def _handle_rotc(state: AgentState) -> dict:
-    await _log(state["db"], state["student_id"], "rotc")
-    answer, metadata = await answer_rag_general_question_with_metadata(state["question"])
-    return {
-        "answer": answer,
-        "source": metadata.get("source"),
-        "source_file": metadata.get("source_file"),
-        "topic": "rotc",
-    }
-
-
 async def _handle_rag_general(state: AgentState) -> dict:
     topic = _resolve_topic(state["question"])
     await _log(state["db"], state["student_id"], topic)
@@ -259,15 +237,11 @@ def _route_llm(state: AgentState) -> str:
 
 
 def _resolve_rag_subtype(intent: str, question: str) -> str:
-    """rag_general이면 장학금/학생지원/ROTC 여부를 추가로 확인"""
+    """rag_general이면 장학금 여부만 확인 (나머지 서브토픽은 rag_general 핸들러 내부에서 처리)"""
     if intent == "rag_general":
         topic = _resolve_topic(question)
         if topic == "scholarship":
             return "scholarship"
-        if topic == "student_support":
-            return "student_support"
-        if topic == "rotc":
-            return "rotc"
         return "rag_general"
     return intent
 
@@ -284,8 +258,6 @@ def _build_graph():
     g.add_node("handle_campus", _handle_campus)
     g.add_node("handle_graduation", _handle_graduation)
     g.add_node("handle_scholarship", _handle_scholarship)
-    g.add_node("handle_student_support", _handle_student_support)
-    g.add_node("handle_rotc", _handle_rotc)
     g.add_node("handle_rag_general", _handle_rag_general)
     g.add_node("handle_general", _handle_general)
 
@@ -297,8 +269,6 @@ def _build_graph():
         "campus": "handle_campus",
         "graduation": "handle_graduation",
         "scholarship": "handle_scholarship",
-        "student_support": "handle_student_support",
-        "rotc": "handle_rotc",
         "rag_general": "handle_rag_general",
         "general": "handle_general",
     }
@@ -312,8 +282,6 @@ def _build_graph():
         "campus": "handle_campus",
         "graduation": "handle_graduation",
         "scholarship": "handle_scholarship",
-        "student_support": "handle_student_support",
-        "rotc": "handle_rotc",
         "rag_general": "handle_rag_general",
         "general": "handle_general",
         "llm": "llm_classify",
@@ -322,15 +290,13 @@ def _build_graph():
         "campus": "handle_campus",
         "graduation": "handle_graduation",
         "scholarship": "handle_scholarship",
-        "student_support": "handle_student_support",
-        "rotc": "handle_rotc",
         "rag_general": "handle_rag_general",
         "general": "handle_general",
     })
 
     for handler in [
         "handle_campus", "handle_graduation", "handle_scholarship",
-        "handle_student_support", "handle_rotc", "handle_rag_general", "handle_general",
+        "handle_rag_general", "handle_general",
     ]:
         g.add_edge(handler, END)
 
