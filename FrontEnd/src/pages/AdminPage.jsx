@@ -322,7 +322,7 @@ export default function AdminPage() {
   })
 
   return (
-    <div className="flex h-screen bg-[#f4f6f9] overflow-hidden">
+    <div className="flex h-screen bg-[#f4f6f9] overflow-hidden" style={{ minWidth: '900px' }}>
 
       {/* 사이드바 */}
       <aside className="w-56 shrink-0 bg-white border-r border-slate-100 flex flex-col shadow-sm">
@@ -383,9 +383,9 @@ export default function AdminPage() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* 헤더 */}
-        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between" style={{ padding: '16px 32px' }}>
-          <h1 className="text-lg font-black text-[#05263d]">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
-          <div className="flex items-center" style={{ gap: '16px' }}>
+        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between overflow-hidden" style={{ padding: '16px 32px' }}>
+          <h1 className="text-lg font-black text-[#05263d] truncate min-w-0">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
+          <div className="flex items-center shrink-0" style={{ gap: '16px' }}>
             <button className="text-slate-400 hover:text-slate-600 transition">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -461,9 +461,9 @@ export default function AdminPage() {
                   { label: '전체 학생 수', value: stats ? stats.total_students.toLocaleString() : '-', sub: `관리자 ${stats?.total_admins ?? '-'}명 포함`, color: '#b45309' },
                 ].map(({ label, value, sub, color }) => (
                   <div key={label} className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '20px 24px' }}>
-                    <p className="text-xs font-semibold text-slate-400" style={{ marginBottom: '8px' }}>{label}</p>
-                    <p className="text-3xl font-black" style={{ color, marginBottom: '6px' }}>{value}</p>
-                    <p className="text-xs text-slate-400">{sub}</p>
+                    <p className="text-xs font-semibold text-slate-400 truncate" style={{ marginBottom: '8px' }}>{label}</p>
+                    <p className="text-3xl font-black truncate" style={{ color, marginBottom: '6px' }}>{value}</p>
+                    <p className="text-xs text-slate-400 truncate">{sub}</p>
                   </div>
                 ))}
               </div>
@@ -480,7 +480,7 @@ export default function AdminPage() {
                     const data = chatStats.daily_counts
                     const max = Math.max(...data.map(d => d.count), 1)
                     return (
-                      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', height: '130px', gap: '10px', padding: '0 4px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-end', justifyContent: 'space-between', height: '130px', gap: '10px', padding: '0 4px' }}>
                         {data.map(d => (
                           <div key={d.date} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: '5px' }}>
                             <span style={{ fontSize: '11px', fontWeight: 700, color: '#475569', minHeight: '16px' }}>{d.count > 0 ? d.count : ''}</span>
@@ -517,7 +517,7 @@ export default function AdminPage() {
                       return seg
                     })
                     return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'center', gap: '24px' }}>
                         <svg width="136" height="136" viewBox="0 0 136 136" style={{ flexShrink: 0 }}>
                           {segments.map((s, i) => (
                             <circle key={i} cx={cx} cy={cy} r={r} fill="none"
@@ -532,7 +532,7 @@ export default function AdminPage() {
                         </svg>
                         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '7px' }}>
                           {segments.map((s, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div key={i} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'center', justifyContent: 'space-between' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color, flexShrink: 0 }} />
                                 <span style={{ fontSize: '12px', color: '#475569' }}>{s.label}</span>
@@ -559,7 +559,7 @@ export default function AdminPage() {
                         { label: 'DEV MODE', value: dashboard.dev_mode ? '⚠️ ON' : 'OFF' },
                         { label: '모델 경로', value: dashboard.model_path },
                       ].map(({ label, value }) => (
-                        <div key={label} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '10px', gap: '12px' }}>
+                        <div key={label} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-start', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '10px', gap: '12px' }}>
                           <span style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', flexShrink: 0, width: '80px' }}>{label}</span>
                           <span style={{ fontSize: '12px', color: '#334155', fontFamily: 'monospace', textAlign: 'right', wordBreak: 'break-all' }}>{value}</span>
                         </div>
@@ -674,8 +674,8 @@ export default function AdminPage() {
                     </div>
 
                     {/* 페이지네이션 */}
-                    <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100" style={{ paddingTop: '16px' }}>
-                      <span>총 {users.length}명</span>
+                    <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100 overflow-hidden" style={{ paddingTop: '16px' }}>
+                      <span className="shrink-0">총 {users.length}명</span>
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => setUserPage(p => p - 1)}
@@ -728,7 +728,7 @@ export default function AdminPage() {
             {/* 업로드 패널 */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 shrink-0" style={{ padding: '20px 24px' }}>
               {/* 헤더 행: 제목 + 탭 */}
-              <div className="flex items-center justify-between" style={{ marginBottom: '14px' }}>
+              <div className="flex items-center justify-between overflow-hidden" style={{ marginBottom: '14px' }}>
                 <div>
                   <h2 className="text-base font-black text-[#05263d]">RAG 지식 추가</h2>
                   <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>
@@ -756,7 +756,7 @@ export default function AdminPage() {
               {/* 문서 업로드 폼 */}
               {uploadMode === 'document' && (
               <div className="flex flex-col" style={{ gap: '8px' }}>
-              <div className="flex items-end" style={{ gap: '12px' }}>
+              <div className="flex items-end flex-nowrap overflow-hidden" style={{ gap: '12px' }}>
 
                 {/* 파일 드롭 영역 */}
                 <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md" className="hidden" onChange={handleFileChange} />
@@ -797,7 +797,7 @@ export default function AdminPage() {
 
                 {/* 주제 분류 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 4 }}>
-                  <label className="text-xs font-bold text-slate-500">주제 분류 (RAG 검색 필터)</label>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
                   <select
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
@@ -863,7 +863,7 @@ export default function AdminPage() {
               {/* URL 크롤링 폼 */}
               {uploadMode === 'crawl' && (
               <div className="flex flex-col" style={{ gap: '8px' }}>
-              <div className="flex items-end" style={{ gap: '12px' }}>
+              <div className="flex items-end flex-nowrap overflow-hidden" style={{ gap: '12px' }}>
 
                 {/* URL 입력 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
@@ -893,7 +893,7 @@ export default function AdminPage() {
 
                 {/* 주제 분류 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500">주제 분류 (RAG 검색 필터)</label>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
                   <select
                     value={crawlTopic}
                     onChange={(e) => setCrawlTopic(e.target.value)}
@@ -959,8 +959,8 @@ export default function AdminPage() {
 
             {/* 문서 목록 — 전체 너비 */}
             <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 min-w-0 flex flex-col min-h-0" style={{ padding: '24px 32px' }}>
-              <div className="flex items-center justify-between" style={{ marginBottom: '12px' }}>
-                <h2 className="text-base font-black text-[#05263d]">
+              <div className="flex items-center justify-between overflow-hidden" style={{ marginBottom: '12px' }}>
+                <h2 className="text-base font-black text-[#05263d] truncate min-w-0">
                   현재 RAG 지식 문서 목록
                   <span className="ml-2 text-slate-400 font-normal text-sm">(Active Retrieval Documents)</span>
                 </h2>
@@ -1058,8 +1058,8 @@ export default function AdminPage() {
                 </table>
               </div>
 
-              <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100" style={{ paddingTop: '16px' }}>
-                <span>총 {filtered.length}건 · 청크 {documents.reduce((s, d) => s + (d.chunks || 0), 0).toLocaleString()}개</span>
+              <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100 overflow-hidden" style={{ paddingTop: '16px' }}>
+                <span className="shrink-0">총 {filtered.length}건 · 청크 {documents.reduce((s, d) => s + (d.chunks || 0), 0).toLocaleString()}개</span>
                 <div className="flex items-center gap-1">
                   <button className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50">
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1083,9 +1083,9 @@ export default function AdminPage() {
           {activeNav === 'files' && (
             <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '20px' }}>
               {/* 헤더 */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-black text-[#05263d]">파일 관리</h2>
+              <div className="flex items-center justify-between overflow-hidden">
+                <div className="min-w-0">
+                  <h2 className="text-base font-black text-[#05263d] truncate">파일 관리</h2>
                   <p className="text-xs text-slate-400 mt-0.5">학생에게 제공할 양식·자료를 topic별로 관리합니다</p>
                 </div>
                 <div className="flex items-center" style={{ gap: '8px' }}>
@@ -1127,12 +1127,12 @@ export default function AdminPage() {
               )}
 
               {/* Topic 탭 */}
-              <div className="flex border-b border-slate-100" style={{ gap: '0' }}>
+              <div className="flex border-b border-slate-100 overflow-x-hidden flex-nowrap" style={{ gap: '0' }}>
                 {Object.entries(fileLabels).map(([topicKey, label]) => (
                   <button
                     key={topicKey}
                     onClick={() => { setFilesTopic(topicKey); setFileMsg(null) }}
-                    className={`text-sm font-semibold transition border-b-2 ${
+                    className={`text-sm font-semibold transition border-b-2 whitespace-nowrap flex-shrink-0 ${
                       filesTopic === topicKey
                         ? 'border-[#005956] text-[#005956]'
                         : 'border-transparent text-slate-400 hover:text-slate-600'

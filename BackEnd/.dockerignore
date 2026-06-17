@@ -1,4 +1,10 @@
 .venv/
+venv/
+venv2/
+venv*/
+.venv*/
+env/
+env*/
 llm/
 documents/
 __pycache__/
@@ -6,3 +12,9 @@ __pycache__/
 *.pyo
 .env
 *.gguf
+.cache/
+models/
+cache/
+ocr_test/
+*.bin
+*.safetensors
