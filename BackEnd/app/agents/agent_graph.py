@@ -17,7 +17,7 @@ from app.agents.agent_state import AgentState
 from app.agents.intent import IntentType
 from app.agents.topic_router import topic_router
 from app.models.DB_Table import ChatLog
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
@@ -135,7 +135,7 @@ async def _embedding_classify(state: AgentState) -> dict:
 
 async def _llm_classify(state: AgentState) -> dict:
     """LLM 기반 분류 (임베딩 신뢰도 낮을 때 fallback)"""
-    intent = await chat_service.classify_intent(state["question"])
+    intent = await llm_service.classify_intent(state["question"])
     print(f"[Graph] LLM 분류 → {intent}")
     return {"intent": intent}
 
@@ -177,7 +177,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
 
 async def _handle_general(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "general")
-    answer = await chat_service.answer(state["question"])
+    answer = await llm_service.answer(state["question"])
     return {"answer": answer}
 
 
