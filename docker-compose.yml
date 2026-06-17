@@ -21,6 +21,8 @@ services:
     build: ./FrontEnd
     ports:
       - "5173:5173"
+    volumes:
+      - ./FrontEnd/src:/app/src
     depends_on:
       - backend
     restart: unless-stopped

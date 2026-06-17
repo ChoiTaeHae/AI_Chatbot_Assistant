@@ -383,9 +383,9 @@ export default function AdminPage() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* 헤더 */}
-        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between" style={{ padding: '16px 32px' }}>
-          <h1 className="text-lg font-black text-[#05263d]">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
-          <div className="flex items-center" style={{ gap: '16px' }}>
+        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between overflow-hidden" style={{ padding: '16px 32px' }}>
+          <h1 className="text-lg font-black text-[#05263d] truncate min-w-0">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
+          <div className="flex items-center shrink-0" style={{ gap: '16px' }}>
             <button className="text-slate-400 hover:text-slate-600 transition">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -1127,12 +1127,12 @@ export default function AdminPage() {
               )}
 
               {/* Topic 탭 */}
-              <div className="flex border-b border-slate-100" style={{ gap: '0' }}>
+              <div className="flex border-b border-slate-100 overflow-x-hidden flex-nowrap" style={{ gap: '0' }}>
                 {Object.entries(fileLabels).map(([topicKey, label]) => (
                   <button
                     key={topicKey}
                     onClick={() => { setFilesTopic(topicKey); setFileMsg(null) }}
-                    className={`text-sm font-semibold transition border-b-2 ${
+                    className={`text-sm font-semibold transition border-b-2 whitespace-nowrap flex-shrink-0 ${
                       filesTopic === topicKey
                         ? 'border-[#005956] text-[#005956]'
                         : 'border-transparent text-slate-400 hover:text-slate-600'
