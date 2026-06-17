@@ -383,7 +383,7 @@ export default function AdminPage() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* 헤더 */}
-        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between overflow-hidden" style={{ padding: '16px 32px' }}>
+        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between relative z-50" style={{ padding: '16px 32px' }}>
           <h1 className="text-lg font-black text-[#05263d] truncate min-w-0">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
           <div className="flex items-center shrink-0" style={{ gap: '16px' }}>
             <button className="text-slate-400 hover:text-slate-600 transition">

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import traceback
 
 from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest
-from app.agents.school_agent import school_agent
+from app.agents.agent_graph import agent_graph
 from app.core.Database import get_db
 from app.core.deps import get_current_user
 from app.models.DB_Table import Student, ChatSession, ChatMessage, ChatFeedback
@@ -47,7 +47,7 @@ async def chat(
         await db.flush()  # user_msg.id 확보
 
         # 3. 에이전트 실행 (내부에서 ChatLog 저장 + db.commit 수행)
-        result = await school_agent.run(
+        result = await agent_graph.run(
             question=request.question,
             student_id=current_user.id,
             db=db,
