@@ -20,7 +20,7 @@ from app.models.DB_Table import ChatLog
 from app.services.llm_service import llm_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
-from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
+from app.services.school.rag_general import answer_rag_general_question_with_metadata, _resolve_topic
 from app.services.school.scholarship import answer_scholarship_question
 from app.services.file_service import AVAILABLE_FILES
 
@@ -99,6 +99,9 @@ async def _pre_check(state: AgentState) -> dict:
                 "filename": pf["filename"],
                 "url": f"/api/files/{pf['topic']}/{pf['filename']}",
             },
+            "source": "file_download",
+            "source_file": pf["filename"],
+            "topic": pf["topic"],
             "done": True,
         }
 
@@ -146,39 +149,63 @@ async def _handle_campus(state: AgentState) -> dict:
     return {
         "answer": result.get("answer", "위치 정보를 찾을 수 없습니다."),
         "map_card": result.get("map_card") if result.get("found") else None,
+        "source": result.get("source") or (result.get("map_card") or {}).get("source"),
+        "source_file": None,
+        "topic": "campus",
     }
 
 
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
-    answer = await graduation_service.answer_graduation(
+    answer, metadata = await graduation_service.answer_graduation_with_metadata(
         question=state["question"], student_id=state["student_id"], db=state["db"]
     )
-    return _with_file_offer({"answer": answer}, "graduation")
+    return _with_file_offer({
+        "answer": answer,
+        "source": metadata.get("source"),
+        "source_file": metadata.get("source_file"),
+        "topic": metadata.get("topic") or "graduation",
+    }, "graduation")
 
 
 async def _handle_scholarship(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "scholarship")
-    answer, next_ctx = await answer_scholarship_question(
+    answer, next_ctx, metadata = await answer_scholarship_question(
         state["question"],
         student_id=state["student_id"],
         db=state["db"],
         pending_context=state.get("pending_context"),  # 멀티턴 컨텍스트 전달
     )
-    return {"answer": answer, "next_pending_context": next_ctx}
+    return {
+        "answer": answer,
+        "next_pending_context": next_ctx,
+        "source": metadata.get("source"),
+        "source_file": metadata.get("source_file"),
+        "topic": metadata.get("topic") or "scholarship",
+    }
 
 
 async def _handle_rag_general(state: AgentState) -> dict:
     topic = _resolve_topic(state["question"])
     await _log(state["db"], state["student_id"], topic)
-    answer = await answer_rag_general_question(state["question"])
-    return _with_file_offer({"answer": answer}, topic)
+    answer, metadata = await answer_rag_general_question_with_metadata(state["question"])
+    return _with_file_offer({
+        "answer": answer,
+        "source": metadata.get("source"),
+        "source_file": metadata.get("source_file"),
+        "topic": metadata.get("topic") or topic,
+    }, topic)
 
 
 async def _handle_general(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "general")
     answer = await llm_service.answer(state["question"])
-    return {"answer": answer}
+    return {
+        "answer": answer,
+        "source": "llm",
+        "source_file": None,
+        "topic": "general",
+    }
 
 
 # ── 라우팅 함수들 ──────────────────────────────────────────────────
@@ -281,6 +308,10 @@ class AgentResult:
     file_download: dict | None = None
     map_card: dict | None = None
     pending_context: dict | None = None
+    intent: str | None = None
+    topic: str | None = None
+    source: str | None = None
+    source_file: str | None = None
 
 
 class AgentGraph:
@@ -308,6 +339,9 @@ class AgentGraph:
             "file_download": None,
             "map_card": None,
             "next_pending_context": None,
+            "source": None,
+            "source_file": None,
+            "topic": None,
             "done": False,
         }
 
@@ -319,6 +353,10 @@ class AgentGraph:
             file_download=result.get("file_download"),
             map_card=result.get("map_card"),
             pending_context=result.get("next_pending_context"),
+            intent=result.get("intent"),
+            topic=result.get("topic"),
+            source=result.get("source"),
+            source_file=result.get("source_file"),
         )
 
 

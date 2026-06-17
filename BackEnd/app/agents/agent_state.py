@@ -20,4 +20,7 @@ class AgentState(TypedDict):
     file_download: dict | None
     map_card: dict | None
     next_pending_context: dict | None
+    source: str | None
+    source_file: str | None
+    topic: str | None
     done: bool               # pre_check에서 이미 처리 완료된 경우

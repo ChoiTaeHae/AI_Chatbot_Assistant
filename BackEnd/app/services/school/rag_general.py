@@ -42,36 +42,37 @@ def _resolve_topic(question: str) -> str:
     return "general"
 
 
-def _search_rag(question: str) -> str:
+def _search_rag(question: str) -> tuple[str, dict]:
     try:
         topic = _resolve_topic(question)
 
         print(f"[RAG_GENERAL] 선택된 topic: {topic}")
 
-        context = rag_service.search_context(
+        context, results = rag_service.search_context_with_results(
             question,
             topic=topic,
         )
+        metadata = rag_service.primary_metadata(results, topic=topic)
 
         print("\n========== RAG CONTEXT ==========")
         print(context)
         print("=================================\n")
 
         if context:
-            return context[:MAX_CONTEXT_LENGTH]
+            return context[:MAX_CONTEXT_LENGTH], metadata
 
     except Exception as e:
         print(f"[RAG_GENERAL] 검색 실패: {e}")
 
-    return ""
+    return "", {"source": None, "source_file": None, "topic": _resolve_topic(question)}
 
 
-async def answer_rag_general_question(question: str) -> str:
+async def answer_rag_general_question_with_metadata(question: str) -> tuple[str, dict]:
     print("[RAG_GENERAL] RAG 검색 시작")
 
     loop = asyncio.get_event_loop()
 
-    context = await loop.run_in_executor(
+    context, metadata = await loop.run_in_executor(
         None,
         _search_rag,
         question,
@@ -99,4 +100,10 @@ async def answer_rag_general_question(question: str) -> str:
 [답변]
 """
 
-    return await llm_service.answer(prompt)
+    answer = await llm_service.answer(prompt)
+    return answer, metadata
+
+
+async def answer_rag_general_question(question: str) -> str:
+    answer, _ = await answer_rag_general_question_with_metadata(question)
+    return answer

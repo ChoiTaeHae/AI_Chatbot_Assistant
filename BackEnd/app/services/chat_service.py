@@ -55,6 +55,10 @@ class ChatService:
             student_id=current_user.id,
             role="assistant",
             content=result.answer,
+            intent=getattr(result, "intent", None),
+            topic=getattr(result, "topic", None),
+            source=getattr(result, "source", None),
+            source_file=getattr(result, "source_file", None),
         )
         db.add(asst_msg)
 
