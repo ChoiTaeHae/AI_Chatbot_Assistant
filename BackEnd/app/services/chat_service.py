@@ -40,9 +40,9 @@ class ChatService:
         await db.flush()
 
         # 순환 import 방지를 위해 런타임에 가져온다.
-        from app.agents.school_agent import school_agent
+        from app.agents.agent_graph import agent_graph
 
-        result = await school_agent.run(
+        result = await agent_graph.run(
             question=request.question,
             student_id=current_user.id,
             db=db,
@@ -95,7 +95,6 @@ class ChatService:
 
         await db.commit()
         return {"ok": True}
-
 
 # 싱글톤 인스턴스
 chat_service = ChatService()

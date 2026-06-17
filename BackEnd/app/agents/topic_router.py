@@ -68,15 +68,23 @@ class TopicRouter:
         질문 임베딩 후 가장 유사한 topic 반환.
         모든 topic이 임계값 미달이거나 warmup 실패 시 None 반환.
         """
+        intent, score = self.route_with_score(question)
+        return intent if score >= SIMILARITY_THRESHOLD else None
+
+    def route_with_score(self, question: str) -> tuple[IntentType | None, float]:
+        """
+        (최적 topic, 유사도 점수) 반환. 임계값 미달이어도 best topic을 반환함.
+        warmup 실패 시 (None, 0.0) 반환.
+        """
         if self._proto_vecs is None:
             try:
                 self.warmup()
             except Exception as e:
                 print(f"[TopicRouter] warmup 재시도 실패: {e}")
-                return None
+                return None, 0.0
 
         if self._proto_vecs is None:
-            return None
+            return None, 0.0
 
         q_vec = self.embedding.embed_text(question)
 
@@ -91,7 +99,7 @@ class TopicRouter:
 
         print(f"[TopicRouter] 최고 유사도 → {best_topic} ({best_score:.3f})")
 
-        return best_topic if best_score >= SIMILARITY_THRESHOLD else None
+        return best_topic, best_score
 
 
 # 싱글톤
