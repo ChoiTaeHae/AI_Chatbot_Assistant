@@ -170,3 +170,74 @@ class TokenBlacklist(Base):
     jti = Column(String(36), unique=True, nullable=False, index=True)  # JWT ID
     expires_at = Column(DateTime(timezone=True), nullable=False)        # 토큰 만료 시각
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+# ==========================================
+# 14. 채팅 세션 (chat_session)
+# ==========================================
+class ChatSession(Base):
+    __tablename__ = "chat_session"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    student_id     = Column(Integer, ForeignKey("student.id", ondelete="CASCADE"), nullable=False)
+    title          = Column(String(100), nullable=True)
+    started_at     = Column(DateTime(timezone=True), server_default=func.now())
+    last_message_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_deleted     = Column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index("ix_chat_session_student_id", "student_id"),
+    )
+
+# ==========================================
+# 15. 채팅 메시지 (chat_message)
+# ==========================================
+class ChatMessage(Base):
+    __tablename__ = "chat_message"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    session_id  = Column(Integer, ForeignKey("chat_session.id", ondelete="CASCADE"), nullable=False)
+    student_id  = Column(Integer, ForeignKey("student.id", ondelete="CASCADE"), nullable=False)
+    role        = Column(String(20), nullable=False)   # user / assistant
+    content     = Column(Text, nullable=False)
+    intent      = Column(String(50), nullable=True)
+    topic       = Column(String(50), nullable=True)
+    source      = Column(String(255), nullable=True)
+    source_file = Column(String(255), nullable=True)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_chat_message_session_id", "session_id"),
+        Index("ix_chat_message_created_at", "created_at"),
+        Index("ix_chat_message_intent", "intent"),
+    )
+
+# ==========================================
+# 16. 답변 피드백 (chat_feedback)
+# ==========================================
+class ChatFeedback(Base):
+    __tablename__ = "chat_feedback"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(Integer, ForeignKey("chat_message.id", ondelete="CASCADE"), unique=True, nullable=False)
+    rating     = Column(Integer, nullable=True)   # 1~5
+    is_helpful = Column(Boolean, nullable=False)
+    comment    = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+# ==========================================
+# 17. RAG 검색 로그 (retrieval_log)
+# ==========================================
+class RetrievalLog(Base):
+    __tablename__ = "retrieval_log"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    message_id   = Column(Integer, ForeignKey("chat_message.id", ondelete="CASCADE"), nullable=False)
+    chunk_source = Column(String(255), nullable=True)
+    chunk_score  = Column(Float, nullable=True)
+    chunk_rank   = Column(Integer, nullable=True)
+    topic        = Column(String(50), nullable=True)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_retrieval_log_message_id", "message_id"),
+    )

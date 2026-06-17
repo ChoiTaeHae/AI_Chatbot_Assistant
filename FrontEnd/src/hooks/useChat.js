@@ -48,6 +48,7 @@ export function useChat(lang = 'ko') {
         role: 'ai',
         content: data.answer,
         time: getTime(),
+        messageId: data.message_id || null,       // chat_message.id (피드백용)
         fileDownload: data.file_download || null, // { topic, filename, url }
         mapCard: data.map_card || null,           // { title, address, place_url, latitude, longitude }
       }
