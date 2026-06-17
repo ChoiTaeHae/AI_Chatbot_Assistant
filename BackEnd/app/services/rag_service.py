@@ -120,5 +120,47 @@ class RagService:
     def search_context(self, question: str, limit: int | None = None, source: str | None = None, topic: str | None = None) -> str:
         return self.retriever.search_context(question=question, limit=limit, source=source, topic=topic)
 
+    def search_context_with_results(
+        self,
+        question: str,
+        limit: int | None = None,
+        source: str | None = None,
+        topic: str | None = None,
+    ) -> tuple[str, list[SearchResult]]:
+        results = self.search(
+            question=question,
+            limit=limit,
+            source=source,
+            topic=topic,
+        )
+        context = "\n\n".join(
+            f"[source={self.format_source(result)}, score={result.score:.3f}]\n{result.text}"
+            for result in results
+            if result.text
+        )
+        return context, results
+
+    def format_source(self, result: SearchResult) -> str:
+        return (
+            result.metadata.get("source")
+            or result.metadata.get("file_name")
+            or "unknown"
+        )
+
+    def primary_metadata(self, results: list[SearchResult], topic: str | None = None) -> dict:
+        if not results:
+            return {
+                "source": None,
+                "source_file": None,
+                "topic": topic,
+            }
+
+        metadata = results[0].metadata
+        return {
+            "source": metadata.get("source"),
+            "source_file": metadata.get("file_name"),
+            "topic": metadata.get("topic") or topic,
+        }
+
 
 rag_service = RagService()

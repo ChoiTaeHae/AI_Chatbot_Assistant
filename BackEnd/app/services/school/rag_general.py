@@ -40,15 +40,23 @@ def _resolve_topic(question: str) -> str | None:
     return None
 
 
-def _search_rag(question: str) -> str:
+def _search_rag(question: str) -> tuple[str, dict]:
     try:
         topic = _resolve_topic(question)
 
-        print(f"[RAG_GENERAL] 선택된 topic: {topic if topic else '전체 검색(None)'}")
+        print(
+            f"[RAG_GENERAL] 선택된 topic: "
+            f"{topic if topic else '전체 검색(None)'}"
+        )
 
-        # Retriever의 리랭커가 점수(0.3) 이상인 것만 알아서 필터링해서 줌
-        context = rag_service.search_context(
+        # search 결과 + metadata용 result 함께 받기
+        context, results = rag_service.search_context_with_results(
             question,
+            topic=topic,
+        )
+
+        metadata = rag_service.primary_metadata(
+            results,
             topic=topic,
         )
 
@@ -57,21 +65,25 @@ def _search_rag(question: str) -> str:
         print("=================================\n")
 
         if context:
-            # 잘림 없이 100% 온전한 합산 조각을 반환
-            return context
+            # MAX_CONTEXT_LENGTH 제거
+            return context, metadata
 
     except Exception as e:
         print(f"[RAG_GENERAL] 검색 실패: {e}")
 
-    return ""
+    return "", {
+        "source": None,
+        "source_file": None,
+        "topic": _resolve_topic(question),
+    }
 
 
-async def answer_rag_general_question(question: str) -> str:
+async def answer_rag_general_question_with_metadata(question: str) -> tuple[str, dict]:
     print("[RAG_GENERAL] RAG 검색 시작")
 
     loop = asyncio.get_event_loop()
 
-    context = await loop.run_in_executor(
+    context, metadata = await loop.run_in_executor(
         None,
         _search_rag,
         question,
@@ -101,4 +113,10 @@ async def answer_rag_general_question(question: str) -> str:
 [답변]
 """
 
-    return await llm_service.answer(prompt)
+    answer = await llm_service.answer(prompt)
+    return answer, metadata
+
+
+async def answer_rag_general_question(question: str) -> str:
+    answer, _ = await answer_rag_general_question_with_metadata(question)
+    return answer
