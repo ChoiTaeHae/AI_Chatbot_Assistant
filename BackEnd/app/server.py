@@ -11,7 +11,7 @@ from app.api.admins import router as admins_router
 from app.api.files import router as files_router
 from app.api.campus import router as campus_router
 import asyncio
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 from app.services.file_service import refresh_available_files
 from app.agents.topic_router import topic_router
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
         print(f"[Server] 사전 초기화 실패 (무시): {e}")
 
     # LLM 모델 GPU 로드
-    chat_service.load_model()
+    llm_service.load_model()
 
     # 다운로드 파일 캐시 초기화
     refresh_available_files()

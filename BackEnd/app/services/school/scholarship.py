@@ -2,7 +2,7 @@ import asyncio
 import re
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
 MAX_CONTEXT_LENGTH = 1000
@@ -82,7 +82,7 @@ async def _rag_and_llm(question: str, gpa: float, income: int) -> str:
         f"위 규칙을 지켜 이 학생이 받을 수 있는 장학금을 알려주세요.\n"
         f"질문: {question}\n답변:"
     )
-    return await chat_service.answer(prompt)
+    return await llm_service.answer(prompt)
 
 
 async def answer_scholarship_question(
@@ -165,4 +165,4 @@ async def answer_scholarship_question(
         f"위 규칙을 지켜 다음 질문에 답변해주세요.\n"
         f"질문: {question}\n답변:"
     )
-    return await chat_service.answer(prompt), None
+    return await llm_service.answer(prompt), None

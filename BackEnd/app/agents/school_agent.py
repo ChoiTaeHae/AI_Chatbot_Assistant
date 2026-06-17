@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.intent import IntentType
 from app.agents.topic_router import topic_router
 from app.models.DB_Table import ChatLog
-from app.services.chat_service import chat_service
+from app.services.llm_service import llm_service
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question, _resolve_topic
@@ -211,7 +211,7 @@ class SchoolAgent:
             return await answer_rag_general_question(question)
 
         # GENERAL
-        return await chat_service.answer(question)
+        return await llm_service.answer(question)
 
     async def _handle_campus(self, question: str) -> AgentResult:
 
