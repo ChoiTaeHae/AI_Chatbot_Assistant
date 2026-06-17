@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     KAKAO_API_KEY: str = ""
 
     # LLM
-    MODEL_PATH: str = "./llm/bllossom-q8/llama-3-Korean-Bllossom-8B.Q8_0.gguf"
+    MODEL_PATH: str = "./llm/bllossom-8b-Q8_0.gguf"
     DEVICE: str = "cuda"
 
     # Embedding
