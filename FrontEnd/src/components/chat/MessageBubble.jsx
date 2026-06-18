@@ -171,9 +171,8 @@ function MessageActions({ messageId, content }) {
   function handleFeedbackClick(type) {
     if (!messageId) return
     if (feedback === type) {
-      // 이미 선택된 버튼 재클릭 → 취소
+      // 이미 선택된 버튼 재클릭 → UI만 취소 (DB는 마지막 저장값 유지)
       setFeedback(null)
-      sendFeedback(messageId, type === 'like' ? false : true).catch(() => setFeedback(type))
       return
     }
     setModalType(type)

@@ -5,17 +5,98 @@ from sqlalchemy.future import select
 from sqlalchemy import func
 
 from app.models.DB_Table import (
-    Student, RequirementSet, RequirementRule,
+    Student, Department, RequirementSet, RequirementRule,
     StudentAchievement, Course, StudentCourse
 )
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
+from app.rag.Embedding import BaaiEmbedding
 
-# 개인 현황 질문 키워드 (DB 조회 경로)
-_PERSONAL_KEYWORDS = ["내", "나의", "나는", "나", "제", "저의", "저는", "저", "내가", "제가", "내 졸업", "제 졸업"]
+# ── 졸업 질문 유형 분류 프로토타입 (임베딩 기반) ──────────────────────
+# personal : 개인 현황 조회 (DB)
+# document : 공식 절차/일정 조회 (RAG)
+# both     : 졸업요건 일반 질문 (DB + RAG)
+_GRADUATION_PROTOTYPES: dict[str, list[str]] = {
+    "personal": [
+        "내 졸업학점이 얼마나 남았나요?",
+        "제 이수현황을 알고 싶어요",
+        "저 졸업 가능한가요?",
+        "내가 전공 학점이 몇 점 남았어요?",
+        "나는 교양 이수가 충분한가요?",
+        "제 졸업요건 충족 여부 알려주세요",
+        "저의 졸업 상태를 확인해주세요",
+    ],
+    "document": [
+        "졸업 신청 방법이 어떻게 되나요?",
+        "졸업 서류 제출 절차가 어떻게 되나요?",
+        "졸업사정 일정이 언제예요?",
+        "졸업 신청 기간이 언제인가요?",
+        "졸업 신청은 어디서 하나요?",
+        "졸업 관련 규정을 알고 싶어요",
+    ],
+    "both": [
+        "졸업하려면 학점이 몇 점 필요해요?",
+        "졸업요건이 어떻게 되나요?",
+        "전공필수를 다 들어야 졸업할 수 있나요?",
+        "교양필수 학점이 몇 학점이에요?",
+        "이수조건을 알고 싶어요",
+        "영어 인증이 졸업에 필요한가요?",
+        "졸업까지 뭘 더 들어야 하나요?",
+    ],
+}
 
-# 공식 문서 질문 키워드 (RAG 경로)
-_DOCUMENT_KEYWORDS = ["방법", "절차", "서류", "신청", "어떻게", "어디서", "기간", "일정", "규정", "제출", "조건이란", "요건이란"]
+
+def _avg_normalize(vectors: list[list[float]]) -> list[float]:
+    n, dim = len(vectors), len(vectors[0])
+    avg = [sum(vectors[i][j] for i in range(n)) / n for j in range(dim)]
+    norm = sum(x * x for x in avg) ** 0.5
+    return [x / norm for x in avg] if norm > 0 else avg
+
+
+class _GraduationClassifier:
+    """졸업 질문 유형 임베딩 분류기 (personal / document / both)"""
+
+    def __init__(self):
+        self._embedding: BaaiEmbedding | None = None
+        self._proto_vecs: dict[str, list[float]] | None = None
+
+    @property
+    def embedding(self) -> BaaiEmbedding:
+        if self._embedding is None:
+            self._embedding = BaaiEmbedding()
+        return self._embedding
+
+    def _warmup(self) -> None:
+        categories = list(_GRADUATION_PROTOTYPES.keys())
+        all_sentences: list[str] = []
+        ranges: list[tuple[int, int]] = []
+        for cat in categories:
+            start = len(all_sentences)
+            all_sentences.extend(_GRADUATION_PROTOTYPES[cat])
+            ranges.append((start, len(all_sentences)))
+
+        all_vecs = self.embedding.embed_texts(all_sentences)
+        self._proto_vecs = {}
+        for cat, (start, end) in zip(categories, ranges):
+            self._proto_vecs[cat] = _avg_normalize(all_vecs[start:end])
+        print(f"[GraduationClassifier] {len(categories)}개 유형 임베딩 완료")
+
+    def classify(self, question: str) -> str:
+        if self._proto_vecs is None:
+            self._warmup()
+
+        q_vec = self.embedding.embed_text(question)
+        best_cat, best_score = "both", -1.0
+        for cat, proto in self._proto_vecs.items():
+            score = sum(x * y for x, y in zip(q_vec, proto))
+            if score > best_score:
+                best_score, best_cat = score, cat
+
+        print(f"[GraduationClassifier] 유형 분류 → {best_cat} ({best_score:.3f})")
+        return best_cat
+
+
+_graduation_classifier = _GraduationClassifier()
 
 
 class GraduationService:
@@ -26,7 +107,7 @@ class GraduationService:
 
     async def answer_graduation_with_metadata(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
         """Agent가 호출하는 메인 함수 - 질문 유형에 따라 DB/RAG/둘 다 경로 선택"""
-        question_type = self._classify_question(question)
+        question_type = await self._classify_question(question)
         print(f"[Graduation] 질문 유형: {question_type}")
 
         if question_type == "personal":
@@ -43,16 +124,10 @@ class GraduationService:
         answer, _ = await self.answer_graduation_with_metadata(question, student_id, db)
         return answer
 
-    def _classify_question(self, question: str) -> str:
-        """personal: 개인 현황 / document: 공식 문서 / both: 둘 다"""
-        is_personal = any(kw in question for kw in _PERSONAL_KEYWORDS)
-        is_document = any(kw in question for kw in _DOCUMENT_KEYWORDS)
-
-        if is_personal and is_document:
-            return "both"
-        if is_personal:
-            return "personal"
-        return "document"  # 기본값: 공식 문서 RAG 검색
+    async def _classify_question(self, question: str) -> str:
+        """임베딩 유사도로 질문 유형 분류 (personal / document / both)"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _graduation_classifier.classify, question)
 
     # =============================================
     # 경로 1: 개인 현황 (DB)
@@ -64,7 +139,7 @@ class GraduationService:
             return report["error"]
         context = self._build_db_context(report)
         prompt = self._build_db_prompt(question, context)
-        return await llm_service.answer(prompt)
+        return await llm_service.answer(prompt, max_tokens=1024)
 
     # =============================================
     # 경로 2: 공식 문서 (RAG)
@@ -93,7 +168,7 @@ class GraduationService:
         rag_context, metadata = rag_data
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
         prompt = self._build_combined_prompt(question, db_context, rag_context)
-        return await llm_service.answer(prompt), metadata
+        return await llm_service.answer(prompt, max_tokens=1024), metadata
 
     async def _search_rag(self, question: str) -> tuple[str, dict]:
         """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
@@ -114,9 +189,16 @@ class GraduationService:
     # =============================================
 
     async def _get_student(self, db: AsyncSession, student_id: int):
-        """학생 정보 조회"""
-        result = await db.execute(select(Student).where(Student.id == student_id))
-        return result.scalar_one_or_none()
+        """학생 정보 + 학과명 조회"""
+        result = await db.execute(
+            select(Student, Department.name)
+            .join(Department, Student.dept_id == Department.id)
+            .where(Student.id == student_id)
+        )
+        row = result.one_or_none()
+        if row is None:
+            return None, None
+        return row[0], row[1]  # (Student, dept_name)
 
     async def _get_requirement_rule(self, db: AsyncSession, dept_id: int, admission_year: int):
         """졸업요건 규칙 조회"""
@@ -168,7 +250,7 @@ class GraduationService:
         insufficient_details = []
 
         # 학생 조회
-        student = await self._get_student(db, student_id)
+        student, dept_name = await self._get_student(db, student_id)
         if not student:
             return {"error": "등록된 학생을 찾을 수 없습니다."}
 
@@ -182,7 +264,7 @@ class GraduationService:
         # 졸업요건 조회
         req_set, rule = await self._get_requirement_rule(db, student.dept_id, admission_year)
         if not req_set:
-            return {"error": f"학과(ID: {student.dept_id}) {admission_year}년도 졸업요건이 없습니다."}
+            return {"error": f"{dept_name}({admission_year}년도 입학) 졸업요건 정보가 등록되어 있지 않습니다."}
         if not rule:
             return {"error": "졸업요건 세부 규칙이 설정되어 있지 않습니다."}
 
@@ -217,6 +299,7 @@ class GraduationService:
 
         return {
             "is_graduated":       is_graduated,
+            "dept_name":          dept_name,
             "earned_major":       earned_major,
             "req_major":          rule.min_credits_major,
             "earned_liberal":     earned_liberal,
@@ -241,8 +324,11 @@ class GraduationService:
         general_short = report['req_general'] - report['earned_general']
         total_short  = report['total_required'] - report['total_earned']
 
+        dept_name = report.get("dept_name", "")
+
         return (
             f"[학생 졸업요건 조회 결과 - 아래 수치는 정확한 DB 데이터임]\n"
+            f"학과: {dept_name}\n"
             f"졸업 가능 여부: {status}\n\n"
             f"전공 학점: 현재 {report['earned_major']}학점 이수, 졸업에 필요한 학점 {report['req_major']}학점, 아직 부족한 학점 {major_short}학점\n"
             f"교양 학점: 현재 {report['earned_liberal']}학점 이수, 졸업에 필요한 학점 {report['req_liberal']}학점, 아직 부족한 학점 {liberal_short}학점\n"
@@ -255,10 +341,11 @@ class GraduationService:
         """DB 데이터 기반 프롬프트"""
         return (
             f"{context}\n\n"
-            f"위 데이터는 DB에서 정확하게 계산된 100% 실제 데이터입니다.\n"
-            f"임의로 수정하거나 추측하지 마세요.\n"
+            f"위 데이터는 DB에서 정확하게 계산된 100% 실제 데이터입니다. 임의로 수정하거나 추측하지 마세요.\n"
+            f"당신은 AI 어시스턴트입니다. 학생에게 직접 말하듯이 2인칭(예: '현재 ~학점을 이수하셨습니다')으로 답변하세요.\n"
+            f"절대 학생인 척하거나 '저는 학생입니다'와 같은 표현을 사용하지 마세요.\n"
             f"학생 질문('{question}')에 대해 위 데이터를 기반으로 "
-            f"친절하고 자세하게 설명하고 부족한 부분을 명확하게 안내해주세요."
+            f"친절하고 간결하게 핵심만 안내해주세요."
         )
 
     def _build_rag_prompt(self, question: str, rag_context: str) -> str:
@@ -280,8 +367,10 @@ class GraduationService:
             f"{rag_context}\n\n"
             f"위 [졸업 요건 조회 결과]는 DB에서 계산된 실제 데이터이며, "
             f"[공식 문서]는 학교 규정집에서 검색된 내용입니다.\n"
+            f"당신은 AI 어시스턴트입니다. 학생에게 직접 말하듯이 2인칭으로 답변하세요.\n"
+            f"절대 학생인 척하거나 '저는 학생입니다'와 같은 표현을 사용하지 마세요.\n"
             f"두 정보를 모두 활용하여 학생 질문('{question}')에 대해 "
-            f"친절하고 자세하게 답변해주세요."
+            f"친절하고 간결하게 핵심만 답변해주세요."
         )
 
 

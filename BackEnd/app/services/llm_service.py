@@ -48,7 +48,7 @@ class LlmService:
         )
         print("모델 로딩 완료! (llama-cpp-python, GPU 28레이어)")
 
-    def _generate(self, question: str) -> str:
+    def _generate(self, question: str, max_tokens: int = 512) -> str:
         if settings.DEV_MODE:
             return f"[DEV_MODE] 질문 수신: {question}"
 
@@ -61,7 +61,7 @@ class LlmService:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": question},
                 ],
-                max_tokens=512,
+                max_tokens=max_tokens,
                 temperature=0.3,
                 top_p=0.9,
                 repeat_penalty=1.2,
@@ -76,9 +76,9 @@ class LlmService:
             print(f"[LLM] 추론 오류: {type(e).__name__}: {e}")
             raise
 
-    async def answer(self, question: str) -> str:
+    async def answer(self, question: str, max_tokens: int = 512) -> str:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_executor, self._generate, question)
+        return await loop.run_in_executor(_executor, self._generate, question, max_tokens)
 
     def _classify(self, question: str) -> str:
         """짧은 분류 프롬프트로 intent 이름 반환 (campus/graduation/rag_general/general)"""
