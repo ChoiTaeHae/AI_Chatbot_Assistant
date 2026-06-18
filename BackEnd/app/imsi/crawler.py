@@ -8,7 +8,6 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup, Tag
 
-
 DEFAULT_NOTICE_URL = "https://tech.endicott.ac.kr/board/read.jsp?id=267227&code=tech0601"
 REQUEST_TIMEOUT_SECONDS = 15
 
@@ -153,7 +152,8 @@ def _extract_content(container: Tag, title: str) -> str:
     for removable in container.find_all(["script", "style", "noscript"]):
         removable.decompose()
 
-    text = container.get_text("\n", strip=True)
+    #HTML 요소 사이의 구분자를 \n\n으로 주어서 문단을 명확히 나눔
+    text = container.get_text("\n\n", strip=True)
     lines = [_clean_text(line) for line in text.splitlines()]
     content_lines: list[str] = []
     skip_patterns = (
@@ -173,7 +173,8 @@ def _extract_content(container: Tag, title: str) -> str:
         content_lines.append(line)
 
     content_lines = _trim_before_article_body(content_lines)
-    content = "\n".join(content_lines)
+    #추출된 라인들을 다시 합칠 때도 \n\n을 써서 문단 형태를 보존
+    content = "\n\n".join(content_lines)
     content = re.sub(r"\n{3,}", "\n\n", content).strip()
     return content
 
@@ -203,7 +204,8 @@ def _extract_view_count(text: str) -> int | None:
 
 
 def _clean_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text.replace("\xa0", " ")).strip(" *")
+    #\s+ 대신 [ \t\r\f\v]+ 를 사용하여 엔터(\n)는 보존하고 일반 스페이스바와 탭만 정리
+    return re.sub(r"[ \t\r\f\v]+", " ", text.replace("\xa0", " ")).strip(" *")
 
 
 def _dedupe_preserve_order(lines: list[str]) -> list[str]:
