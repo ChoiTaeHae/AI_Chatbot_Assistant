@@ -4,7 +4,7 @@ import argparse
 import traceback
 
 from app.imsi.crawler import DEFAULT_NOTICE_URL, crawl_notice_page
-from app.rag.Chunking import split_by_length
+from app.rag.Chunking import smart_split
 from app.rag.Embedding import BaaiEmbedding
 from app.rag.Retrieval import QdrantVectorStore
 
@@ -16,7 +16,8 @@ def ingest_notice_page(
 ) -> int:
     page = crawl_notice_page(url)
     document_text = page.to_document_text()
-    chunks = split_by_length(document_text, chunk_size=800, overlap=120)
+    raw_chunks = smart_split(document_text, chunk_size=1000, overlap=200)
+    chunks = [c["text"] for c in raw_chunks]
 
     if not chunks:
         print("[IMSI] No chunks created")

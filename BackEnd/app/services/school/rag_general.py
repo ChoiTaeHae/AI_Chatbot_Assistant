@@ -63,6 +63,16 @@ def _search_rag(question: str) -> tuple[str, dict]:
             topic=topic,
         )
 
+        print(f"[RAG] context length = {len(context)} chars")
+        print(f"[RAG] retrieved chunks = {len(results)}")
+
+        for i, result in enumerate(results, start=1):
+            print(
+                f"[Chunk {i}] "
+                f"score={result.score:.3f}, "
+                f"length={len(result.text)}"
+            )
+
         print("\n========== RAG CONTEXT ==========")
         print(context)
         print("=================================\n")
@@ -104,8 +114,11 @@ async def answer_rag_general_question_with_metadata(question: str) -> tuple[str,
 - 문서에 없는 일정, 기간, 비용, 운영 여부는 추측하지 않는다.
 - 필요한 경우 공식 홈페이지, 대학정보시스템, 학과사무실 또는 담당 부서 확인을 안내한다.
 - 답변은 상세하되 적당히 간결하고 자연스러운 한국어로 작성한다.
-- 관련 항목이 여러 개인 경우(동아리, 장학금, 규정 목록 등) 빠짐없이 모두 나열한다.
-- 절대로 내용을 생략하거나 "등"으로 줄이지 않는다.
+- 참고 문서에 포함된 관련 항목은 모두 나열한다.
+- 참고 문서에 없는 내용은 추측하지 않는다.
+- 동아리, 장학금, 규정, 부서 등 여러 항목이 있는 목록을 질문받으면, 참고 문서에 있는 **모든 항목을 단 하나도 빠짐없이 100% 전부 나열**해야 합니다.
+- "예를 들어", "일부", "등이 있습니다", "대표적으로"와 같은 생략/요약 표현을 **절대 사용하지 마세요.**
+- 출력 형식: 여러 항목을 나열할 때는 반드시 글머리 기호(- )나 번호를 사용하여, 사용자가 읽기 쉽도록 리스트 형태로 정리하세요.
 
 [참고 문서]
 {context}
