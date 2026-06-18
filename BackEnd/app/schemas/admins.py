@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 
 
 # ── 문서 관련 ──────────────────────────────────────────
@@ -91,4 +91,4 @@ class UserListResponse(BaseModel):
 
 
 class RoleUpdate(BaseModel):
-    role: str
+    role: Literal["student", "admin"]

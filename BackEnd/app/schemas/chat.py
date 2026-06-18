@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    question: str
+    question: str = Field(..., max_length=2000)
     session_id: int | None = None
     pending_file: dict | None = None     # { topic, filename } 파일 제안에 대한 응답 시 프론트가 전달
     pending_context: dict | None = None  # { type: "scholarship" } 멀티턴 대화 상태
