@@ -29,23 +29,165 @@ async function downloadFileWithAuth(url, filename) {
   }
 }
 
+// ── [DEV-ONLY] 피드백 상세 입력 모달 ──────────────────────────────────────────
+function FeedbackModal({ type, onSubmit, onClose }) {
+  const [rating, setRating] = useState(null)
+  const [hoverRating, setHoverRating] = useState(null)
+  const [comment, setComment] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setSubmitting(true)
+    await onSubmit(type === 'like', rating, comment.trim() || null)
+    setSubmitting(false)
+  }
+
+  const isLike = type === 'like'
+  const accentColor = isLike ? '#005956' : '#e53e3e'
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: '#fff', borderRadius: '16px', padding: '24px 28px',
+          width: '340px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          position: 'relative',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* 상단 라벨 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+          <span style={{ fontSize: '20px' }}>{isLike ? '👍' : '👎'}</span>
+          <span style={{ fontWeight: 700, fontSize: '15px', color: accentColor }}>
+            {isLike ? '도움이 됐나요?' : '어떤 점이 아쉬웠나요?'}
+          </span>
+          <span
+            style={{
+              marginLeft: 'auto', fontSize: '10px', fontWeight: 600,
+              background: '#fef3c7', color: '#92400e',
+              padding: '2px 7px', borderRadius: '999px', letterSpacing: '0.05em',
+            }}
+          >
+            DEV ONLY
+          </span>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          {/* 별점 */}
+          <div style={{ marginBottom: '14px' }}>
+            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
+              평점 <span style={{ color: '#94a3b8' }}>(선택)</span>
+            </div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {[1, 2, 3, 4, 5].map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  onMouseEnter={() => setHoverRating(n)}
+                  onMouseLeave={() => setHoverRating(null)}
+                  onClick={() => setRating(rating === n ? null : n)}
+                  style={{
+                    fontSize: '24px', background: 'none', border: 'none',
+                    cursor: 'pointer', padding: '0',
+                    color: n <= (hoverRating ?? rating ?? 0) ? '#f59e0b' : '#d1d5db',
+                    transition: 'color 0.1s',
+                  }}
+                >
+                  ★
+                </button>
+              ))}
+              {rating && (
+                <span style={{ fontSize: '12px', color: '#64748b', alignSelf: 'center', marginLeft: '4px' }}>
+                  {rating}점
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* 코멘트 */}
+          <div style={{ marginBottom: '18px' }}>
+            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
+              의견 <span style={{ color: '#94a3b8' }}>(선택)</span>
+            </div>
+            <textarea
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="자유롭게 입력해 주세요"
+              rows={3}
+              style={{
+                width: '100%', resize: 'none', padding: '10px 12px',
+                borderRadius: '10px', border: '1px solid #e2e8f0',
+                fontSize: '13px', outline: 'none', boxSizing: 'border-box',
+                fontFamily: 'inherit', color: '#334155',
+              }}
+            />
+          </div>
+
+          {/* 버튼 */}
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0',
+                background: '#f8fafc', color: '#64748b', fontSize: '13px',
+                cursor: 'pointer', fontWeight: 500,
+              }}
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              style={{
+                padding: '8px 18px', borderRadius: '8px', border: 'none',
+                background: accentColor, color: '#fff', fontSize: '13px',
+                cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 600,
+                opacity: submitting ? 0.7 : 1,
+              }}
+            >
+              {submitting ? '저장 중...' : '저장'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+// ── [DEV-ONLY] ────────────────────────────────────────────────────────────────
+
 function MessageActions({ messageId, content }) {
   const [feedback, setFeedback] = useState(null) // null | 'like' | 'dislike'
+  const [modalType, setModalType] = useState(null) // null | 'like' | 'dislike'
 
-  async function handleFeedback(type) {
+  function handleFeedbackClick(type) {
     if (!messageId) return
-    const next = feedback === type ? null : type
-    setFeedback(next)
-    try {
-      if (next === null) {
-        // 취소 시 반대로 전송 (DB upsert로 덮어씌움)
-        await sendFeedback(messageId, type === 'like' ? false : true)
-      } else {
-        await sendFeedback(messageId, next === 'like')
-      }
-    } catch {
-      setFeedback(feedback) // 실패 시 원상복구
+    if (feedback === type) {
+      // 이미 선택된 버튼 재클릭 → 취소
+      setFeedback(null)
+      sendFeedback(messageId, type === 'like' ? false : true).catch(() => setFeedback(type))
+      return
     }
+    setModalType(type)
+  }
+
+  async function handleModalSubmit(isHelpful, rating, comment) {
+    const type = isHelpful ? 'like' : 'dislike'
+    try {
+      await sendFeedback(messageId, isHelpful, rating, comment)
+      setFeedback(type)
+    } catch {
+      // 실패 시 아무것도 안 함
+    }
+    setModalType(null)
   }
 
   function handleCopy() {
@@ -53,38 +195,47 @@ function MessageActions({ messageId, content }) {
   }
 
   return (
-    <div className="flex items-center gap-3 text-slate-400" style={{ marginTop: '12px' }}>
-      {/* 복사 */}
-      <button type="button" onClick={handleCopy} className="hover:text-slate-600 transition" title="복사">
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-      </button>
-      {/* 좋아요 */}
-      <button
-        type="button"
-        onClick={() => handleFeedback('like')}
-        className="transition"
-        style={{ color: feedback === 'like' ? '#005956' : undefined }}
-        title="좋아요"
-      >
-        <svg className="h-5 w-5" fill={feedback === 'like' ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V2.75a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282m0 0h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904m10.598-9.75H14.25M5.904 18.5c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 9.953 4.167 9.5 5 9.5h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" />
-        </svg>
-      </button>
-      {/* 싫어요 */}
-      <button
-        type="button"
-        onClick={() => handleFeedback('dislike')}
-        className="transition"
-        style={{ color: feedback === 'dislike' ? '#e53e3e' : undefined }}
-        title="싫어요"
-      >
-        <svg className="h-5 w-5" fill={feedback === 'dislike' ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M7.498 15.25H4.372c-1.026 0-1.945-.694-2.054-1.715a12.137 12.137 0 0 1-.068-1.285c0-2.848.992-5.464 2.649-7.521C5.287 4.247 5.886 4 6.504 4h4.016a4.5 4.5 0 0 1 1.423.23l3.114 1.04a4.5 4.5 0 0 0 1.423.23h1.294M7.498 15.25c.618 0 .991.724.725 1.282A7.471 7.471 0 0 0 7.5 19.75 2.25 2.25 0 0 0 9.75 22a.75.75 0 0 0 .75-.75v-.633c0-.573.11-1.14.322-1.672.304-.76.93-1.33 1.653-1.715a9.04 9.04 0 0 0 2.86-2.4c.498-.634 1.226-1.08 2.032-1.08h.384m-10.253 1.5H9.7m8.075-9.75c.01.05.027.1.05.148.593 1.2.925 2.55.925 3.977 0 1.487-.36 2.89-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398-.306.774-1.086 1.227-1.918 1.227h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 0 0 .303-.54" />
-        </svg>
-      </button>
-    </div>
+    <>
+      {modalType && (
+        <FeedbackModal
+          type={modalType}
+          onSubmit={handleModalSubmit}
+          onClose={() => setModalType(null)}
+        />
+      )}
+      <div className="flex items-center gap-3 text-slate-400" style={{ marginTop: '12px' }}>
+        {/* 복사 */}
+        <button type="button" onClick={handleCopy} className="hover:text-slate-600 transition" title="복사">
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        </button>
+        {/* 좋아요 */}
+        <button
+          type="button"
+          onClick={() => handleFeedbackClick('like')}
+          className="transition"
+          style={{ color: feedback === 'like' ? '#005956' : undefined }}
+          title="좋아요"
+        >
+          <svg className="h-5 w-5" fill={feedback === 'like' ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V2.75a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282m0 0h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904m10.598-9.75H14.25M5.904 18.5c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 9.953 4.167 9.5 5 9.5h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" />
+          </svg>
+        </button>
+        {/* 싫어요 */}
+        <button
+          type="button"
+          onClick={() => handleFeedbackClick('dislike')}
+          className="transition"
+          style={{ color: feedback === 'dislike' ? '#e53e3e' : undefined }}
+          title="싫어요"
+        >
+          <svg className="h-5 w-5" fill={feedback === 'dislike' ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7.498 15.25H4.372c-1.026 0-1.945-.694-2.054-1.715a12.137 12.137 0 0 1-.068-1.285c0-2.848.992-5.464 2.649-7.521C5.287 4.247 5.886 4 6.504 4h4.016a4.5 4.5 0 0 1 1.423.23l3.114 1.04a4.5 4.5 0 0 0 1.423.23h1.294M7.498 15.25c.618 0 .991.724.725 1.282A7.471 7.471 0 0 0 7.5 19.75 2.25 2.25 0 0 0 9.75 22a.75.75 0 0 0 .75-.75v-.633c0-.573.11-1.14.322-1.672.304-.76.93-1.33 1.653-1.715a9.04 9.04 0 0 0 2.86-2.4c.498-.634 1.226-1.08 2.032-1.08h.384m-10.253 1.5H9.7m8.075-9.75c.01.05.027.1.05.148.593 1.2.925 2.55.925 3.977 0 1.487-.36 2.89-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398-.306.774-1.086 1.227-1.918 1.227h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 0 0 .303-.54" />
+          </svg>
+        </button>
+      </div>
+    </>
   )
 }
 
