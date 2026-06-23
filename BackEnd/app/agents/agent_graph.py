@@ -18,6 +18,7 @@ from app.agents.intent import IntentType
 from app.agents.topic_router import topic_router
 from app.models.DB_Table import ChatLog
 from app.services.llm_service import llm_service
+from app.prompts import GENERAL_HANDLER_PROMPT
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata, _resolve_topic
@@ -172,12 +173,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
 
 async def _handle_general(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "general")
-    prompt = (
-        "아래 질문에 답변하세요.\n"
-        "단, 수강신청·졸업·장학금·기숙사 등 학사 정보를 묻는 경우 "
-        "정보를 지어내지 말고 구체적인 키워드로 다시 질문해 달라고 안내하세요.\n\n"
-        f"질문: {state['question']}"
-    )
+    prompt = GENERAL_HANDLER_PROMPT.format(question=state["question"])
     answer = await llm_service.answer(prompt)
     return {
         "answer": answer,

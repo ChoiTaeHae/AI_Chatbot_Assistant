@@ -17,34 +17,38 @@ def ingest_notice_page(
     page = crawl_notice_page(url)
     document_text = page.to_document_text()
     raw_chunks = smart_split(document_text, chunk_size=1000, overlap=200)
-    chunks = [c["text"] for c in raw_chunks]
 
-    if not chunks:
+    if not raw_chunks:
         print("[IMSI] No chunks created")
         return 0
+
+    texts = [c["text"] for c in raw_chunks]
+    embedding_texts = [c["embedding_text"] for c in raw_chunks]
+    chunk_metas = [{"chapter": c["chapter"], "article": c["article"], "path": c["path"]} for c in raw_chunks]
 
     embedding = BaaiEmbedding()
     vector_store = QdrantVectorStore()
 
     print(f"[IMSI] Crawled: {page.title}", flush=True)
-    print(f"[IMSI] Chunks: {len(chunks)}", flush=True)
+    print(f"[IMSI] Chunks: {len(texts)}", flush=True)
 
     print("[IMSI] Embedding start", flush=True)
-    embeddings = embedding.embed_texts(chunks)
+    embeddings = embedding.embed_texts(embedding_texts)
     print(f"[IMSI] Embedding done: {len(embeddings)} vectors", flush=True)
 
     print("[IMSI] Qdrant upsert start", flush=True)
 
     vector_store.upsert_chunks(
-        chunks=chunks,
+        chunks=texts,
         embeddings=embeddings,
         source=source,
         metadata=page.metadata(),
         topic=topic,
+        chunk_metas=chunk_metas,
     )
 
     print(f"[IMSI] Upserted to Qdrant: source={source}, topic={topic}")
-    return len(chunks)
+    return len(texts)
 
 
 def main() -> None:

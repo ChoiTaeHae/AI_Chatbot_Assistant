@@ -11,6 +11,7 @@ from app.models.DB_Table import (
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 from app.rag.Embedding import BaaiEmbedding
+from app.prompts import GRADUATION_DB_PROMPT, GRADUATION_RAG_PROMPT, GRADUATION_COMBINED_PROMPT
 
 # ── 졸업 질문 유형 분류 프로토타입 (임베딩 기반) ──────────────────────
 # personal : 개인 현황 조회 (DB)
@@ -338,40 +339,13 @@ class GraduationService:
         )
 
     def _build_db_prompt(self, question: str, context: str) -> str:
-        """DB 데이터 기반 프롬프트"""
-        return (
-            f"{context}\n\n"
-            f"위 데이터는 DB에서 정확하게 계산된 100% 실제 데이터입니다. 임의로 수정하거나 추측하지 마세요.\n"
-            f"당신은 AI 어시스턴트입니다. 학생에게 직접 말하듯이 2인칭(예: '현재 ~학점을 이수하셨습니다')으로 답변하세요.\n"
-            f"절대 학생인 척하거나 '저는 학생입니다'와 같은 표현을 사용하지 마세요.\n"
-            f"학생 질문('{question}')에 대해 위 데이터를 기반으로 "
-            f"친절하고 간결하게 핵심만 안내해주세요."
-        )
+        return GRADUATION_DB_PROMPT.format(context=context, question=question)
 
     def _build_rag_prompt(self, question: str, rag_context: str) -> str:
-        """RAG 문서 기반 프롬프트"""
-        return (
-            f"[공식 졸업 관련 문서 검색 결과]\n"
-            f"{rag_context}\n\n"
-            f"위 내용은 학교 공식 문서에서 검색된 자료입니다.\n"
-            f"검색된 내용을 벗어난 추측은 하지 마세요.\n"
-            f"학생 질문('{question}')에 대해 위 문서를 근거로 "
-            f"친절하고 명확하게 답변해주세요."
-        )
+        return GRADUATION_RAG_PROMPT.format(rag_context=rag_context, question=question)
 
     def _build_combined_prompt(self, question: str, db_context: str, rag_context: str) -> str:
-        """DB + RAG 데이터 통합 프롬프트"""
-        return (
-            f"{db_context}\n\n"
-            f"[공식 졸업 관련 문서 검색 결과]\n"
-            f"{rag_context}\n\n"
-            f"위 [졸업 요건 조회 결과]는 DB에서 계산된 실제 데이터이며, "
-            f"[공식 문서]는 학교 규정집에서 검색된 내용입니다.\n"
-            f"당신은 AI 어시스턴트입니다. 학생에게 직접 말하듯이 2인칭으로 답변하세요.\n"
-            f"절대 학생인 척하거나 '저는 학생입니다'와 같은 표현을 사용하지 마세요.\n"
-            f"두 정보를 모두 활용하여 학생 질문('{question}')에 대해 "
-            f"친절하고 간결하게 핵심만 답변해주세요."
-        )
+        return GRADUATION_COMBINED_PROMPT.format(db_context=db_context, rag_context=rag_context, question=question)
 
 
 # 싱글톤 인스턴스

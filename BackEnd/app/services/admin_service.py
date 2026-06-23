@@ -303,27 +303,31 @@ class AdminService:
     ) -> None:
         """URL 크롤링 및 RAG 인제스트 — ThreadPool 안에서 호출됨"""
         from app.imsi.crawler import crawl_notice_page
-        from app.rag.Chunking import split_by_length
+        from app.rag.Chunking import smart_split
         try:
             self._upload_jobs[job_id]["status"] = "processing"
             page = crawl_notice_page(url)
             document_text = page.to_document_text()
-            chunks = split_by_length(document_text, chunk_size=800, overlap=120)
-            if not chunks:
+            raw_chunks = smart_split(document_text)
+            if not raw_chunks:
                 self._upload_jobs[job_id] = {
                     "status": "error",
                     "message": "크롤링한 페이지에서 텍스트를 추출할 수 없습니다.",
                 }
                 return
-            embeddings = rag_service.embedding.embed_texts(chunks)
+            texts = [c["text"] for c in raw_chunks]
+            embedding_texts = [c["embedding_text"] for c in raw_chunks]
+            chunk_metas = [{"chapter": c["chapter"], "article": c["article"], "path": c["path"]} for c in raw_chunks]
+            embeddings = rag_service.embedding.embed_texts(embedding_texts)
             rag_service.vector_store.upsert_chunks(
-                chunks=chunks,
+                chunks=texts,
                 embeddings=embeddings,
                 source=source,
                 metadata=page.metadata(),
                 topic=topic,
+                chunk_metas=chunk_metas,
             )
-            chunk_count = len(chunks)
+            chunk_count = len(texts)
             self._upload_jobs[job_id] = {
                 "status": "done",
                 "source": source,

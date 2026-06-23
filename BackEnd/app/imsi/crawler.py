@@ -101,6 +101,11 @@ def parse_notice_page(html: str, url: str) -> CrawledPage:
 
 
 def _find_notice_container(soup: BeautifulSoup) -> Tag:
+    # 우송대 표준 본문 컨테이너 (#headerTop, gnbWrap, .lnb, footer 자동 제외)
+    body_con = soup.select_one("#bodyCon")
+    if isinstance(body_con, Tag):
+        return body_con
+
     board_read = soup.select_one(".board-read")
     if isinstance(board_read, Tag):
         return board_read
@@ -150,6 +155,12 @@ def _extract_content(container: Tag, title: str) -> str:
         container = body
 
     for removable in container.find_all(["script", "style", "noscript"]):
+        removable.decompose()
+
+    # 우송대 페이지 공통 불필요 요소 제거
+    for removable in container.find_all(class_="content_top"):  # 제목+breadcrumb 영역
+        removable.decompose()
+    for removable in container.find_all(class_="path"):         # breadcrumb 단독 잔존 시
         removable.decompose()
 
     #HTML 요소 사이의 구분자를 \n\n으로 주어서 문단을 명확히 나눔
