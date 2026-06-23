@@ -41,8 +41,8 @@ class LlmService:
         print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.model = Llama(
             model_path=settings.MODEL_PATH,
-            n_gpu_layers=28,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
-            n_ctx=2048,
+            n_gpu_layers=15,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
+            n_ctx=4096,
             n_batch=512,
             verbose=False,
         )
@@ -61,12 +61,12 @@ class LlmService:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": question},
                 ],
-                max_tokens=512,
+                max_tokens=2048,
                 temperature=0.3,
                 top_p=0.9,
                 repeat_penalty=1.2,
             )
-
+ 
             result = response["choices"][0]["message"]["content"]
             usage = response.get("usage", {})
             print(f"[LLM] 생성 완료 | 출력 토큰: {usage.get('completion_tokens', '?')} | 생성: {time.time()-t0:.1f}s")
