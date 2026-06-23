@@ -6,9 +6,13 @@ from app.rag.Retrieval.qdrant_store import (
 from app.rag.Retrieval.Reranker import BgeReranker
 
 # reranker score 임계값 - 이 값 이상인 청크는 전부 반환
-SCORE_THRESHOLD = 0.3
+SCORE_THRESHOLD = 0.04
 # 최대 반환 청크 수 - LLM 컨텍스트 초과 방지
 MAX_CHUNKS = 10
+
+# 같은 source URL의 청크를 합칠 때 최대 글자 수
+# (너무 길면 LLM 컨텍스트 초과 에러 발생 및 리랭커 점수 폭락 → 1200자로 제한)
+MAX_MERGED_LENGTH = 4000
 
 
 class Retriever:
@@ -25,38 +29,63 @@ class Retriever:
 
     def _merge_same_article(self, results: list[SearchResult]) -> list[SearchResult]:
         """
-        같은 article(조문)의 청크를 합쳐서 반환
-        - 제29조가 3개 청크로 나뉘어 있으면 하나로 합침
-        - article이 없는 청크(문단 단위)는 그대로 유지
-        - 합친 후 score는 가장 높은 값 유지
+        같은 article(조문) 또는 같은 source URL의 청크를 합쳐서 반환.
+
+        - [조문 문서] article이 있으면 source::article 키로 합침
+        - [일반 문서] article=None인 청크는 source URL 키로 합침
+        - 합친 후 score는 그룹 내 가장 높은 값 유지
+        - 합친 텍스트가 MAX_MERGED_LENGTH를 넘으면 거기서 중단 (LLM 컨텍스트 보호)
         """
-        merged: dict[str, SearchResult] = {}
-        no_article: list[SearchResult] = []
+        article_merged: dict[str, SearchResult] = {}
+        source_merged: dict[str, SearchResult] = {}
 
         for result in results:
             article = result.metadata.get("article")
             source = result.metadata.get("source", "")
 
-            # article 없는 청크(문단 단위)는 합치지 않고 별도 보관
-            if not article:
-                no_article.append(result)
-                continue
-
-            key = f"{source}::{article}"
-
-            if key in merged:
-                existing = merged[key]
-                # "(계속)" 표시 제거 후 본문만 추출
-                new_text = result.text.replace(f"{article} (계속)\n", "").strip()
-                merged[key] = SearchResult(
-                    text=existing.text + "\n" + new_text,
-                    score=max(existing.score, result.score),
-                    metadata=existing.metadata,
-                )
+            if article:
+                # 조문 단위 합치기
+                key = f"{source}::{article}"
+                if key in article_merged:
+                    existing = article_merged[key]
+                    
+                    # MAX_MERGED_LENGTH 초과 시 텍스트는 놔두고 점수만 갱신
+                    if len(existing.text) >= MAX_MERGED_LENGTH:
+                        existing.score = max(existing.score, result.score)
+                        continue
+                        
+                    new_text = result.text.replace(f"{article} (계속)\n", "").strip()
+                    merged_text = existing.text + "\n" + new_text
+                    article_merged[key] = SearchResult(
+                        text=merged_text,
+                        score=max(existing.score, result.score),
+                        metadata=existing.metadata,
+                    )
+                else:
+                    article_merged[key] = result
             else:
-                merged[key] = result
+                # 일반 문서 source 단위 합치기
+                key = source
+                if key in source_merged:
+                    existing = source_merged[key]
 
-        all_results = list(merged.values()) + no_article
+                    # MAX_MERGED_LENGTH 초과 시 더 이상 텍스트를 붙이지 않음
+                    if len(existing.text) >= MAX_MERGED_LENGTH:
+                        existing.score = max(existing.score, result.score)
+                        continue
+
+                    merged_text = existing.text + "\n\n" + result.text
+                    source_merged[key] = SearchResult(
+                        text=merged_text,
+                        score=max(existing.score, result.score),
+                        metadata=existing.metadata,
+                    )
+                else:
+                    source_merged[key] = result
+
+        all_results = list(article_merged.values()) + list(source_merged.values())
+        
+        # 최종 반환 시 관련도 점수가 가장 높은 순으로 정렬하여 반환
         return sorted(all_results, key=lambda r: r.score, reverse=True)
 
     def search(
@@ -73,7 +102,7 @@ class Retriever:
 
         query_embedding = self.embedding.embed_text(question)
 
-        # 넉넉하게 후보 가져오기 (합치기 + score 필터링 후 충분한 결과 보장)
+        # 1. 넉넉하게 후보 가져오기 (Vector Search)
         results = self.vector_store.search(
             query_embedding=query_embedding,
             limit=30,
@@ -84,36 +113,56 @@ class Retriever:
         if not results:
             return []
 
-        # 같은 조문 청크 합치기
-        merged_results = self._merge_same_article(results)
+        # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (짧은 원본 청크 기준으로 평가)
+        raw_texts = [result.text for result in results]
+        scores = self.reranker.rerank(question, raw_texts)
 
-        # reranker로 질문과의 관련도 점수 계산
-        scores = self.reranker.rerank(
-            question,
-            [result.text for result in merged_results],
-        )
+        # 리랭커 점수가 반영된 새로운 결과 리스트 생성
+        reranked_results = [
+            SearchResult(text=r.text, score=s, metadata=r.metadata)
+            for r, s in zip(results, scores)
+        ]
 
-        reranked = sorted(
-            zip(merged_results, scores),
-            key=lambda x: x[1],
-            reverse=True,
-        )
+        # 점수 순으로 내림차순 정렬
+        reranked_results.sort(key=lambda x: x.score, reverse=True)
 
-        # limit이 명시적으로 지정된 경우 → TOP K 방식
+        # 디버그: rerank 점수 전체 출력
+        print("[Retriever] rerank 점수 목록:")
+        for i, result in enumerate(reranked_results, start=1):
+            src = result.metadata.get("source", "unknown")
+            article = result.metadata.get("article", "")
+            length = len(result.text)
+            label = f"{article}" if article else f"source={src[:40]}"
+            passed = "✅" if result.score >= SCORE_THRESHOLD else "❌"
+            print(f"  [{i}] {passed} score={result.score:.3f} length={length}자 | {label}")
+
+        # 3. SCORE_THRESHOLD로 필터링 (관련 있는 청크만 살리기)
+        filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
+        
+        # 임계값 이상인 게 하나도 없으면 가장 높은 것 1개는 살림
+        if not filtered_results and reranked_results:
+            filtered_results = [reranked_results[0]]
+            print(f"[Retriever] 임계값 통과 청크 없음 → 최소 1개 강제 반환 (score={filtered_results[0].score:.3f})")
+
+        # LLM 컨텍스트 보호를 위해 최대 반환 개수 제한
+        filtered_results = filtered_results[:MAX_CHUNKS]
+
+        # 4. 살아남은 청크들을 문서의 원래 순서(chunk_index)대로 오름차순 정렬
+        # (순서대로 정렬해야 합쳤을 때 동아리나 규정 목록이 뒤죽박죽 섞이지 않음)
+        filtered_results.sort(key=lambda r: r.metadata.get("chunk_index", 0))
+
+        # 5. 합치기 실행 (이어지는 문맥 복원)
+        final_results = self._merge_same_article(filtered_results)
+
+        # 명시적으로 limit이 들어온 경우 처리
         if limit is not None:
-            final_results = [result for result, _ in reranked[:limit]]
-        else:
-            # limit 미지정 → score 임계값 이상인 청크 전부 반환 (최대 MAX_CHUNKS개)
-            final_results = [
-                result for result, score in reranked
-                if score >= SCORE_THRESHOLD
-            ][:MAX_CHUNKS]
+            final_results = final_results[:limit]
 
-            # 임계값 이상인 게 하나도 없으면 최소 1개는 반환
-            if not final_results and reranked:
-                final_results = [reranked[0][0]]
-
-        print(f"[Retriever] 검색 {len(results)}개 → 합치기 후 {len(merged_results)}개 → 최종 {len(final_results)}개")
+        print(
+            f"[Retriever] 검색 {len(results)}개 → "
+            f"필터링 후 {len(filtered_results)}개 → "
+            f"최종 합치기 후 {len(final_results)}개"
+        )
 
         return final_results
 

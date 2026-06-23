@@ -29,7 +29,7 @@ class BgeReranker:
             for doc in documents
         ]
 
-        scores = self.model.compute_score(pairs)
+        scores = self.model.compute_score(pairs, normalize=True)
 
         print("[Reranker] rerank 완료")
 
