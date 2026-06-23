@@ -42,7 +42,7 @@ class LlmService:
         self.model = Llama(
             model_path=settings.MODEL_PATH,
             n_gpu_layers=28,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
-            n_ctx=2048,
+            n_ctx=4096,
             n_batch=512,
             verbose=False,
         )
@@ -76,7 +76,7 @@ class LlmService:
             print(f"[LLM] 추론 오류: {type(e).__name__}: {e}")
             raise
 
-    async def answer(self, question: str, max_tokens: int = 512) -> str:
+    async def answer(self, question: str, max_tokens: int = 512) -> str: #답변 최대 토큰수 지정
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(_executor, self._generate, question, max_tokens)
 

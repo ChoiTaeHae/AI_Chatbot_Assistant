@@ -33,7 +33,7 @@ from app.schemas.admins import (
 )
 
 from app.core.topics import VALID_TOPICS
-
+# 문서 처리 전담 작업자(스레드 풀) 1명 고용
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
@@ -215,7 +215,7 @@ class AdminService:
     ) -> None:
         """실제 인제스트 실행 — ThreadPool 안에서 호출됨"""
         try:
-            self._upload_jobs[job_id]["status"] = "processing"
+            self._upload_jobs[job_id]["status"] = "processing"   # 대기표(job_id)별 진행 상황을 기록할 장부
             chunk_count = ingest_file(
                 file_path=tmp_path,
                 source=source,
