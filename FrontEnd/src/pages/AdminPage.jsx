@@ -85,6 +85,8 @@ export default function AdminPage() {
   const [crawlUrl, setCrawlUrl] = useState('')
   const [crawlSource, setCrawlSource] = useState('')
   const [crawlTopic, setCrawlTopic] = useState('')
+  const [docDate, setDocDate] = useState('')
+  const [crawlDocDate, setCrawlDocDate] = useState('')
   const [crawling, setCrawling] = useState(false)
   const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
   const [topicFilter, setTopicFilter] = useState('all')
@@ -274,7 +276,7 @@ export default function AdminPage() {
     setUploadMsg({ type: 'info', text: '파일 업로드 중...' })
     try {
       const source = docTitle || selectedFile.name.replace(/\.[^.]+$/, '')
-      const result = await uploadDocument(selectedFile, source, topic || null)
+      const result = await uploadDocument(selectedFile, source, topic || null, docDate || null)
 
       setUploadMsg({ type: 'info', text: 'RAG 처리 중입니다. 잠시 기다려주세요...' })
 
@@ -310,7 +312,7 @@ export default function AdminPage() {
     setCrawlMsg({ type: 'info', text: '크롤링 요청 중...' })
     try {
       const source = crawlSource || crawlUrl
-      const result = await crawlDocument(crawlUrl, source, crawlTopic || null)
+      const result = await crawlDocument(crawlUrl, source, crawlTopic || null, crawlDocDate || null)
 
       setCrawlMsg({ type: 'info', text: '크롤링 및 RAG 처리 중입니다. 잠시 기다려주세요...' })
 
@@ -860,6 +862,18 @@ export default function AdminPage() {
                   </select>
                 </div>
 
+                {/* 기준 날짜 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜 (버전 관리)</label>
+                  <input
+                    type="date"
+                    value={docDate}
+                    onChange={(e) => setDocDate(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+
                 {/* 버튼 */}
                 <div className="flex shrink-0" style={{ gap: '8px', alignItems: 'flex-end' }}>
                   <button
@@ -954,6 +968,18 @@ export default function AdminPage() {
                       <option key={key} value={key}>{label}</option>
                     ))}
                   </select>
+                </div>
+
+                {/* 기준 날짜 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 2 }}>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜 (버전 관리)</label>
+                  <input
+                    type="date"
+                    value={crawlDocDate}
+                    onChange={(e) => setCrawlDocDate(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
                 </div>
 
                 {/* 버튼 */}
@@ -1055,15 +1081,16 @@ export default function AdminPage() {
               <div className="flex-1 overflow-y-auto">
                 <table className="w-full text-sm table-fixed">
                   <colgroup>
-                    <col style={{ width: '32%' }} />
                     <col style={{ width: '30%' }} />
-                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '14%' }} />
                     <col style={{ width: '12%' }} />
                     <col style={{ width: '10%' }} />
                   </colgroup>
                   <thead>
                     <tr className="border-b border-slate-100">
-                      {['문서명 (source)', '파일명', '카테고리', '청크(Chunks)', '액션'].map(h => (
+                      {['문서명 (source)', '파일명', '카테고리', '기준 날짜', '청크(Chunks)', '액션'].map(h => (
                         <th key={h} className={`text-xs font-bold text-slate-500 whitespace-nowrap ${h === '청크(Chunks)' ? 'text-right' : 'text-left'}`} style={{ padding: '10px 16px' }}>{h}</th>
                       ))}
                     </tr>
@@ -1080,15 +1107,16 @@ export default function AdminPage() {
                       <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition">
                         <td className="font-medium text-slate-700 truncate" style={{ padding: '13px 16px' }}>{doc.source}</td>
                         <td className="text-slate-500 text-xs truncate" style={{ padding: '13px 16px' }}>{doc.file_name || '-'}</td>
-                        <td style={{ padding: '13px 16px' }}>
+                        <td style={{ padding: '13px 16px', overflow: 'hidden' }}>
                           {doc.topic ? (
-                            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-[#005956]/8 text-[#005956]">
+                            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-[#005956]/8 text-[#005956] truncate max-w-full">
                               {topicLabels[doc.topic] || doc.topic}
                             </span>
                           ) : (
                             <span className="text-xs text-slate-300">미분류</span>
                           )}
                         </td>
+                        <td className="text-slate-500 text-xs" style={{ padding: '13px 16px' }}>{doc.doc_date || '-'}</td>
                         <td className="text-right text-slate-700 font-medium" style={{ padding: '13px 16px' }}>{doc.chunks}</td>
                         <td style={{ padding: '13px 16px' }}>
                           <button

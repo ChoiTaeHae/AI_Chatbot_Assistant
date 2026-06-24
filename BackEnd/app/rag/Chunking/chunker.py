@@ -54,6 +54,10 @@ def smart_split(             # 실제 진입점
     overlap: int = 150,
     min_length: int = 50,
 ) -> list[dict]:
+    
+    if "---ITEM---" in text:
+        return split_by_separator(text, min_length=min_length)
+     
     articles = ARTICLE_DETECT_PATTERN.findall(text)    # 정규식에 맞는 것 전부 찾음
     total_lines = max(len(text.splitlines()), 1)       # 줄 단위 분리
     
@@ -283,3 +287,20 @@ def split_by_length(
 
      # _build_chunks는 dict 반환하므로 text 값만 추출해서 list[str]로 반환
     return [chunk["text"] for chunk in chunks]
+
+
+def split_by_separator(text: str, separator: str = "---ITEM---", min_length: int = 50) -> list[dict]:
+    """구분자 기준 항목별 청킹 — 동아리, 장학금 목록 등"""
+    raw_items = text.split(separator)
+    chunks = []
+    for i, item in enumerate(raw_items):
+        item = item.strip()
+        if len(item) < min_length:
+            continue
+        chunks.append(make_chunk(
+            chunk_id=i + 1,
+            chapter=None,
+            article=None,
+            text=item,
+        ))
+    return chunks

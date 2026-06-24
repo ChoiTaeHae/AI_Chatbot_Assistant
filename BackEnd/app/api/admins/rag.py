@@ -19,6 +19,7 @@ async def upload_document(
     file: UploadFile = File(...),
     source: str = Form(None),
     topic: str = Form(None),
+    doc_date: str = Form(None),
 ):
     try:
         content     = await file.read()
@@ -28,6 +29,7 @@ async def upload_document(
             filename=file.filename,
             source=source_name,
             topic=topic or None,
+            doc_date=doc_date or None,
         )
         return {
             "success":  True,
@@ -46,6 +48,7 @@ async def crawl_document(
     url: str = Form(...),
     source: str = Form(None),
     topic: str = Form(None),
+    doc_date: str = Form(None),
 ):
     try:
         source_name = source or url
@@ -53,6 +56,7 @@ async def crawl_document(
             url=url,
             source=source_name,
             topic=topic or None,
+            doc_date=doc_date or None,
         )
         return {
             "success": True,

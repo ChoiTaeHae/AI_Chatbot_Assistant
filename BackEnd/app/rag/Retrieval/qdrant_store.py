@@ -69,6 +69,11 @@ class QdrantVectorStore:
             field_name="topic",
             field_schema=models.PayloadSchemaType.KEYWORD,
         )
+        qdrant_client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="doc_date",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
 
     def upsert_chunks(
         self,
@@ -209,6 +214,7 @@ class QdrantVectorStore:
                     "source": source,
                     "file_name": payload.get("file_name", ""),
                     "topic": payload.get("topic", ""),
+                    "doc_date": payload.get("doc_date"), 
                     "chunks": 1,
                 }
             else:

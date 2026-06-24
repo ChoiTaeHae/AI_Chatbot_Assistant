@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Literal, Optional
 from datetime import datetime
-
+from datetime import date
 
 # ── 문서 관련 ──────────────────────────────────────────
 class DocumentUploadResponse(BaseModel):
@@ -11,12 +11,17 @@ class DocumentUploadResponse(BaseModel):
     chunks: int
     message: str
 
+class DocumentUploadRequest(BaseModel):
+    source: str
+    topic: Optional[str] = None
+    doc_date: Optional[date] = None  
 
 class DocumentListItem(BaseModel):
     source: str
     file_name: Optional[str] = None
     chunks: int
     topic: Optional[str] = None
+    doc_date: Optional[str] = None 
 
 
 class DocumentListResponse(BaseModel):
