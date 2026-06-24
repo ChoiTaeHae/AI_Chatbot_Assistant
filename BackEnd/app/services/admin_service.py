@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Date
 
 from app.core.config import settings
-from app.models.DB_Table import Student, Department, Course, ChatLog
+from app.models.DB_Table import Student, Department, Course, ChatLog, ChatSession, ChatMessage, ChatFeedback
 from app.rag.ingest import ingest_file
 from app.services.rag_service import rag_service
 from app.services.llm_service import llm_service
@@ -30,6 +30,12 @@ from app.schemas.admins import (
     DocumentListItem,
     DocumentListResponse,
     DocumentDeleteResponse,
+    ChatSessionItem,
+    ChatSessionListResponse,
+    ChatMessageItem,
+    ChatSessionDetailResponse,
+    FeedbackItem,
+    AdminFeedbackRequest,
 )
 
 from app.core.topics import VALID_TOPICS
@@ -202,6 +208,146 @@ class AdminService:
             name=student.name,
             role=student.role,
             department=dept_name or "-",
+        )
+
+    # ── 채팅 내역 ───────────────────────────────────────────
+    async def get_chat_sessions(
+        self, db: AsyncSession, search: str = "", page: int = 1, limit: int = 50
+    ) -> ChatSessionListResponse:
+        base_q = (
+            select(
+                ChatSession.id,
+                ChatSession.started_at,
+                ChatSession.last_message_at,
+                Student.name.label("student_name"),
+                Student.student_no,
+            )
+            .join(Student, ChatSession.student_id == Student.id)
+            .where(ChatSession.is_deleted == False)
+            .order_by(ChatSession.last_message_at.desc())
+        )
+        if search:
+            like = f"%{search}%"
+            base_q = base_q.where(
+                Student.name.ilike(like) | Student.student_no.ilike(like)
+            )
+
+        total = (await db.execute(select(func.count()).select_from(base_q.subquery()))).scalar_one()
+        rows = (await db.execute(base_q.offset((page - 1) * limit).limit(limit))).all()
+        session_ids = [r.id for r in rows]
+
+        msg_rows, first_msgs = {}, {}
+        if session_ids:
+            msg_q = (
+                select(ChatMessage.session_id, func.count(ChatMessage.id).label("cnt"))
+                .where(ChatMessage.session_id.in_(session_ids))
+                .group_by(ChatMessage.session_id)
+            )
+            msg_rows = {r.session_id: r for r in (await db.execute(msg_q)).all()}
+
+            min_id_sub = (
+                select(ChatMessage.session_id, func.min(ChatMessage.id).label("min_id"))
+                .where(ChatMessage.session_id.in_(session_ids), ChatMessage.role == "user")
+                .group_by(ChatMessage.session_id)
+                .subquery()
+            )
+            first_msg_q = (
+                select(ChatMessage.session_id, ChatMessage.content, ChatMessage.intent)
+                .join(min_id_sub, ChatMessage.id == min_id_sub.c.min_id)
+            )
+            first_msgs = {r.session_id: r for r in (await db.execute(first_msg_q)).all()}
+
+        sessions = []
+        for r in rows:
+            msg_info = msg_rows.get(r.id)
+            first = first_msgs.get(r.id)
+            sessions.append(ChatSessionItem(
+                id=r.id,
+                student_name=r.student_name,
+                student_no=r.student_no,
+                intent=first.intent if first else None,
+                message_count=msg_info.cnt if msg_info else 0,
+                first_message=first.content[:80] if first else None,
+                started_at=r.started_at,
+                last_message_at=r.last_message_at,
+            ))
+        return ChatSessionListResponse(sessions=sessions, total=total)
+
+    async def get_session_messages(
+        self, db: AsyncSession, session_id: int
+    ) -> ChatSessionDetailResponse:
+        row = (await db.execute(
+            select(ChatSession, Student.name, Student.student_no)
+            .join(Student, ChatSession.student_id == Student.id)
+            .where(ChatSession.id == session_id, ChatSession.is_deleted == False)
+        )).first()
+        if not row:
+            raise LookupError(f"세션을 찾을 수 없습니다. id={session_id}")
+
+        _, student_name, student_no = row
+        msgs = (await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at)
+        )).scalars().all()
+
+        # 메시지별 피드백 한 번에 조회
+        msg_ids = [m.id for m in msgs]
+        feedbacks: dict[int, ChatFeedback] = {}
+        if msg_ids:
+            fb_rows = (await db.execute(
+                select(ChatFeedback).where(ChatFeedback.message_id.in_(msg_ids))
+            )).scalars().all()
+            feedbacks = {f.message_id: f for f in fb_rows}
+
+        return ChatSessionDetailResponse(
+            session_id=session_id,
+            student_name=student_name,
+            student_no=student_no,
+            messages=[
+                ChatMessageItem(
+                    id=m.id, role=m.role, content=m.content,
+                    intent=m.intent, topic=m.topic,
+                    source=m.source, source_file=m.source_file,
+                    created_at=m.created_at,
+                    feedback=FeedbackItem(
+                        id=feedbacks[m.id].id,
+                        is_helpful=feedbacks[m.id].is_helpful,
+                        rating=feedbacks[m.id].rating,
+                        comment=feedbacks[m.id].comment,
+                        created_at=feedbacks[m.id].created_at,
+                    ) if m.id in feedbacks else None,
+                )
+                for m in msgs
+            ],
+        )
+
+    async def upsert_feedback(
+        self, db: AsyncSession, message_id: int, req: AdminFeedbackRequest
+    ) -> FeedbackItem:
+        existing = await db.scalar(
+            select(ChatFeedback).where(ChatFeedback.message_id == message_id)
+        )
+        if existing:
+            existing.is_helpful = req.is_helpful
+            existing.rating = req.rating
+            existing.comment = req.comment
+        else:
+            existing = ChatFeedback(
+                message_id=message_id,
+                is_helpful=req.is_helpful,
+                rating=req.rating,
+                comment=req.comment,
+            )
+            db.add(existing)
+        await db.commit()
+        await db.refresh(existing)
+        return FeedbackItem(
+            id=existing.id,
+            is_helpful=existing.is_helpful,
+            rating=existing.rating,
+            comment=existing.comment,
+            created_at=existing.created_at,
         )
 
     # ── RAG 문서 관리 ───────────────────────────────────────

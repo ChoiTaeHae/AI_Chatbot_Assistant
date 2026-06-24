@@ -32,7 +32,7 @@ def _resolve_topic(question: str) -> str | None:
         return "multi_major"
 
     if "전과" in question or "자퇴" in question or "재입학" in question:
-        return "academic_status"
+       return "academic_status"
 
     if "학생지원" in question or "솔숲" in question or "오티" in question or "OT" in question or "카드" in question or "동아리" in question or "오리엔테이션" in question:
         return "student_support"

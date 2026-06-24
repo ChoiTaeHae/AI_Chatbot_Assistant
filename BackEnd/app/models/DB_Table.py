@@ -225,7 +225,32 @@ class ChatFeedback(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 # ==========================================
-# 17. RAG 검색 로그 (retrieval_log)
+# 17. 등록금 납부 테이블 (tuition)
+# ==========================================
+class Tuition(Base):
+    __tablename__ = "tuition"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    student_id     = Column(Integer, ForeignKey("student.id"), nullable=False)
+    year           = Column(Integer, nullable=False)           # 연도 (예: 2025)
+    semester       = Column(Integer, nullable=False)           # 학기 (1 or 2)
+    amount         = Column(Integer, nullable=False)           # 등록금 총액 (원)
+    due_date       = Column(Date, nullable=False)              # 납부 기한
+    paid_at        = Column(DateTime(timezone=True))           # 납부일 (NULL = 미납)
+    status         = Column(String(20), nullable=False, server_default="pending")
+                                                               # pending / paid / overdue
+    payment_method = Column(String(50))                        # 납부 방법 (계좌이체 등, NULL = 미납)
+    receipt_no     = Column(String(50), unique=True)           # 영수증 번호 (NULL = 미납)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_tuition_student_id", "student_id"),
+        Index("ix_tuition_year_semester", "year", "semester"),
+    )
+
+
+# ==========================================
+# 18. RAG 검색 로그 (retrieval_log)
 # ==========================================
 class RetrievalLog(Base):
     __tablename__ = "retrieval_log"
