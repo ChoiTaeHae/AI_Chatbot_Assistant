@@ -5,7 +5,7 @@ from app.rag.Embedding import BaaiEmbedding
 from app.rag.Loader import DoclingLoader
 from app.rag.Loader.fast_loader import FastLoader
 from app.rag.Retrieval import QdrantVectorStore, Retriever, SearchResult
-
+from app.rag.Preprocessing import preprocess_text
 
 class RagService:
     """Application service that composes FastLoader/Docling, BAAI embedding, and Qdrant."""
@@ -71,7 +71,8 @@ class RagService:
 
         if not text or not text.strip():
             return 0
-
+        #클리너 작동 함수
+        text = preprocess_text(text) 
         # 1. 텍스트 분할 (메타데이터 포함)
         # smart_split은 list[dict] 반환
         # {"chunk_id", "chapter", "article", "path", "text", "embedding_text"}

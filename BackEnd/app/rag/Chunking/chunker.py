@@ -50,8 +50,8 @@ def make_chunk(             # 최종 Chunk 생성기
 
 def smart_split(             # 실제 진입점
     text: str,
-    chunk_size: int = 1200,
-    overlap: int = 150,
+    chunk_size: int = 700,
+    overlap: int = 100,
     min_length: int = 50,
 ) -> list[dict]:
     
