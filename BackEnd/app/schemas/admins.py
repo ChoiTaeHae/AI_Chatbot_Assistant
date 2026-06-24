@@ -1,6 +1,7 @@
 from pydantic import BaseModel
-from typing import Optional
-
+from typing import Literal, Optional
+from datetime import datetime
+from datetime import date
 
 # ── 문서 관련 ──────────────────────────────────────────
 class DocumentUploadResponse(BaseModel):
@@ -10,12 +11,17 @@ class DocumentUploadResponse(BaseModel):
     chunks: int
     message: str
 
+class DocumentUploadRequest(BaseModel):
+    source: str
+    topic: Optional[str] = None
+    doc_date: Optional[date] = None  
 
 class DocumentListItem(BaseModel):
     source: str
     file_name: Optional[str] = None
     chunks: int
     topic: Optional[str] = None
+    doc_date: Optional[str] = None 
 
 
 class DocumentListResponse(BaseModel):
@@ -91,4 +97,54 @@ class UserListResponse(BaseModel):
 
 
 class RoleUpdate(BaseModel):
+    role: Literal["student", "admin"]
+
+
+# ── 채팅 내역 관련 ──────────────────────────────────────
+class FeedbackItem(BaseModel):
+    id: int
+    is_helpful: bool
+    rating: Optional[int] = None
+    comment: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class AdminFeedbackRequest(BaseModel):
+    is_helpful: bool
+    rating: Optional[int] = None
+    comment: Optional[str] = None
+
+
+class ChatSessionItem(BaseModel):
+    id: int
+    student_name: Optional[str] = None
+    student_no: Optional[str] = None
+    intent: Optional[str] = None
+    message_count: int
+    first_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    last_message_at: Optional[datetime] = None
+
+
+class ChatSessionListResponse(BaseModel):
+    sessions: list[ChatSessionItem]
+    total: int
+
+
+class ChatMessageItem(BaseModel):
+    id: int
     role: str
+    content: str
+    intent: Optional[str] = None
+    topic: Optional[str] = None
+    source: Optional[str] = None
+    source_file: Optional[str] = None
+    created_at: Optional[datetime] = None
+    feedback: Optional[FeedbackItem] = None
+
+
+class ChatSessionDetailResponse(BaseModel):
+    session_id: int
+    student_name: Optional[str] = None
+    student_no: Optional[str] = None
+    messages: list[ChatMessageItem]

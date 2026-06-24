@@ -8,6 +8,7 @@ import { fetchDashboard, fetchStats, fetchChatStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
 import { fetchFiles, uploadFile, deleteFile, downloadFile } from '../api/admins/files'
+import { fetchChatSessions, fetchSessionMessages, upsertMessageFeedback } from '../api/admins/chats'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '대시보드 요약', icon: (
@@ -34,6 +35,11 @@ const NAV_ITEMS = [
   { id: 'files', label: '파일 관리', icon: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+  )},
+  { id: 'chats', label: '채팅 내역', icon: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
     </svg>
   )},
 ]
@@ -79,6 +85,8 @@ export default function AdminPage() {
   const [crawlUrl, setCrawlUrl] = useState('')
   const [crawlSource, setCrawlSource] = useState('')
   const [crawlTopic, setCrawlTopic] = useState('')
+  const [docDate, setDocDate] = useState('')
+  const [crawlDocDate, setCrawlDocDate] = useState('')
   const [crawling, setCrawling] = useState(false)
   const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
   const [topicFilter, setTopicFilter] = useState('all')
@@ -103,6 +111,19 @@ export default function AdminPage() {
   const [filesTopic, setFilesTopic] = useState('graduation')
   const [fileUploading, setFileUploading] = useState(false)
   const [fileMsg, setFileMsg] = useState(null)     // { type: 'success'|'error', text }
+  // 채팅 내역
+  const [chatSessions, setChatSessions] = useState([])
+  const [chatSessionsTotal, setChatSessionsTotal] = useState(0)
+  const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [sessionMessages, setSessionMessages] = useState([])
+  const [chatSearchText, setChatSearchText] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [msgLoading, setMsgLoading] = useState(false)
+  const [openFeedbackId, setOpenFeedbackId] = useState(null)   // 현재 폼 열린 message id
+  const [feedbackDraft, setFeedbackDraft] = useState({ is_helpful: null, rating: 0, comment: '' })
+  const [savingFeedback, setSavingFeedback] = useState(false)
+  const chatMessagesEndRef = useRef(null)
+
   const filesInputRef = useRef(null)
 
   const fileInputRef = useRef(null)
@@ -123,6 +144,7 @@ export default function AdminPage() {
     if (activeNav === 'settings') loadSettings()
     if (activeNav === 'security') loadUsers()
     if (activeNav === 'files') loadFiles()
+    if (activeNav === 'chats') loadChatSessions()
   }, [activeNav])
 
   // 프로필 드롭다운 바깥 클릭 시 닫기
@@ -159,6 +181,35 @@ export default function AdminPage() {
       setFileLabels(data.labels || {})
     } catch (e) {
       console.error('파일 목록 조회 실패:', e)
+    }
+  }
+
+  async function loadChatSessions(search = chatSearchText) {
+    setChatLoading(true)
+    try {
+      const data = await fetchChatSessions({ search })
+      setChatSessions(data.sessions || [])
+      setChatSessionsTotal(data.total || 0)
+    } catch (e) {
+      console.error('채팅 세션 조회 실패:', e)
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  async function loadSessionMessages(sessionId) {
+    setMsgLoading(true)
+    setSelectedSessionId(sessionId)
+    setSessionMessages([])
+    setOpenFeedbackId(null)
+    try {
+      const data = await fetchSessionMessages(sessionId)
+      setSessionMessages(data.messages || [])
+      setTimeout(() => chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+    } catch (e) {
+      console.error('메시지 조회 실패:', e)
+    } finally {
+      setMsgLoading(false)
     }
   }
 
@@ -225,7 +276,7 @@ export default function AdminPage() {
     setUploadMsg({ type: 'info', text: '파일 업로드 중...' })
     try {
       const source = docTitle || selectedFile.name.replace(/\.[^.]+$/, '')
-      const result = await uploadDocument(selectedFile, source, topic || null)
+      const result = await uploadDocument(selectedFile, source, topic || null, docDate || null)
 
       setUploadMsg({ type: 'info', text: 'RAG 처리 중입니다. 잠시 기다려주세요...' })
 
@@ -261,7 +312,7 @@ export default function AdminPage() {
     setCrawlMsg({ type: 'info', text: '크롤링 요청 중...' })
     try {
       const source = crawlSource || crawlUrl
-      const result = await crawlDocument(crawlUrl, source, crawlTopic || null)
+      const result = await crawlDocument(crawlUrl, source, crawlTopic || null, crawlDocDate || null)
 
       setCrawlMsg({ type: 'info', text: '크롤링 및 RAG 처리 중입니다. 잠시 기다려주세요...' })
 
@@ -811,6 +862,18 @@ export default function AdminPage() {
                   </select>
                 </div>
 
+                {/* 기준 날짜 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜 (버전 관리)</label>
+                  <input
+                    type="date"
+                    value={docDate}
+                    onChange={(e) => setDocDate(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+
                 {/* 버튼 */}
                 <div className="flex shrink-0" style={{ gap: '8px', alignItems: 'flex-end' }}>
                   <button
@@ -905,6 +968,18 @@ export default function AdminPage() {
                       <option key={key} value={key}>{label}</option>
                     ))}
                   </select>
+                </div>
+
+                {/* 기준 날짜 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 2 }}>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜 (버전 관리)</label>
+                  <input
+                    type="date"
+                    value={crawlDocDate}
+                    onChange={(e) => setCrawlDocDate(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
                 </div>
 
                 {/* 버튼 */}
@@ -1006,15 +1081,16 @@ export default function AdminPage() {
               <div className="flex-1 overflow-y-auto">
                 <table className="w-full text-sm table-fixed">
                   <colgroup>
-                    <col style={{ width: '32%' }} />
                     <col style={{ width: '30%' }} />
-                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '14%' }} />
                     <col style={{ width: '12%' }} />
                     <col style={{ width: '10%' }} />
                   </colgroup>
                   <thead>
                     <tr className="border-b border-slate-100">
-                      {['문서명 (source)', '파일명', '카테고리', '청크(Chunks)', '액션'].map(h => (
+                      {['문서명 (source)', '파일명', '카테고리', '기준 날짜', '청크(Chunks)', '액션'].map(h => (
                         <th key={h} className={`text-xs font-bold text-slate-500 whitespace-nowrap ${h === '청크(Chunks)' ? 'text-right' : 'text-left'}`} style={{ padding: '10px 16px' }}>{h}</th>
                       ))}
                     </tr>
@@ -1031,15 +1107,16 @@ export default function AdminPage() {
                       <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition">
                         <td className="font-medium text-slate-700 truncate" style={{ padding: '13px 16px' }}>{doc.source}</td>
                         <td className="text-slate-500 text-xs truncate" style={{ padding: '13px 16px' }}>{doc.file_name || '-'}</td>
-                        <td style={{ padding: '13px 16px' }}>
+                        <td style={{ padding: '13px 16px', overflow: 'hidden' }}>
                           {doc.topic ? (
-                            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-[#005956]/8 text-[#005956]">
+                            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-[#005956]/8 text-[#005956] truncate max-w-full">
                               {topicLabels[doc.topic] || doc.topic}
                             </span>
                           ) : (
                             <span className="text-xs text-slate-300">미분류</span>
                           )}
                         </td>
+                        <td className="text-slate-500 text-xs" style={{ padding: '13px 16px' }}>{doc.doc_date || '-'}</td>
                         <td className="text-right text-slate-700 font-medium" style={{ padding: '13px 16px' }}>{doc.chunks}</td>
                         <td style={{ padding: '13px 16px' }}>
                           <button
@@ -1233,6 +1310,290 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+          
+
+          {/* 채팅 내역 */}
+          {activeNav === 'chats' && (() => {
+            const INTENT_LABELS = {
+              graduation: { label: '졸업요건', color: 'bg-teal-100 text-teal-700' },
+              campus: { label: '캠퍼스', color: 'bg-blue-100 text-blue-700' },
+              rag_general: { label: '일반학사', color: 'bg-purple-100 text-purple-700' },
+              leave: { label: '휴학/복학', color: 'bg-yellow-100 text-yellow-700' },
+              scholarship: { label: '장학금', color: 'bg-green-100 text-green-700' },
+              dormitory: { label: '기숙사', color: 'bg-orange-100 text-orange-700' },
+              course_registration: { label: '수강신청', color: 'bg-indigo-100 text-indigo-700' },
+              general: { label: '일반', color: 'bg-slate-100 text-slate-500' },
+            }
+            const selectedSession = chatSessions.find(s => s.id === selectedSessionId)
+            const filteredSessions = chatSessions.filter(s =>
+              !chatSearchText ||
+              (s.student_name || '').includes(chatSearchText) ||
+              (s.student_no || '').includes(chatSearchText) ||
+              (s.first_message || '').includes(chatSearchText)
+            )
+            return (
+              <div className="flex-1 flex gap-4 min-h-0">
+
+                {/* 왼쪽: 세션 목록 */}
+                <div className="w-72 shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0">
+                  <div className="shrink-0 border-b border-slate-100" style={{ padding: '20px 20px 14px' }}>
+                    <div className="flex items-center justify-between" style={{ marginBottom: '10px' }}>
+                      <h2 className="text-base font-black text-[#05263d]">채팅 내역</h2>
+                      <span className="text-xs text-slate-400 font-medium">총 {chatSessionsTotal}건</span>
+                    </div>
+                    <div className="flex items-center gap-2 border border-slate-200 rounded-xl" style={{ padding: '7px 12px' }}>
+                      <svg className="h-3.5 w-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                      </svg>
+                      <input
+                        type="text"
+                        placeholder="이름·학번·내용 검색"
+                        value={chatSearchText}
+                        onChange={e => { setChatSearchText(e.target.value); loadChatSessions(e.target.value) }}
+                        className="text-xs outline-none text-slate-600 placeholder:text-slate-400 w-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto" style={{ padding: '8px' }}>
+                    {chatLoading ? (
+                      <div className="flex items-center justify-center" style={{ padding: '40px 0' }}>
+                        <svg className="h-5 w-5 animate-spin text-slate-300" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      </div>
+                    ) : filteredSessions.length === 0 ? (
+                      <p className="text-xs text-slate-400 text-center" style={{ padding: '40px 0' }}>채팅 내역이 없습니다</p>
+                    ) : filteredSessions.map(s => {
+                      const isSelected = selectedSessionId === s.id
+                      const intent = INTENT_LABELS[s.intent] || INTENT_LABELS.general
+                      const dateStr = s.last_message_at
+                        ? new Date(s.last_message_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                        : ''
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => loadSessionMessages(s.id)}
+                          className={`w-full text-left rounded-xl transition ${isSelected ? 'bg-[#005956]/8 border border-[#005956]/20' : 'hover:bg-slate-50 border border-transparent'}`}
+                          style={{ padding: '10px 12px', marginBottom: '2px' }}
+                        >
+                          <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
+                            <span className="text-sm font-bold text-slate-700 truncate">{s.student_name || '알 수 없음'}</span>
+                            <span className="text-xs text-slate-400 shrink-0 ml-2">{dateStr}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5" style={{ marginBottom: '4px' }}>
+                            <span className="text-xs text-slate-400 font-mono">{s.student_no}</span>
+                            {s.intent && (
+                              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${intent.color}`}>
+                                {intent.label}
+                              </span>
+                            )}
+                            <span className="text-xs text-slate-400 ml-auto shrink-0">{s.message_count}건</span>
+                          </div>
+                          <p className="text-xs text-slate-500 truncate">{s.first_message || '(내용 없음)'}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* 오른쪽: 메시지 상세 */}
+                <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0">
+                  {!selectedSessionId ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-300" style={{ gap: '12px' }}>
+                      <svg className="h-14 w-14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+                      </svg>
+                      <p className="text-sm font-medium">왼쪽에서 세션을 선택하세요</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="shrink-0 border-b border-slate-100 flex items-center justify-between" style={{ padding: '16px 24px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-[#05263d]">{selectedSession?.student_name || '-'}</span>
+                            <span className="text-xs font-mono text-slate-400">{selectedSession?.student_no}</span>
+                            {selectedSession?.intent && (() => {
+                              const intent = INTENT_LABELS[selectedSession.intent] || INTENT_LABELS.general
+                              return <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${intent.color}`}>{intent.label}</span>
+                            })()}
+                          </div>
+                          <span className="text-xs text-slate-400">
+                            {selectedSession?.started_at ? new Date(selectedSession.started_at).toLocaleString('ko-KR') : ''}
+                            {' · '}{sessionMessages.length}개 메시지
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => { setSelectedSessionId(null); setSessionMessages([]) }}
+                          className="text-slate-300 hover:text-slate-500 transition"
+                        >
+                          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {msgLoading ? (
+                          <div className="flex items-center justify-center flex-1">
+                            <svg className="h-6 w-6 animate-spin text-slate-300" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                          </div>
+                        ) : sessionMessages.length === 0 ? (
+                          <p className="text-sm text-slate-400 text-center" style={{ marginTop: '40px' }}>메시지가 없습니다</p>
+                        ) : sessionMessages.map((msg, i) => {
+                          const isUser = msg.role === 'user'
+                          const timeStr = msg.created_at
+                            ? new Date(msg.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+                            : ''
+                          const intent = msg.intent ? (INTENT_LABELS[msg.intent] || INTENT_LABELS.general) : null
+                          const fb = msg.feedback
+                          const isFormOpen = openFeedbackId === msg.id
+
+                          const openForm = () => {
+                            setOpenFeedbackId(msg.id)
+                            setFeedbackDraft({
+                              is_helpful: fb ? fb.is_helpful : null,
+                              rating: fb?.rating || 0,
+                              comment: fb?.comment || '',
+                            })
+                          }
+
+                          const saveFeedback = async () => {
+                            if (feedbackDraft.is_helpful === null) return
+                            setSavingFeedback(true)
+                            try {
+                              const saved = await upsertMessageFeedback(selectedSessionId, msg.id, feedbackDraft)
+                              setSessionMessages(prev => prev.map(m =>
+                                m.id === msg.id ? { ...m, feedback: saved } : m
+                              ))
+                              setOpenFeedbackId(null)
+                            } catch (e) { alert(e.message) }
+                            finally { setSavingFeedback(false) }
+                          }
+
+                          return (
+                            <div key={msg.id || i} style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: '3px' }}>
+                              <div className="flex items-center gap-1.5" style={{ flexDirection: isUser ? 'row-reverse' : 'row' }}>
+                                <span className="text-xs font-bold text-slate-400">{isUser ? '학생' : 'SOL로몬'}</span>
+                                {!isUser && intent && (
+                                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${intent.color}`}>{intent.label}</span>
+                                )}
+                                {!isUser && msg.source && (
+                                  <span className="text-xs text-slate-300 font-mono truncate max-w-xs">{msg.source}</span>
+                                )}
+                              </div>
+                              <div
+                                className={`text-sm rounded-2xl whitespace-pre-wrap break-words ${
+                                  isUser
+                                    ? 'bg-[#005956] text-white rounded-tr-sm'
+                                    : 'bg-slate-50 border border-slate-100 text-slate-700 rounded-tl-sm'
+                                }`}
+                                style={{ maxWidth: '72%', padding: '10px 14px', lineHeight: '1.6' }}
+                              >
+                                {msg.content}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-slate-300">{timeStr}</span>
+                                {/* 어시스턴트 메시지에만 피드백 버튼 표시 */}
+                                {!isUser && (
+                                  fb && !isFormOpen ? (
+                                    /* 기존 피드백 뱃지 */
+                                    <button
+                                      onClick={openForm}
+                                      className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-lg border border-slate-200 hover:border-[#005956]/40 hover:text-[#005956] transition text-slate-400"
+                                    >
+                                      {fb.is_helpful ? '👍' : '👎'}
+                                      {fb.rating ? ` ${fb.rating}점` : ''}
+                                      {fb.comment ? ' · 메모있음' : ''}
+                                      <span className="ml-0.5">수정</span>
+                                    </button>
+                                  ) : !isFormOpen ? (
+                                    /* 피드백 없을 때 작성 버튼 */
+                                    <button
+                                      onClick={openForm}
+                                      className="text-xs text-slate-300 hover:text-[#005956] transition"
+                                    >
+                                      + 피드백
+                                    </button>
+                                  ) : null
+                                )}
+                              </div>
+
+                              {/* 인라인 피드백 폼 */}
+                              {!isUser && isFormOpen && (
+                                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm" style={{ maxWidth: '72%', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                  {/* 👍 / 👎 */}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-500 w-14 shrink-0">평가</span>
+                                    <button
+                                      onClick={() => setFeedbackDraft(d => ({ ...d, is_helpful: true }))}
+                                      className={`text-lg px-3 py-1 rounded-xl border transition ${feedbackDraft.is_helpful === true ? 'border-[#005956] bg-[#005956]/8' : 'border-slate-200 hover:border-slate-300'}`}
+                                    >👍</button>
+                                    <button
+                                      onClick={() => setFeedbackDraft(d => ({ ...d, is_helpful: false }))}
+                                      className={`text-lg px-3 py-1 rounded-xl border transition ${feedbackDraft.is_helpful === false ? 'border-red-400 bg-red-50' : 'border-slate-200 hover:border-slate-300'}`}
+                                    >👎</button>
+                                  </div>
+
+                                  {/* 별점 */}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-500 w-14 shrink-0">별점</span>
+                                    <div className="flex gap-1">
+                                      {[1,2,3,4,5].map(n => (
+                                        <button
+                                          key={n}
+                                          onClick={() => setFeedbackDraft(d => ({ ...d, rating: d.rating === n ? 0 : n }))}
+                                          className={`text-lg transition ${n <= feedbackDraft.rating ? 'text-yellow-400' : 'text-slate-200 hover:text-yellow-300'}`}
+                                        >★</button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* 메모 */}
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-xs font-bold text-slate-500 w-14 shrink-0 pt-1.5">메모</span>
+                                    <textarea
+                                      value={feedbackDraft.comment}
+                                      onChange={e => setFeedbackDraft(d => ({ ...d, comment: e.target.value }))}
+                                      placeholder="관리자 메모 (선택)"
+                                      rows={2}
+                                      className="flex-1 text-xs border border-slate-200 rounded-xl outline-none focus:border-[#005956] resize-none"
+                                      style={{ padding: '7px 10px' }}
+                                    />
+                                  </div>
+
+                                  {/* 버튼 */}
+                                  <div className="flex items-center gap-2 justify-end">
+                                    <button
+                                      onClick={() => setOpenFeedbackId(null)}
+                                      className="text-slate-400 hover:text-slate-600 transition border border-slate-200 hover:bg-slate-50 rounded-lg"
+                                      style={{ fontSize: '11px', padding: '6px 14px' }}
+                                    >취소</button>
+                                    <button
+                                      onClick={saveFeedback}
+                                      disabled={feedbackDraft.is_helpful === null || savingFeedback}
+                                      className="font-bold bg-[#005956] text-white rounded-lg hover:bg-[#004a47] transition disabled:opacity-40"
+                                      style={{ fontSize: '11px', padding: '6px 14px' }}
+                                    >{savingFeedback ? '저장 중...' : '저장'}</button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        <div ref={chatMessagesEndRef} />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+              </div>
+            )
+          })()}
 
         </main>
       </div>

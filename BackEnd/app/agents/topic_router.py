@@ -24,15 +24,72 @@ TOPIC_PROTOTYPES: dict[IntentType, list[str]] = {
     ],
  
     IntentType.CAMPUS: [
+        # 일반 위치 질문
         "도서관이 어디에 있나요?",
-        #"동아리 건물 위치가 어디예요?",
+        "동아리 건물 위치가 어디예요?",
         "학과 사무실은 몇 층에 있나요?",
         "강의실을 찾고 싶어요",
         "식당은 어디에 있어요?",
         "체육관 위치가 어디인가요?",
-        "W1 건물이 어디 있나요?",
         "캠퍼스 지도를 알고 싶어요",
-        "보건의료과학관 위치 알려주세요",
+        "호실이 어디에 있나요?",
+        "몇 층에 있나요?",
+        # 건물 코드
+        "W1 건물이 어디 있나요?",
+        "W3 강의실은 어떻게 가나요?",
+        "W7 위치가 어디인가요?",
+        "W15 어디예요?",
+        "E3 건물 위치 알려주세요",
+        "S2 건물이 어디예요?",
+        # 도서관 / 학술
+        "우송도서관이 어디에 있나요?",
+        "학술정보관 위치가 어디예요?",
+        # 행정 / 본부
+        "대학본부는 어디에 있나요?",
+        "학생회관은 어디에 있나요?",
+        # 강의동
+        "우송관 위치가 어디예요?",
+        "교양교육관은 어디에 있어요?",
+        "산학협력관이 어디에 있나요?",
+        "철도물류관 위치 알려주세요",
+        "보건의료과학관이 어디에 있나요?",
+        "사회복지융합관이 어디에 있나요?",
+        "미디어융합관 위치 알려주세요",
+        "우송예술회관이 어디에 있나요?",
+        "테크노디자인센터 어디에 있어요?",
+        "국제경영센터 위치가 어디예요?",
+        "엔디콧 건물이 어디에 있나요?",
+        "Endicott Building 어디에 있나요?",
+        # 특수 시설
+        "컬리너리 센터는 어디에 있나요?",
+        "Culinary Center 위치가 어디예요?",
+        "식품건축관이 어디에 있나요?",
+        "어학센터 위치 알려주세요",
+        "IT교육센터가 어디에 있나요?",
+        "뷰티센터 어디에 있어요?",
+        "애견센터 위치가 어디예요?",
+        "자동차센터 어디에 있나요?",
+        "솔카오토테크 위치가 어디예요?",
+        "스포츠센터 위치가 어디예요?",
+        "우송스포츠센터 어디에 있나요?",
+        "크로톤빌센터 위치 알려주세요",
+        "스터디홀이 어디에 있나요?",
+        "SICA 어디에 있어요?",
+        "서캠체육관 위치가 어디예요?",
+        "우송타워는 어디에 있나요?",
+        "솔파인이 어디에 있나요?",
+        # 기숙사 / 숙소
+        "유학생기숙사가 어디에 있나요?",
+        "기숙사 위치가 어디예요?",
+        "유학생숙소는 어디에 있나요?",
+        # 기타
+        "우송유치원이 어디에 있나요?",
+        "정례원 위치 알려주세요",
+        "자립관이 어디에 있나요?",
+        "청솔관 위치가 어디예요?",
+        "단정관이 어디에 있나요?",
+        "독행관 위치 알려주세요",
+        "학군단 건물이 어디에 있나요?",
     ],
 
     IntentType.RAG_GENERAL: [
@@ -71,7 +128,7 @@ TOPIC_PROTOTYPES: dict[IntentType, list[str]] = {
 # BGE-M3 정규화 벡터 기준 코사인 유사도 (= 내적)
 SIMILARITY_THRESHOLD = 0.40
 
-
+#region 헬퍼 함수 내부 수학 연산용
 def _dot(a: list[float], b: list[float]) -> float:
     """L2 정규화된 벡터의 내적 = 코사인 유사도"""
     return sum(x * y for x, y in zip(a, b))
@@ -86,7 +143,7 @@ def _average_vectors(vectors: list[list[float]]) -> list[float]:
     if norm > 0:
         avg = [x / norm for x in avg]
     return avg
-
+#endregion
 
 class TopicRouter:
     def __init__(self, embedding: BaaiEmbedding | None = None) -> None:
@@ -111,11 +168,11 @@ class TopicRouter:
         for topic in topic_list:
             start = len(all_sentences)
             all_sentences.extend(TOPIC_PROTOTYPES[topic])
-            sentence_ranges.append((start, len(all_sentences)))
+            sentence_ranges.append((start, len(all_sentences))) #all_sentences에 번호랑 문장 인덱스화
 
-        all_vectors = self.embedding.embed_texts(all_sentences)
+        all_vectors = self.embedding.embed_texts(all_sentences) #임베딩 
 
-        self._proto_vecs = {}
+        self._proto_vecs = {}  #최종 평균 벡터가 저장되는 곳
         for topic, (start, end) in zip(topic_list, sentence_ranges):
             self._proto_vecs[topic] = _average_vectors(all_vectors[start:end])
 
@@ -144,9 +201,10 @@ class TopicRouter:
 
         if self._proto_vecs is None:
             return None, 0.0
-
+        #임베딩 모델에 넣어 벡터화
         q_vec = self.embedding.embed_text(question)
 
+        # 모든 topic과 유사도 비교 후 최고 점수와 topic 반환
         best_topic: IntentType | None = None
         best_score = -1.0
 

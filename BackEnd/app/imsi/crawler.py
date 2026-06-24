@@ -101,6 +101,11 @@ def parse_notice_page(html: str, url: str) -> CrawledPage:
 
 
 def _find_notice_container(soup: BeautifulSoup) -> Tag:
+    # 우송대 표준 본문 컨테이너 (#headerTop, gnbWrap, .lnb, footer 자동 제외)
+    body_con = soup.select_one("#bodyCon")
+    if isinstance(body_con, Tag):
+        return body_con
+
     board_read = soup.select_one(".board-read")
     if isinstance(board_read, Tag):
         return board_read
@@ -152,6 +157,19 @@ def _extract_content(container: Tag, title: str) -> str:
     for removable in container.find_all(["script", "style", "noscript"]):
         removable.decompose()
 
+    # 우송대 페이지 공통 불필요 요소 제거
+    for removable in container.find_all(class_="content_top"):  # 제목+breadcrumb 영역
+        removable.decompose()
+    for removable in container.find_all(class_="path"):         # breadcrumb 단독 잔존 시
+        removable.decompose()
+
+    # rowspan 동아리 표 감지
+    club_table = container.find("table", class_="tbl_skin2")
+    if club_table:
+        items = _parse_table_with_rowspan(club_table)
+        if items:
+            return "---ITEM---\n" + "\n---ITEM---\n".join(items)
+            
     #HTML 요소 사이의 구분자를 \n\n으로 주어서 문단을 명확히 나눔
     text = container.get_text("\n\n", strip=True)
     lines = [_clean_text(line) for line in text.splitlines()]
@@ -230,3 +248,56 @@ def _trim_before_article_body(lines: list[str]) -> list[str]:
         if line in {"첨부파일", "목록", "이전글", "다음글"}:
             return body_lines[:index]
     return body_lines
+
+
+def _parse_table_with_rowspan(table_tag: Tag) -> list[str]:
+    """rowspan이 있는 동아리 표를 동아리별 텍스트 블록으로 변환"""
+    items = []
+    current_category = ""
+    category_remaining = 0   # 현재 분야가 몇 행 더 이어지는지
+
+    tbody = table_tag.find("tbody") or table_tag
+    for row in tbody.find_all("tr"):
+        cells = row.find_all("td")
+        if not cells:
+            continue
+
+        # rowspan 셀(분야)이 있는 행 — 첫 번째 td에 rowspan 속성
+        if cells[0].get("rowspan"):
+            current_category = cells[0].get_text(" ", strip=True)
+            category_remaining = int(cells[0].get("rowspan")) - 1
+            name_cell     = cells[1] if len(cells) > 1 else None
+            activity_cell = cells[2] if len(cells) > 2 else None
+            date_cell     = cells[3] if len(cells) > 3 else None
+
+        # rowspan 없는 행 — 분야가 이어지는 중이면 3열, 새 분야면 4열
+        elif category_remaining > 0:
+            category_remaining -= 1
+            name_cell     = cells[0] if len(cells) > 0 else None
+            activity_cell = cells[1] if len(cells) > 1 else None
+            date_cell     = cells[2] if len(cells) > 2 else None
+
+        else:
+            # rowspan 없이 분야가 직접 있는 행 (4열짜리)
+            if len(cells) >= 4:
+                current_category = cells[0].get_text(" ", strip=True)
+                name_cell     = cells[1]
+                activity_cell = cells[2]
+                date_cell     = cells[3]
+            else:
+                name_cell     = cells[0] if len(cells) > 0 else None
+                activity_cell = cells[1] if len(cells) > 1 else None
+                date_cell     = cells[2] if len(cells) > 2 else None
+
+        name     = name_cell.get_text(" ", strip=True)     if name_cell     else ""
+        activity = activity_cell.get_text(" ", strip=True) if activity_cell else ""
+        date     = date_cell.get_text(" ", strip=True)     if date_cell     else ""
+
+        # 이름이 없는 행은 건너뜀 (thead 잔재 등)
+        if not name:
+            continue
+
+        item = f"분야: {current_category}\n동아리명: {name}\n주요활동: {activity}\n설립일: {date}"
+        items.append(item)
+
+    return items

@@ -51,7 +51,7 @@ class RagService:
             )
         return self._retriever
 
-    def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None) -> int:
+    def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None, doc_date: str | None = None) -> int:
         path = Path(file_path)
         source_name = source or path.stem
 
@@ -99,6 +99,7 @@ class RagService:
             metadata={
                 "file_name": path.name,
                 "topic": topic,
+                "doc_date": doc_date,
             },
             topic=topic,
             chunk_metas=[

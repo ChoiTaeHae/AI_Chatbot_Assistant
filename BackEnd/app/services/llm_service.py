@@ -12,18 +12,7 @@ if sys.platform == "win32":
 from llama_cpp import Llama
 
 from app.core.config import settings
-
-SYSTEM_PROMPT = """당신은 우송대학교 학생들의 학교생활을 도와주는 AI 어시스턴트입니다.
-학사 일정, 수강신청, 졸업요건, 장학금 등 학교생활 전반에 대해 친절하고 정확하게 안내해주세요.
-
-반드시 지켜야 할 규칙:
-1. 답변은 반드시 한국어로 작성하세요. 영어나 다른 언어를 절대 사용하지 마세요.
-2. 문법과 맞춤법을 정확하게 사용하세요.
-3. [참고 문서]가 제공된 경우, 반드시 해당 문서의 내용을 기반으로 답변하세요.
-4. [참고 문서]에 없는 내용은 추측하지 말고, 학교 공식 홈페이지(wsu.ac.kr) 또는 담당 부서에 문의하도록 안내하세요.
-5. 날짜, 기간, 절차 등 구체적인 정보는 문서에 있는 내용 그대로 정확하게 전달하세요.
-6. 답변은 핵심 내용을 먼저 말하고, 필요한 경우 단계별로 설명하세요.
-7. 불필요한 반복이나 장황한 설명은 피하세요."""
+from app.prompts import SYSTEM_PROMPT
 
 # 전용 스레드풀 (llama-cpp는 단일 스레드에서 실행)
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -42,13 +31,14 @@ class LlmService:
         self.model = Llama(
             model_path=settings.MODEL_PATH,
             n_gpu_layers=15,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
+
             n_ctx=4096,
             n_batch=512,
             verbose=False,
         )
         print("모델 로딩 완료! (llama-cpp-python, GPU 28레이어)")
 
-    def _generate(self, question: str) -> str:
+    def _generate(self, question: str, max_tokens: int = 512) -> str:
         if settings.DEV_MODE:
             return f"[DEV_MODE] 질문 수신: {question}"
 
@@ -61,6 +51,7 @@ class LlmService:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": question},
                 ],
+
                 max_tokens=2048,
                 temperature=0.3,
                 top_p=0.9,
@@ -76,9 +67,9 @@ class LlmService:
             print(f"[LLM] 추론 오류: {type(e).__name__}: {e}")
             raise
 
-    async def answer(self, question: str) -> str:
+    async def answer(self, question: str, max_tokens: int = 512) -> str: #답변 최대 토큰수 지정
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_executor, self._generate, question)
+        return await loop.run_in_executor(_executor, self._generate, question, max_tokens)
 
     def _classify(self, question: str) -> str:
         """짧은 분류 프롬프트로 intent 이름 반환 (campus/graduation/rag_general/general)"""

@@ -2,6 +2,7 @@ import asyncio
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT
 
 def _resolve_topic(question: str) -> str | None:
     question = question.lower()
@@ -31,7 +32,7 @@ def _resolve_topic(question: str) -> str | None:
         return "multi_major"
 
     if "전과" in question or "자퇴" in question or "재입학" in question:
-        return "academic_status"
+       return "academic_status"
 
     if "학생지원" in question or "솔숲" in question or "오티" in question or "OT" in question or "카드" in question or "동아리" in question or "오리엔테이션" in question:
         return "student_support"
@@ -104,32 +105,19 @@ async def answer_rag_general_question_with_metadata(question: str) -> tuple[str,
 
     print("[RAG_GENERAL] RAG 검색 완료, LLM 호출")
 
-    prompt = f"""
-규칙:
-- 사용자의 질문에 바로 답변한다.
-- 인사말을 하지 않는다.
-- 자기소개를 하지 않는다.
-- "궁금한 점이 있으신가요?"와 같은 추가 질문을 하지 않는다.
-- 참고 문서에 있는 내용만 근거로 답변한다.
-- 문서에 없는 일정, 기간, 비용, 운영 여부는 추측하지 않는다.
-- 필요한 경우 공식 홈페이지, 대학정보시스템, 학과사무실 또는 담당 부서 확인을 안내한다.
-- 답변은 상세하되 적당히 간결하고 자연스러운 한국어로 작성한다.
-- 참고 문서에 포함된 관련 항목은 모두 나열한다.
-- 참고 문서에 없는 내용은 추측하지 않는다.
-- 동아리, 장학금, 규정, 부서 등 여러 항목이 있는 목록을 질문받으면, 참고 문서에 있는 **모든 항목을 단 하나도 빠짐없이 100% 전부 나열**해야 합니다.
-- "예를 들어", "일부", "등이 있습니다", "대표적으로"와 같은 생략/요약 표현을 **절대 사용하지 마세요.**
-- 출력 형식: 여러 항목을 나열할 때는 반드시 글머리 기호(- )나 번호를 사용하여, 사용자가 읽기 쉽도록 리스트 형태로 정리하세요.
-
-[참고 문서]
-{context}
-
-[사용자 질문]
-{question}
-
-[답변]
-"""
-
-    answer = await llm_service.answer(prompt)
+    is_club = "동아리" in question and _resolve_topic(question) == "student_support"
+    _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
+    is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
+    print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, topic={_resolve_topic(question)}")
+    if is_club_list:
+        prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
+        answer = await llm_service.answer(prompt, max_tokens=2048)
+    elif is_club:
+        prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=question)
+        answer = await llm_service.answer(prompt, max_tokens=1024)
+    else:
+        prompt = RAG_GENERAL_PROMPT.format(context=context, question=question)
+        answer = await llm_service.answer(prompt)
     return answer, metadata
 
 

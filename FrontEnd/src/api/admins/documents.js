@@ -2,11 +2,12 @@ import { authFetch } from '../utils'
 
 const BASE = 'http://localhost:8000/api/admins'
 
-export async function uploadDocument(file, source = null, topic = null) {
+export async function uploadDocument(file, source = null, topic = null, docDate = null) {
   const formData = new FormData()
   formData.append('file', file)
   if (source) formData.append('source', source)
   if (topic) formData.append('topic', topic)
+  if (docDate) formData.append('doc_date', docDate)
 
   const res = await authFetch(`${BASE}/documents/upload`, {
     method: 'POST',
@@ -47,11 +48,12 @@ export async function fetchDocuments() {
   return res.json()
 }
 
-export async function crawlDocument(url, source = null, topic = null) {
+export async function crawlDocument(url, source = null, topic = null, docDate = null) {
   const formData = new FormData()
   formData.append('url', url)
   if (source) formData.append('source', source)
   if (topic) formData.append('topic', topic)
+  if (docDate) formData.append('doc_date', docDate)
 
   const res = await authFetch(`${BASE}/documents/crawl`, {
     method: 'POST',

@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     # Frontend
     FRONTEND_ORIGINS: str = "http://localhost:5173"
 
-    # JWT
-    SECRET_KEY: str = "changeme-set-strong-key-in-production"
+    # JWT — .env 에 반드시 설정 (미설정 시 서버 기동 실패)
+    SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24   # 24시간
 
     # 개발 모드 (True 시 LLM 로딩 스킵)
