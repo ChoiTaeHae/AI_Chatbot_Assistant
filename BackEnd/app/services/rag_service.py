@@ -7,8 +7,9 @@ from app.rag.Loader.fast_loader import FastLoader
 from app.rag.Retrieval import QdrantVectorStore, Retriever, SearchResult
 from app.rag.Preprocessing import preprocess_text
 
+
 class RagService:
-    """Application service that composes FastLoader/Docling, BAAI embedding, and Qdrant."""
+    """Application service that composes FastLoader/Docling/OCR, BAAI embedding, and Qdrant."""
 
     def __init__(self) -> None:
         self._fast_loader: FastLoader | None = None
@@ -16,6 +17,7 @@ class RagService:
         self._embedding: BaaiEmbedding | None = None
         self._vector_store: QdrantVectorStore | None = None
         self._retriever: Retriever | None = None
+        self._ocr_processor = None      # OcrProcessor (지연 로딩)
 
     @property
     def fast_loader(self) -> FastLoader:
@@ -51,33 +53,62 @@ class RagService:
             )
         return self._retriever
 
+    @property
+    def ocr_processor(self):
+        """스캔 PDF / 이미지 OCR 처리기 (지연 로딩)"""
+        if self._ocr_processor is None:
+            from app.rag.Loader.ocr_processor import OcrProcessor
+            self._ocr_processor = OcrProcessor()
+        return self._ocr_processor
+
+    # 이미지 확장자 목록 — FastLoader/Docling 은 이미지 미지원 → OCR 직행
+    _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
+
     def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None, doc_date: str | None = None) -> int:
         path = Path(file_path)
         source_name = source or path.stem
+        suffix = path.suffix.lower()
 
-        # FastLoader로 빠르게 시도, 실패 시 Docling으로 폴백
         text = None
-        try:
-            print(f"[RAG] FastLoader로 텍스트 추출 시도: {path.name}")
-            text = self.fast_loader.load_text(path)
-            print(f"[RAG] FastLoader 성공: {len(text)}자")
-        except Exception as e:
-            print(f"[RAG] FastLoader 실패 ({e}), Docling으로 재시도...")
+
+        # 이미지 파일 → FastLoader/Docling 없이 OCR 직행
+        if suffix in self._IMAGE_EXTS:
+            print(f"[RAG] 이미지 파일 감지 → OCR 직접 처리: {path.name}")
             try:
-                text = self.loader.load_text(path)
-                print(f"[RAG] Docling 성공: {len(text)}자")
-            except Exception as e2:
-                raise RuntimeError(f"텍스트 추출 실패: {e2}")
+                text = self.ocr_processor.process_image(path)
+                print(f"[RAG] 이미지 OCR 성공: {len(text)}자")
+            except Exception as e:
+                raise RuntimeError(f"이미지 OCR 실패: {e}")
+        else:
+            # FastLoader → Docling → OCR 순서로 폴백
+            try:
+                print(f"[RAG] FastLoader로 텍스트 추출 시도: {path.name}")
+                text = self.fast_loader.load_text(path)
+                print(f"[RAG] FastLoader 성공: {len(text)}자")
+            except Exception as e:
+                print(f"[RAG] FastLoader 실패 ({e}), Docling으로 재시도...")
+                try:
+                    text = self.loader.load_text(path)
+                    print(f"[RAG] Docling 성공: {len(text)}자")
+                except Exception as e2:
+                    print(f"[RAG] Docling 실패 ({e2}), OCR로 재시도...")
+                    try:
+                        text = self.ocr_processor.load_text_with_ocr(path)
+                        print(f"[RAG] OCR 성공: {len(text)}자")
+                    except Exception as e3:
+                        raise RuntimeError(f"텍스트 추출 실패 (FastLoader/Docling/OCR 전부 실패): {e3}")
 
         if not text or not text.strip():
             return 0
-        #클리너 작동 함수
-        text = preprocess_text(text) 
+
+        # 텍스트 정제
+        text = preprocess_text(text)
+
         # 1. 텍스트 분할 (메타데이터 포함)
         # smart_split은 list[dict] 반환
         # {"chunk_id", "chapter", "article", "path", "text", "embedding_text"}
         chunk_dicts = smart_split(text)
-        if not chunk_dicts: 
+        if not chunk_dicts:
             print("[RAG] chunk 생성 실패")
             return 0
 
@@ -87,7 +118,7 @@ class RagService:
         chunk_texts = [c["text"] for c in chunk_dicts]
 
         # 3. 임베딩(벡터 변환) 실행
-        print("[RAG] embedding 시작")
+        print(f"[RAG] embedding 시작 ({len(chunk_dicts)}개 청크)")
         embeddings = self.embedding.embed_texts(embedding_texts)
         print("[RAG] embedding 완료")
 
@@ -112,7 +143,7 @@ class RagService:
                 for c in chunk_dicts
             ],
         )
-        print("[RAG] qdrant 저장 완료")
+        print(f"[RAG] qdrant 저장 완료 ({len(chunk_dicts)}개)")
         return len(chunk_dicts)
 
 

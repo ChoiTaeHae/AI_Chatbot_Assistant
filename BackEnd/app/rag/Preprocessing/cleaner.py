@@ -5,7 +5,7 @@ def preprocess_text(text: str) -> str:
     """RAG 인제스트 전 텍스트 정제 파이프라인"""
     text = _normalize_whitespace_chars(text)
     text = _remove_page_numbers(text)
-    ext = _remove_repeated_lines(text)
+    text = _remove_repeated_lines(text) # 고침 / ext로 받고 있었음.
     text = _collapse_whitespace(text)
     text = _remove_special_chars(text)
     text = _fix_pdf_line_breaks(text) 
