@@ -42,7 +42,7 @@ from app.core.topics import VALID_TOPICS
 # 문서 처리 전담 작업자(스레드 풀) 1명 고용
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx"}
 VALID_ROLES         = {"student", "admin"}
 
 
