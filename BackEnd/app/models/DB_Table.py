@@ -13,6 +13,7 @@ class Department(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
+    phone = Column(String(30), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -60,10 +61,11 @@ class Building(Base):
     __tablename__ = "building"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String)           
-    address = Column(Text)          
-    aliases = Column(JSONB)         
-    place_url = Column(Text)                
+    name = Column(String)
+    address = Column(Text)
+    aliases = Column(JSONB)
+    place_url = Column(Text)
+    phone = Column(String(30), nullable=True)                
 
 # ==========================================
 # 6. 호실 테이블 (room)
