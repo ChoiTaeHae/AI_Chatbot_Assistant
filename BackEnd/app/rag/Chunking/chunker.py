@@ -18,7 +18,9 @@ CHAPTER_PATTERN = re.compile(
 )
 
 # 3. 항/호 단위(①, ②, 1., 2.) 분할용 정규식
-CLAUSE_SPLIT_PATTERN = re.compile(r"\n(?=[①-⑳]|\d+\.)")
+# Fix 1: 원형 숫자 범위를 ①-⑳(U+2460-73) + ㉑-㉟(U+3251-5F) + ㊱-㊿(U+32B1-BF) 전체로 확장
+# Fix 2: \d+\.\s 로 수정하여 날짜·일반문장 오탐 방지
+CLAUSE_SPLIT_PATTERN = re.compile(r"\n(?=[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]|\d+\.\s)")
 #endregion
 
 def make_chunk(             # 최종 Chunk 생성기
@@ -143,6 +145,19 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
 
         # 다음 조문 처리 전에 chapter 업데이트
         current_chapter = next_chapter
+
+    # Fix 3: 조문 간 overlap — 서로 다른 조문 경계에서 이전 조문 끝부분을 맥락으로 추가
+    # 같은 조문 내 분할은 _merge_fragments 에서 이미 처리되므로 article 이 바뀌는 경계만 대상으로 함
+    if overlap > 0 and len(chunks) > 1:
+        for i in range(1, len(chunks)):
+            prev_article = chunks[i - 1].get("article")
+            curr_article = chunks[i].get("article")
+            if prev_article != curr_article:          # 다른 조문으로 넘어가는 경계
+                tail = chunks[i - 1]["text"][-overlap:].lstrip()
+                chunks[i] = {
+                    **chunks[i],
+                    "text": f"[전조 맥락] {tail}\n\n{chunks[i]['text']}"
+                }
 
     return chunks
 
@@ -290,17 +305,17 @@ def split_by_length(
 
 
 def split_by_separator(text: str, separator: str = "---ITEM---", min_length: int = 50) -> list[dict]:
-    """구분자 기준 항목별 청킹 — 동아리, 장학금 목록 등"""
+    """구분자 기준 항목별 청킹 — 동아리, 장학금 목록 등
+
+    Fix: make_chunk 를 내부에서 직접 호출하지 않고 raw dict 만 반환.
+    smart_split 의 마지막 make_chunk 루프에서 일괄 처리하므로
+    chunk_id 부여·embedding_text 생성이 모든 경로에서 동일하게 적용됨.
+    """
     raw_items = text.split(separator)
     chunks = []
-    for i, item in enumerate(raw_items):
+    for item in raw_items:          # enumerate 제거 — chunk_id 는 smart_split 이 부여
         item = item.strip()
         if len(item) < min_length:
             continue
-        chunks.append(make_chunk(
-            chunk_id=i + 1,
-            chapter=None,
-            article=None,
-            text=item,
-        ))
+        chunks.append({"chapter": None, "article": None, "text": item})
     return chunks

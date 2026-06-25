@@ -3,6 +3,7 @@ from app.rag.Chunking.chunker import (
     split_by_article,
     split_by_paragraph,
     split_by_length,
+    split_by_separator,
 )
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     "split_by_article",
     "split_by_paragraph",
     "split_by_length",
+    "split_by_separator",
 ]
