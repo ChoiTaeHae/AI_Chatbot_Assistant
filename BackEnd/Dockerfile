@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -19,13 +19,13 @@ WORKDIR /app
 
 # torch CUDA 먼저 설치 (requirements 의존성 해결 시 재다운로드 방지)
 RUN pip install --no-cache-dir \
-    torch==2.6.0 torchvision==0.21.0 \
-    --index-url https://download.pytorch.org/whl/cu124
+    torch==2.7.0 torchvision==0.22.0 \
+    --index-url https://download.pytorch.org/whl/cu128
 
 # 나머지 패키지 설치 (pywin32, llama-cpp-python, torch 제외)
 COPY requirements_lock.txt .
 RUN grep -v -E "pywin32|llama-cpp-python|^torch|^torchvision" requirements_lock.txt > requirements_docker.txt && \
-    pip install --no-cache-dir -r requirements_docker.txt
+    pip install --no-cache-dir --no-deps -r requirements_docker.txt
 
 # llama-cpp-python 의존성
 RUN pip install --no-cache-dir diskcache

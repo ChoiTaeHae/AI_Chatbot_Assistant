@@ -6,7 +6,7 @@ from app.rag.Retrieval.qdrant_store import (
 from app.rag.Retrieval.Reranker import BgeReranker
 
 # reranker score 임계값 - 이 값 이상인 청크는 전부 반환
-SCORE_THRESHOLD = 0.04
+SCORE_THRESHOLD = 0.3
 # 최대 반환 청크 수 - LLM 컨텍스트 초과 방지
 MAX_CHUNKS = 10
 
