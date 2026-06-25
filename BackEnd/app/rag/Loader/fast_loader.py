@@ -18,15 +18,17 @@ class FastLoader:
         suffix = path.suffix.lower()        #확장자 추출
 
         if suffix == ".pdf":                #PDF인지 확인
-            return self._load_pdf(path)     
+            return self._load_pdf(path)
         elif suffix == ".docx":             #DOCX인지 확인
             return self._load_docx(path)
         elif suffix in (".txt", ".md"):     #TXT / MD
             return self._load_text(path)
         elif suffix == ".pptx":             #PPTX
             return self._load_pptx(path)
+        elif suffix == ".hwpx":             #HWPX (한글 XML 포맷)
+            return self._load_hwpx(path)
         else:
-            raise ValueError(f"지원하지 않는 파일 형식입니다: {suffix}")    #지원 안 하면
+            raise ValueError(f"지원하지 않는 파일 형식입니다: {suffix}")
 
     def _load_pdf(self, path: Path) -> str:     #PDF 전용 함수
         import pdfplumber                       #PDF 텍스트 추출 라이브러리
@@ -59,6 +61,30 @@ class FastLoader:
                 if hasattr(shape, "text") and shape.text.strip():   #텍스트 있는지 확인 / 빈 문자열 제외
                     texts.append(shape.text)    #저장
         return "\n\n".join(texts)               #합치기
+
+
+    def _load_hwpx(self, path: Path) -> str:
+        import zipfile
+        from lxml import etree
+
+        HP_NS = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        texts = []
+
+        with zipfile.ZipFile(path, "r") as zf:
+            section_files = sorted(
+                f for f in zf.namelist()
+                if f.startswith("Contents/section") and f.endswith(".xml")
+            )
+            for section in section_files:
+                root = etree.fromstring(zf.read(section))
+                for t in root.iter(f"{{{HP_NS}}}t"):
+                    if t.text and t.text.strip():
+                        texts.append(t.text.strip())
+
+        result = "\n".join(texts)
+        if not result.strip():
+            raise RuntimeError("HWPX에서 텍스트를 추출할 수 없습니다.")
+        return result
 
 
 fast_loader = FastLoader()
