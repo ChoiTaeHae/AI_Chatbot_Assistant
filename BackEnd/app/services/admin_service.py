@@ -43,7 +43,7 @@ from app.core.topics import VALID_TOPICS
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
 SUPPORTED_EXTENSIONS = {
-    ".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx",  # 문서
+    ".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx", ".hwp",  # 문서 (.hwp는 pyhwp 필요)
     ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif",  # 이미지 (OCR 처리)
 }
 VALID_ROLES         = {"student", "admin"}

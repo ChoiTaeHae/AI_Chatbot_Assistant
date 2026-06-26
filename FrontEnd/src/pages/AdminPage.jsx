@@ -783,7 +783,7 @@ export default function AdminPage() {
                 <div>
                   <h2 className="text-base font-black text-[#05263d]">RAG 지식 추가</h2>
                   <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>
-                    {uploadMode === 'document' ? 'RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD, HWPX' : '웹페이지를 크롤링하여 RAG 지식베이스에 추가'}
+                    {uploadMode === 'document' ? 'RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD, HWP, HWPX, 이미지' : '웹페이지를 크롤링하여 RAG 지식베이스에 추가'}
                   </p>
                 </div>
                 <div className="flex border border-slate-200 overflow-hidden text-sm font-bold" style={{ borderRadius: '8px' }}>
@@ -810,7 +810,7 @@ export default function AdminPage() {
               <div className="flex items-end flex-nowrap overflow-hidden" style={{ gap: '12px' }}>
 
                 {/* 파일 드롭 영역 */}
-                <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md,.hwpx" className="hidden" onChange={handleFileChange} />
+                <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md,.hwpx,.hwp,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif" className="hidden" onChange={handleFileChange} />
                 <div
                   className="border-2 border-dashed border-slate-200 hover:border-[#005956]/40 transition cursor-pointer bg-slate-50 flex flex-col items-center justify-center shrink-0"
                   style={{ borderRadius: '10px', padding: '10px 16px', gap: '4px', width: '160px', height: '72px' }}

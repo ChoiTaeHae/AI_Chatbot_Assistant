@@ -27,6 +27,8 @@ class FastLoader:
             return self._load_pptx(path)
         elif suffix == ".hwpx":             #HWPX (한글 XML 포맷)
             return self._load_hwpx(path)
+        elif suffix == ".hwp":              #HWP (한글 바이너리 포맷, pyhwp 필요)
+            return self._load_hwp(path)
         else:
             raise ValueError(f"지원하지 않는 파일 형식입니다: {suffix}")
 
@@ -46,7 +48,16 @@ class FastLoader:
     def _load_docx(self, path: Path) -> str:    #Word 전용 함수
         from docx import Document
         doc = Document(path)                    #문서 열기
-        texts = [para.text for para in doc.paragraphs if para.text.strip()] #문단 추출 / 리스트 컴프리헨션
+        texts = [para.text for para in doc.paragraphs if para.text.strip()] #문단 추출
+
+        # 표(Table) 안 텍스트도 추출 (문단만 읽으면 표 내용 누락됨)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    if cell_text and cell_text not in texts:  # 중복 방지
+                        texts.append(cell_text)
+
         return "\n\n".join(texts)               #합치기
 
     def _load_text(self, path: Path) -> str:                      #TXT / MD 전용
@@ -87,10 +98,41 @@ class FastLoader:
         return result
 
 
+    def _load_hwp(self, path: Path) -> str:
+        # HWP 바이너리 전용 (pyhwp 내부 XML 변환 후 Paragraph 단위로 텍스트 추출)
+        import io
+        from hwp5.xmlmodel import Hwp5File
+        from contextlib import closing
+        import xml.etree.ElementTree as ET
+        
+        output = io.BytesIO()
+        with closing(Hwp5File(str(path))) as hwp5file:
+            hwp5file.xmlevents().dump(output)
+            
+        xml_data = output.getvalue()
+        root = ET.fromstring(xml_data)
+        
+        seen = set()
+        paragraphs = []
+        for p in root.iter('Paragraph'):
+            texts = []
+            for t in p.iter('Text'):
+                if t.text:
+                    texts.append(t.text)
+            if texts:
+                line = ''.join(texts).strip()
+                # HWP 레이아웃 특성상 같은 문단이 중복 저장될 수 있어 dedup 처리
+                if line and line not in seen:
+                    seen.add(line)
+                    paragraphs.append(line)
+
+        text = '\n'.join(paragraphs)
+        
+        if not text.strip():
+            raise RuntimeError("HWP에서 텍스트를 추출할 수 없습니다.")
+        return text
+
+
+# 모듈 수준 싱글턴 — 매번 FastLoader()를 새로 만들지 않고
+# `from app.rag.Loader.fast_loader import fast_loader` 후 바로 사용 가능
 fast_loader = FastLoader()
-"""
-객체를 미리 하나 만들어두는 것.
-loader = FastLoader()를 매번 쓰지 않고 다른 파일에서
-from fast_loader import fast_loader 후
-text = fast_loader.load_text("report.pdf") 바로 사용 가능
-"""
