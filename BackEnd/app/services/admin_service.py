@@ -46,7 +46,10 @@ from app.services.file_service import is_valid_topic as _is_valid_topic, refresh
 # 문서 처리 전담 작업자(스레드 풀) 1명 고용
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx", ".hwp",  # 문서 (.hwp는 pyhwp 필요)
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif",  # 이미지 (OCR 처리)
+}
 VALID_ROLES         = {"student", "admin"}
 
 
