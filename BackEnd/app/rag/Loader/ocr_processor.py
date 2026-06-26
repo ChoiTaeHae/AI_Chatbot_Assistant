@@ -8,7 +8,7 @@ OcrProcessor — Surya OCR 기반 통합 처리기
 사용법:
     from app.rag.Loader.ocr_processor import OcrProcessor
     processor = OcrProcessor()
-
+    
     # 이미지 파일
     text = processor.process_image("path/to/image.png")
 
@@ -47,21 +47,39 @@ class OcrProcessor:
     """
 
     def __init__(self) -> None:
-        self._rec = None  # Surya RecognitionPredictor (지연 로딩)
+        self._rec = None        # Surya RecognitionPredictor (지연 로딩)
+        self._foundation = None # Surya FoundationPredictor (지연 로딩)
+        self._det = None        # Surya DetectionPredictor (지연 로딩)
 
     # =========================================================
     # 내부 모델 로더 (처음 사용할 때만 로드)
     # =========================================================
 
     @property
-    def rec(self):
-        """Surya RecognitionPredictor — 텍스트/표/이미지 블록 통합 인식 (지연 로딩)"""
+    def models(self):
+        """Surya 0.17.1 모델들 (지연 로딩)"""
         if self._rec is None:
             from surya.recognition import RecognitionPredictor
-            logger.info("[OcrProcessor] Surya RecognitionPredictor 로딩 시작")
-            self._rec = RecognitionPredictor()
-            logger.info("[OcrProcessor] Surya RecognitionPredictor 로딩 완료")
-        return self._rec
+            from surya.foundation import FoundationPredictor
+            from surya.detection import DetectionPredictor
+
+            logger.info("[OcrProcessor] Surya Predictors 로딩 시작 (v0.17.1)")
+            self._foundation = FoundationPredictor()
+            self._det = DetectionPredictor()
+            self._rec = RecognitionPredictor(self._foundation)
+            logger.info("[OcrProcessor] Surya Predictors 로딩 완료")
+        return self._rec, self._det
+
+    def _run_ocr(self, images: list) -> list:
+        from surya.common.surya.schema import TaskNames
+        rec, det = self.models
+        results = rec(
+            images,
+            task_names=[TaskNames.ocr_with_boxes] * len(images),
+            det_predictor=det,
+            math_mode=True
+        )
+        return results
 
     # =========================================================
     # 경로 1: 웹 크롤링 HTML 처리
@@ -116,7 +134,7 @@ class OcrProcessor:
 
         logger.info("[OcrProcessor] 이미지 OCR 시작: %s", path.name)
         image = Image.open(path).convert("RGB")
-        results = self.rec([image], full_page=True)
+        results = self._run_ocr([image])
         text = self._extract_text_from_result(results[0])
         logger.info("[OcrProcessor] 이미지 OCR 완료: %d자", len(text))
         return text
@@ -209,7 +227,7 @@ class OcrProcessor:
         # fitz 에게 처음부터 RGB 로 변환된 픽셀을 달라고 요청하면 채널 혼동 자체가 없어짐
         mat = page.get_pixmap(dpi=PDF_DPI, colorspace=fitz.csRGB)
         img = Image.frombytes("RGB", (mat.width, mat.height), mat.samples)
-        results = self.rec([img], full_page=True)
+        results = self._run_ocr([img])
         return self._extract_text_from_result(results[0])
 
     def _ocr_image_blocks(self, page) -> str:
@@ -227,7 +245,7 @@ class OcrProcessor:
             clip = page.get_pixmap(dpi=PDF_DPI, clip=bbox, colorspace=fitz.csRGB)
             img = Image.frombytes("RGB", (clip.width, clip.height), clip.samples)
 
-            results = self.rec([img], full_page=True)
+            results = self._run_ocr([img])
             text = self._extract_text_from_result(results[0])
             if text:
                 extracted_parts.append(f"[이미지 텍스트]\n{text}")
@@ -262,7 +280,7 @@ class OcrProcessor:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 img_bytes = resp.read()
             img = Image.open(BytesIO(img_bytes)).convert("RGB")
-            results = self.rec([img], full_page=True)
+            results = self._run_ocr([img])
             return self._extract_text_from_result(results[0])
         except Exception as e:
             logger.debug("[OcrProcessor] 이미지 URL OCR 실패 (%s): %s", url[:60], e)
@@ -275,7 +293,7 @@ class OcrProcessor:
             b64_data = data_uri.split(",", 1)[1]
             img_bytes = base64.b64decode(b64_data)
             img = Image.open(BytesIO(img_bytes)).convert("RGB")
-            results = self.rec([img], full_page=True)
+            results = self._run_ocr([img])
             return self._extract_text_from_result(results[0])
         except Exception as e:
             logger.debug("[OcrProcessor] data URI OCR 실패: %s", e)
@@ -287,40 +305,9 @@ class OcrProcessor:
 
     def _extract_text_from_result(self, page_result) -> str:
         """
-        Surya PageOCRResult에서 텍스트 추출.
-
-        - 표(Table) 블록: 행/열 구조 유지 → "셀1 | 셀2" 형식
-        - 나머지 블록: HTML 태그 제거 후 순수 텍스트
-        - reading_order 기준으로 정렬
+        Surya 0.17.1 OCRResult에서 텍스트 추출.
         """
-        if not page_result or not page_result.blocks:
+        if not page_result or not getattr(page_result, "text_lines", None):
             return ""
 
-        from bs4 import BeautifulSoup
-
-        parts: list[str] = []
-        sorted_blocks = sorted(
-            page_result.blocks,
-            key=lambda b: getattr(b, "reading_order", 0),
-        )
-
-        for block in sorted_blocks:
-            if block.skipped or not block.html:
-                continue
-
-            soup = BeautifulSoup(block.html, "html.parser")
-
-            if block.label == "Table":
-                rows = []
-                for tr in soup.find_all("tr"):
-                    cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
-                    if any(cells):
-                        rows.append(" | ".join(cells))
-                if rows:
-                    parts.append("\n".join(rows))
-            else:
-                text = soup.get_text(" ", strip=True)
-                if text:
-                    parts.append(text)
-
-        return "\n\n".join(parts)
+        return "\n".join([line.text for line in page_result.text_lines if getattr(line, "text", "")])
