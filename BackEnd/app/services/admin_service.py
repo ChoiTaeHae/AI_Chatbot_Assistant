@@ -4,6 +4,7 @@ Admin 서비스 — 관리자 기능 비즈니스 로직
 대시보드, 사용 통계, 서비스 설정, 보안/권한, RAG 문서 관리를 담당한다.
 각 라우터는 이 서비스를 호출하고 HTTP 변환만 처리한다.
 """
+import asyncio
 import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Date
 
 from app.core.config import settings
-from app.models.DB_Table import Student, Department, Course, ChatLog, ChatSession, ChatMessage, ChatFeedback
+from app.models.DB_Table import Student, Department, Course, ChatLog, ChatSession, ChatMessage, ChatFeedback, Topic
 from app.rag.ingest import ingest_file
 from app.services.rag_service import rag_service
 from app.services.llm_service import llm_service
@@ -36,9 +37,12 @@ from app.schemas.admins import (
     ChatSessionDetailResponse,
     FeedbackItem,
     AdminFeedbackRequest,
+    TopicItem,
+    TopicCreateRequest,
+    TopicUpdateRequest,
 )
 
-from app.core.topics import VALID_TOPICS
+from app.services.file_service import is_valid_topic as _is_valid_topic, refresh_topic_cache, file_service
 # 문서 처리 전담 작업자(스레드 풀) 1명 고용
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
@@ -408,11 +412,8 @@ class AdminService:
                 f"지원하지 않는 파일 형식: {suffix}. "
                 f"지원 형식: {', '.join(SUPPORTED_EXTENSIONS)}"
             )
-        if topic and topic not in VALID_TOPICS:
-            raise ValueError(
-                f"유효하지 않은 주제: {topic}. "
-                f"가능한 값: {', '.join(sorted(VALID_TOPICS))}"
-            )
+        if topic and not _is_valid_topic(topic):
+            raise ValueError(f"유효하지 않은 주제: {topic}.")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file_content)
@@ -503,11 +504,8 @@ class AdminService:
         """URL 크롤링 → ThreadPool 등록 → job_id 반환"""
         if not url.startswith(("http://", "https://")):
             raise ValueError("유효하지 않은 URL 형식입니다.")
-        if topic and topic not in VALID_TOPICS:
-            raise ValueError(
-                f"유효하지 않은 주제: {topic}. "
-                f"가능한 값: {', '.join(sorted(VALID_TOPICS))}"
-            )
+        if topic and not _is_valid_topic(topic):
+            raise ValueError(f"유효하지 않은 주제: {topic}.")
         job_id = f"crawl_{uuid.uuid4().hex[:8]}"
         self._upload_jobs[job_id] = {
             "status": "queued",
@@ -527,6 +525,94 @@ class AdminService:
             source=source,
             message=f"'{source}' 문서 삭제 완료 ({deleted}개 청크 삭제)",
         )
+
+    # ── Topic CRUD ────────────────────────────────────────────────
+
+    async def list_topics(self, db: AsyncSession) -> list[Topic]:
+        result = await db.execute(select(Topic).order_by(Topic.id))
+        return result.scalars().all()
+
+    _VALID_HANDLER_TYPES = {"rag", "campus", "graduation", "scholarship", "general"}
+
+    async def create_topic(self, db: AsyncSession, body: TopicCreateRequest) -> Topic:
+        if body.handler_type not in self._VALID_HANDLER_TYPES:
+            raise ValueError(
+                f"유효하지 않은 handler_type: {body.handler_type}. "
+                f"가능한 값: {sorted(self._VALID_HANDLER_TYPES)}"
+            )
+        existing = await db.execute(select(Topic).where(Topic.name == body.name))
+        if existing.scalar_one_or_none():
+            raise ValueError(f"이미 존재하는 topic: {body.name}")
+        topic = Topic(
+            name=body.name,
+            label=body.label,
+            handler_type=body.handler_type,
+            sentences=body.sentences,
+            description=body.description,
+            is_system=False,
+            is_active=True,
+        )
+        db.add(topic)
+        await db.commit()
+        await db.refresh(topic)
+        await self._reload_topic_router(db)
+        return topic
+
+    async def update_topic(self, db: AsyncSession, name: str, body: TopicUpdateRequest) -> Topic:
+        result = await db.execute(select(Topic).where(Topic.name == name))
+        topic = result.scalar_one_or_none()
+        if not topic:
+            raise LookupError("topic을 찾을 수 없습니다.")
+        if body.label is not None:
+            topic.label = body.label
+        if body.sentences is not None:
+            topic.sentences = body.sentences
+        if body.description is not None:
+            topic.description = body.description
+        if body.is_active is not None:
+            topic.is_active = body.is_active
+        await db.commit()
+        await db.refresh(topic)
+        await self._reload_topic_router(db)
+        return topic
+
+    async def delete_topic(self, db: AsyncSession, name: str) -> None:
+        result = await db.execute(select(Topic).where(Topic.name == name))
+        topic = result.scalar_one_or_none()
+        if not topic:
+            raise LookupError("topic을 찾을 수 없습니다.")
+        if topic.is_system:
+            raise ValueError("시스템 topic은 삭제할 수 없습니다.")
+        chunk_count = rag_service.vector_store.count_by_topic(name)
+        if chunk_count > 0:
+            raise ValueError(
+                f"topic '{name}'에 RAG 문서 {chunk_count}개가 등록되어 있습니다. "
+                f"문서를 먼저 삭제한 후 topic을 삭제하세요."
+            )
+        file_count = len(file_service.list_files()["files"].get(name, []))
+        if file_count > 0:
+            raise ValueError(
+                f"topic '{name}'에 다운로드 파일 {file_count}개가 있습니다. "
+                f"파일을 먼저 삭제한 후 topic을 삭제하세요."
+            )
+        await db.delete(topic)
+        await db.commit()
+        await self._reload_topic_router(db)
+
+    async def _reload_topic_router(self, db: AsyncSession) -> None:
+        """topic 변경 후 TopicRouter + FileService 캐시 즉시 갱신."""
+        from app.agents.topic_router import topic_router
+        result = await db.execute(select(Topic).where(Topic.is_active == True))
+        topics = result.scalars().all()
+        topic_data = [
+            {"name": t.name, "label": t.label,
+             "handler_type": t.handler_type, "sentences": t.sentences or []}
+            for t in topics
+        ]
+        labels = {t.name: t.label for t in topics}
+        refresh_topic_cache(labels)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, topic_router.reload, topic_data)
 
 
 # 싱글톤 인스턴스

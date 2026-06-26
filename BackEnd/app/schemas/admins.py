@@ -148,3 +148,34 @@ class ChatSessionDetailResponse(BaseModel):
     student_name: Optional[str] = None
     student_no: Optional[str] = None
     messages: list[ChatMessageItem]
+
+
+# ── Topic 관리 관련 ──────────────────────────────────────
+class TopicItem(BaseModel):
+    id: int
+    name: str
+    label: str
+    handler_type: str
+    sentences: list[str]
+    description: Optional[str] = None
+    is_system: bool
+    is_active: bool
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TopicCreateRequest(BaseModel):
+    name: str
+    label: str
+    handler_type: str = "rag"
+    sentences: list[str] = []
+    description: Optional[str] = None
+
+
+class TopicUpdateRequest(BaseModel):
+    label: Optional[str] = None
+    sentences: Optional[list[str]] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None

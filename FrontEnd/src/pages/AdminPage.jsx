@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
-import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus, crawlDocument, fetchTopics } from '../api/admins/documents'
+import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus, crawlDocument, fetchTopics, fetchTopicList, createTopic, updateTopic, deleteTopic } from '../api/admins/documents'
 import { fetchDashboard, fetchStats, fetchChatStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
@@ -40,6 +40,12 @@ const NAV_ITEMS = [
   { id: 'chats', label: '채팅 내역', icon: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+    </svg>
+  )},
+  { id: 'topics', label: 'Topic 관리', icon: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
     </svg>
   )},
 ]
@@ -124,6 +130,13 @@ export default function AdminPage() {
   const [savingFeedback, setSavingFeedback] = useState(false)
   const chatMessagesEndRef = useRef(null)
 
+  // Topic 관리
+  const [topicList, setTopicList] = useState([])
+  const [topicMsg, setTopicMsg] = useState(null)
+  const [editingTopic, setEditingTopic] = useState(null)  // {name, label, sentences, description}
+  const [newTopic, setNewTopic] = useState({ name: '', label: '', handler_type: 'rag', sentences: '', description: '' })
+  const [showNewTopicForm, setShowNewTopicForm] = useState(false)
+
   const filesInputRef = useRef(null)
 
   const fileInputRef = useRef(null)
@@ -137,6 +150,53 @@ export default function AdminPage() {
     fetchTopics().then(setTopicLabels).catch(console.error)
   }, [])
 
+  async function loadTopicList() {
+    try {
+      const list = await fetchTopicList()
+      setTopicList(list)
+    } catch (e) { setTopicMsg({ type: 'error', text: e.message }) }
+  }
+
+  async function _refreshTopicCaches() {
+    fetchTopics().then(labels => {
+      setTopicLabels(labels)
+      setFileLabels(labels)
+      setFilesTopic(prev => labels[prev] ? prev : Object.keys(labels)[0] || '')
+    }).catch(console.error)
+  }
+
+  async function handleCreateTopic() {
+    try {
+      const sentences = newTopic.sentences.split('\n').map(s => s.trim()).filter(Boolean)
+      await createTopic({ ...newTopic, sentences })
+      setTopicMsg({ type: 'success', text: `"${newTopic.label}" topic이 추가됐습니다.` })
+      setNewTopic({ name: '', label: '', handler_type: 'rag', sentences: '', description: '' })
+      setShowNewTopicForm(false)
+      loadTopicList()
+      _refreshTopicCaches()
+    } catch (e) { setTopicMsg({ type: 'error', text: e.message }) }
+  }
+
+  async function handleUpdateTopic(name, data) {
+    try {
+      await updateTopic(name, data)
+      setTopicMsg({ type: 'success', text: '수정됐습니다.' })
+      setEditingTopic(null)
+      loadTopicList()
+      _refreshTopicCaches()
+    } catch (e) { setTopicMsg({ type: 'error', text: e.message }) }
+  }
+
+  async function handleDeleteTopic(name) {
+    if (!window.confirm(`"${name}" topic을 삭제하시겠습니까?`)) return
+    try {
+      await deleteTopic(name)
+      setTopicMsg({ type: 'success', text: `"${name}" 삭제됐습니다.` })
+      loadTopicList()
+      _refreshTopicCaches()
+    } catch (e) { setTopicMsg({ type: 'error', text: e.message }) }
+  }
+
   // 탭 전환 시 해당 데이터 로드
   useEffect(() => {
     if (activeNav === 'documents') loadDocuments()
@@ -145,6 +205,7 @@ export default function AdminPage() {
     if (activeNav === 'security') loadUsers()
     if (activeNav === 'files') loadFiles()
     if (activeNav === 'chats') loadChatSessions()
+    if (activeNav === 'topics') loadTopicList()
   }, [activeNav])
 
   // 프로필 드롭다운 바깥 클릭 시 닫기
@@ -1203,27 +1264,31 @@ export default function AdminPage() {
                 </div>
               )}
 
-              {/* Topic 탭 */}
-              <div className="flex border-b border-slate-100 overflow-x-hidden flex-nowrap" style={{ gap: '0' }}>
-                {Object.entries(fileLabels).map(([topicKey, label]) => (
-                  <button
-                    key={topicKey}
-                    onClick={() => { setFilesTopic(topicKey); setFileMsg(null) }}
-                    className={`text-sm font-semibold transition border-b-2 whitespace-nowrap flex-shrink-0 ${
-                      filesTopic === topicKey
-                        ? 'border-[#005956] text-[#005956]'
-                        : 'border-transparent text-slate-400 hover:text-slate-600'
-                    }`}
-                    style={{ padding: '8px 16px', marginBottom: '-1px' }}
+              {/* Topic 드롭다운 */}
+              <div className="flex items-center" style={{ gap: '10px' }}>
+                <label className="text-xs font-bold text-slate-500 shrink-0">Topic</label>
+                <div className="relative">
+                  <select
+                    value={filesTopic}
+                    onChange={e => { setFilesTopic(e.target.value); setFileMsg(null) }}
+                    className="text-sm font-semibold text-[#05263d] border border-slate-200 rounded-xl bg-white outline-none focus:border-[#005956] appearance-none cursor-pointer"
+                    style={{ padding: '7px 36px 7px 12px', minWidth: '160px' }}
                   >
-                    {label}
-                    {files[topicKey]?.length > 0 && (
-                      <span className={`ml-1.5 text-xs font-bold rounded-full px-1.5 py-0.5 ${filesTopic === topicKey ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-400'}`}>
-                        {files[topicKey].length}
-                      </span>
-                    )}
-                  </button>
-                ))}
+                    {Object.entries(fileLabels).map(([topicKey, label]) => (
+                      <option key={topicKey} value={topicKey}>
+                        {label}{files[topicKey]?.length > 0 ? ` (${files[topicKey].length})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                {files[filesTopic]?.length > 0 && (
+                  <span className="text-xs font-bold text-[#005956] bg-[#005956]/8 px-2 py-0.5 rounded-full">
+                    {files[filesTopic].length}개
+                  </span>
+                )}
               </div>
 
               {/* 파일 목록 */}
@@ -1594,6 +1659,153 @@ export default function AdminPage() {
               </div>
             )
           })()}
+
+          {/* ── Topic 관리 ── */}
+          {activeNav === 'topics' && (
+            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0" style={{ padding: '24px' }}>
+              {/* 헤더 */}
+              <div className="flex items-center justify-between shrink-0" style={{ marginBottom: '16px' }}>
+                <div>
+                  <h2 className="text-base font-black text-[#05263d]">Topic 관리</h2>
+                  <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>질문 분류 topic을 추가·수정·삭제합니다. 시스템 topic은 삭제할 수 없습니다.</p>
+                </div>
+                <button
+                  onClick={() => { setShowNewTopicForm(v => !v); setTopicMsg(null) }}
+                  className="flex items-center gap-1.5 text-sm font-bold bg-[#005956] text-white rounded-xl hover:bg-[#004a47] transition"
+                  style={{ padding: '8px 16px' }}
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                  Topic 추가
+                </button>
+              </div>
+
+              {topicMsg && (
+                <div className={`text-xs font-medium px-4 py-2 rounded-xl shrink-0 ${topicMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`} style={{ marginBottom: '12px' }}>
+                  {topicMsg.text}
+                </div>
+              )}
+
+              {/* 새 topic 폼 */}
+              {showNewTopicForm && (
+                <div className="border border-[#005956]/20 bg-[#005956]/5 rounded-xl shrink-0" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <p className="text-xs font-black text-[#005956]">새 Topic 추가</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>name (영문, 언더바)</label>
+                      <input value={newTopic.name} onChange={e => setNewTopic(v => ({ ...v, name: e.target.value }))} placeholder="예: tuition" className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '6px 10px' }} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>label (한글 표시명)</label>
+                      <input value={newTopic.label} onChange={e => setNewTopic(v => ({ ...v, label: e.target.value }))} placeholder="예: 등록금" className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '6px 10px' }} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>설명 (선택)</label>
+                    <input value={newTopic.description} onChange={e => setNewTopic(v => ({ ...v, description: e.target.value }))} placeholder="이 topic에 대한 간단한 설명" className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '6px 10px' }} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>분류 문장 (한 줄에 하나씩)</label>
+                    <textarea
+                      value={newTopic.sentences}
+                      onChange={e => setNewTopic(v => ({ ...v, sentences: e.target.value }))}
+                      placeholder={"등록금 납부 방법이 궁금해요\n등록금은 언제까지 내야 하나요?"}
+                      rows={4}
+                      className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956] resize-none"
+                      style={{ padding: '7px 10px' }}
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setShowNewTopicForm(false)} className="text-xs text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-50" style={{ padding: '6px 14px' }}>취소</button>
+                    <button onClick={handleCreateTopic} disabled={!newTopic.name || !newTopic.label} className="text-xs font-bold bg-[#005956] text-white rounded-lg hover:bg-[#004a47] disabled:opacity-40" style={{ padding: '6px 14px' }}>추가</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Topic 목록 */}
+              <div className="flex-1 overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {topicList.length === 0 ? (
+                  <div className="flex items-center justify-center text-slate-300" style={{ padding: '60px 0' }}>
+                    <p className="text-sm">topic이 없습니다</p>
+                  </div>
+                ) : topicList.map(t => (
+                  <div key={t.name} className="border border-slate-100 rounded-xl bg-slate-50/50 hover:bg-white transition" style={{ padding: '14px 16px' }}>
+                    {editingTopic?.name === t.name ? (
+                      // 수정 폼
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '3px' }}>label</label>
+                            <input value={editingTopic.label} onChange={e => setEditingTopic(v => ({ ...v, label: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '5px 8px' }} />
+                          </div>
+                          <div>
+                            <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '3px' }}>설명</label>
+                            <input value={editingTopic.description || ''} onChange={e => setEditingTopic(v => ({ ...v, description: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '5px 8px' }} />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '3px' }}>분류 문장 (한 줄에 하나)</label>
+                          <textarea
+                            value={editingTopic.sentences}
+                            onChange={e => setEditingTopic(v => ({ ...v, sentences: e.target.value }))}
+                            rows={4}
+                            className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956] resize-none"
+                            style={{ padding: '6px 8px' }}
+                          />
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => setEditingTopic(null)} className="text-xs text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-50" style={{ padding: '5px 12px' }}>취소</button>
+                          <button
+                            onClick={() => handleUpdateTopic(t.name, {
+                              label: editingTopic.label,
+                              description: editingTopic.description,
+                              sentences: editingTopic.sentences.split('\n').map(s => s.trim()).filter(Boolean),
+                            })}
+                            className="text-xs font-bold bg-[#005956] text-white rounded-lg hover:bg-[#004a47]"
+                            style={{ padding: '5px 12px' }}
+                          >저장</button>
+                        </div>
+                      </div>
+                    ) : (
+                      // 표시 모드
+                      <div className="flex items-start justify-between gap-4">
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="flex items-center gap-2" style={{ marginBottom: '4px' }}>
+                            <span className="text-sm font-black text-[#05263d]">{t.label}</span>
+                            <code className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t.name}</code>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              t.handler_type === 'campus' ? 'bg-blue-100 text-blue-700' :
+                              t.handler_type === 'graduation' ? 'bg-purple-100 text-purple-700' :
+                              t.handler_type === 'scholarship' ? 'bg-yellow-100 text-yellow-700' :
+                              t.handler_type === 'general' ? 'bg-slate-100 text-slate-500' :
+                              'bg-emerald-100 text-emerald-700'
+                            }`}>{t.handler_type}</span>
+                            {t.is_system && <span className="text-xs bg-orange-100 text-orange-600 font-bold px-2 py-0.5 rounded-full">시스템</span>}
+                            {!t.is_active && <span className="text-xs bg-red-100 text-red-500 font-bold px-2 py-0.5 rounded-full">비활성</span>}
+                          </div>
+                          {t.description && <p className="text-xs text-slate-400" style={{ marginBottom: '6px' }}>{t.description}</p>}
+                          <p className="text-xs text-slate-400">{t.sentences?.length || 0}개 분류 문장</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => setEditingTopic({ name: t.name, label: t.label, description: t.description || '', sentences: (t.sentences || []).join('\n') })}
+                            className="text-xs text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-100 transition"
+                            style={{ padding: '5px 10px' }}
+                          >수정</button>
+                          {!t.is_system && (
+                            <button
+                              onClick={() => handleDeleteTopic(t.name)}
+                              className="text-xs text-red-400 border border-red-100 rounded-lg hover:bg-red-50 transition"
+                              style={{ padding: '5px 10px' }}
+                            >삭제</button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         </main>
       </div>
