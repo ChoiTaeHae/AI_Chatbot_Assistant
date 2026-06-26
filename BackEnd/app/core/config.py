@@ -40,5 +40,10 @@ class Settings(BaseSettings):
     # 개발 모드 (True 시 LLM 로딩 스킵)
     DEV_MODE: bool = False
 
+    # Rate Limiting (False 시 제한 없음 — 개발 환경에서 비활성화)
+    RATE_LIMIT_ENABLED: bool = True
+    CHAT_RATE_LIMIT: int = 20       # 분당 최대 요청 수
+    RATE_LIMIT_WINDOW: int = 60     # 윈도우 크기 (초)
+
 
 settings = Settings()

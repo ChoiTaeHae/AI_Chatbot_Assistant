@@ -18,7 +18,9 @@ class ChatService:
 
         if request.session_id:
             session = await db.get(ChatSession, request.session_id)
-            if not session or session.student_id != current_user.id:
+            if session and session.student_id != current_user.id:
+                raise PermissionError("해당 세션에 접근할 수 없습니다.")
+            if not session:
                 session = None
 
         if not request.session_id or session is None:
@@ -81,7 +83,14 @@ class ChatService:
         self,
         request: FeedbackRequest,
         db: AsyncSession,
+        current_user: Student,
     ) -> dict:
+        message = await db.get(ChatMessage, request.message_id)
+        if not message:
+            raise LookupError("메시지를 찾을 수 없습니다.")
+        if message.student_id != current_user.id:
+            raise PermissionError("해당 메시지에 접근할 수 없습니다.")
+
         existing = await db.scalar(
             select(ChatFeedback).where(ChatFeedback.message_id == request.message_id)
         )
