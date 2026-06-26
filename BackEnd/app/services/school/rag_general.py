@@ -4,56 +4,43 @@ from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT
 
-def _resolve_topic(question: str) -> str | None:
-    question = question.lower()
 
-    if "휴학" in question or "복학" in question:
+def _keyword_topic(question: str) -> str | None:
+    """키워드 기반 topic 추론 — DB 라우팅 실패 시 fallback."""
+    q = question.lower()
+    if "휴학" in q or "복학" in q:
         return "leave"
-
-    if "기숙사" in question or "생활관" in question:
+    if "기숙사" in q or "생활관" in q:
         return "dormitory"
-
-    if "수강신청" in question:
+    if "수강신청" in q:
         return "course_registration"
-
-    if "특별학점" in question:
+    if "특별학점" in q:
         return "special_credit"
-
-    if "성적" in question or "학점" in question or "gpa" in question:
+    if "성적" in q or "학점" in q or "gpa" in q:
         return "grades"
-
-    if "학칙" in question or "규정" in question or "규칙" in question:
+    if "학칙" in q or "규정" in q or "규칙" in q:
         return "school_rules"
-
-    if "공결" in question or "출석인정" in question:
+    if "공결" in q or "출석인정" in q:
         return "absence"
-
-    if "복수전공" in question or "부전공" in question:
+    if "복수전공" in q or "부전공" in q:
         return "multi_major"
-
-    if "전과" in question or "자퇴" in question or "재입학" in question:
-       return "academic_status"
-
-    if "학생지원" in question or "솔숲" in question or "오티" in question or "OT" in question or "카드" in question or "동아리" in question or "오리엔테이션" in question:
+    if "전과" in q or "자퇴" in q or "재입학" in q:
+        return "academic_status"
+    if "학생지원" in q or "솔숲" in q or "오티" in q or "ot" in q or "카드" in q or "동아리" in q or "오리엔테이션" in q:
         return "student_support"
-
-    if "ROTC" in question or "rotc" in question or "학군단" in question or "사관후보생" in question or "군사학" in question:
+    if "rotc" in q or "학군단" in q or "사관후보생" in q or "군사학" in q:
         return "rotc"
-
-    # 매칭되는 키워드가 없으면 Qdrant가 전체 문서를 검색하도록 None 반환
     return None
 
 
-def _search_rag(question: str) -> tuple[str, dict]:
+def _search_rag(question: str, topic: str | None) -> tuple[str, dict]:
+    """Qdrant 검색. topic이 None이면 전체 검색."""
     try:
-        topic = _resolve_topic(question)
-
         print(
             f"[RAG_GENERAL] 선택된 topic: "
             f"{topic if topic else '전체 검색(None)'}"
         )
 
-        # search 결과 + metadata용 result 함께 받기
         context, results = rag_service.search_context_with_results(
             question,
             topic=topic,
@@ -79,7 +66,6 @@ def _search_rag(question: str) -> tuple[str, dict]:
         print("=================================\n")
 
         if context:
-            # MAX_CONTEXT_LENGTH 제거
             return context, metadata
 
     except Exception as e:
@@ -88,27 +74,39 @@ def _search_rag(question: str) -> tuple[str, dict]:
     return "", {
         "source": None,
         "source_file": None,
-        "topic": _resolve_topic(question),
+        "topic": topic,
     }
 
 
-async def answer_rag_general_question_with_metadata(question: str) -> tuple[str, dict]:
+async def answer_rag_general_question_with_metadata(
+    question: str,
+    topic: str | None = None,
+) -> tuple[str, dict]:
+    """RAG 검색 후 LLM 답변 생성.
+
+    topic: agent_graph에서 DB 라우팅으로 결정된 topic_name.
+           None이면 키워드 fallback → 그래도 없으면 전체 검색.
+    """
     print("[RAG_GENERAL] RAG 검색 시작")
 
-    loop = asyncio.get_event_loop()
+    # topic 우선순위: 라우팅 결과 → 키워드 fallback → None(전체 검색)
+    effective_topic = topic or _keyword_topic(question)
 
+    loop = asyncio.get_event_loop()
     context, metadata = await loop.run_in_executor(
         None,
         _search_rag,
         question,
+        effective_topic,
     )
 
     print("[RAG_GENERAL] RAG 검색 완료, LLM 호출")
 
-    is_club = "동아리" in question and _resolve_topic(question) == "student_support"
+    is_club = "동아리" in question and effective_topic == "student_support"
     _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
     is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
-    print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, topic={_resolve_topic(question)}")
+    print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, topic={effective_topic}")
+
     if is_club_list:
         prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
         answer = await llm_service.answer(prompt, max_tokens=2048)
@@ -118,9 +116,10 @@ async def answer_rag_general_question_with_metadata(question: str) -> tuple[str,
     else:
         prompt = RAG_GENERAL_PROMPT.format(context=context, question=question)
         answer = await llm_service.answer(prompt)
+
     return answer, metadata
 
 
-async def answer_rag_general_question(question: str) -> str:
-    answer, _ = await answer_rag_general_question_with_metadata(question)
+async def answer_rag_general_question(question: str, topic: str | None = None) -> str:
+    answer, _ = await answer_rag_general_question_with_metadata(question, topic=topic)
     return answer

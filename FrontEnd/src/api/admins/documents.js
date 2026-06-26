@@ -69,6 +69,51 @@ export async function crawlDocument(url, source = null, topic = null, docDate = 
 export async function fetchTopics() {
   const res = await authFetch(`${BASE}/topics`)
   if (!res.ok) throw new Error('토픽 목록 조회 실패')
+  const list = await res.json()
+  // {name: label} 형태로 변환 (기존 드롭다운 호환)
+  return Object.fromEntries(list.map(t => [t.name, t.label]))
+}
+
+export async function fetchTopicList() {
+  const res = await authFetch(`${BASE}/topics`)
+  if (!res.ok) throw new Error('토픽 목록 조회 실패')
+  return res.json()
+}
+
+export async function createTopic(data) {
+  const res = await authFetch(`${BASE}/topics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '토픽 생성 실패')
+  }
+  return res.json()
+}
+
+export async function updateTopic(name, data) {
+  const res = await authFetch(`${BASE}/topics/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '토픽 수정 실패')
+  }
+  return res.json()
+}
+
+export async function deleteTopic(name) {
+  const res = await authFetch(`${BASE}/topics/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '토픽 삭제 실패')
+  }
   return res.json()
 }
 

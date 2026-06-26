@@ -197,6 +197,17 @@ class QdrantVectorStore:
         )
         return count
 
+    def count_by_topic(self, topic: str) -> int:
+        """topic에 등록된 RAG 청크 수 반환."""
+        result = qdrant_client.count(
+            collection_name=self.collection_name,
+            count_filter=Filter(
+                must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+            ),
+            exact=True,
+        )
+        return result.count
+
     def list_sources(self) -> list[dict]:
         """저장된 문서 source 목록 반환."""
         result = qdrant_client.scroll(

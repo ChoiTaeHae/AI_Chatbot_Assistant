@@ -8,7 +8,7 @@ from sqlalchemy import String, cast, or_, select
 
 from app.core.Database import AsyncSessionLocal
 from app.core.config import settings
-from app.models.DB_Table import Building, Room
+from app.models.DB_Table import Building, Room, BuildingContact, Office
 from app.services.llm_service import llm_service
 
 
@@ -306,11 +306,31 @@ def _build_map_card(building: Building, place: dict | None) -> dict:
     return map_card
 
 
-def _build_answer(building: Building, room: Room | None) -> str:
-    if room:
-        return f"{building.name} {room.floor}층 {room.room_no} 위치를 찾았습니다. 지도에서 건물 위치를 확인해보세요."
+async def _get_building_contacts(building_id: int) -> list[dict]:
+    """건물에 연결된 행정부서 연락처 목록 반환."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Office.name, Office.phone)
+            .join(BuildingContact, BuildingContact.office_id == Office.id)
+            .where(BuildingContact.building_id == building_id)
+        )
+        return [{"name": row.name, "phone": row.phone} for row in result.all()]
 
-    return f"{building.name} 위치를 찾았습니다. 지도에서 확인해보세요."
+
+def _build_answer(building: Building, room: Room | None, contacts: list[dict]) -> str:
+    if room:
+        answer = f"{building.name} {room.floor}층 {room.room_no} 위치를 찾았습니다. 지도에서 건물 위치를 확인해보세요."
+    else:
+        answer = f"{building.name} 위치를 찾았습니다. 지도에서 확인해보세요."
+
+    if contacts:
+        lines = "\n".join(
+            f"- {c['name']}: {c['phone']}" if c.get('phone') else f"- {c['name']}"
+            for c in contacts
+        )
+        answer += f"\n\n📞 담당 부서\n{lines}"
+
+    return answer
 
 
 async def answer_location_question(question: str) -> dict:
@@ -330,9 +350,8 @@ async def answer_location_question(question: str) -> dict:
 
     place = await _search_kakao_place(building)
     map_card = _build_map_card(building, place)
+    contacts = await _get_building_contacts(building.id)
 
-    # place_url이 있으면 found: True — 좌표 없어도 카카오맵 링크로 위치 확인 가능
-    # (DB에 저장된 place_url이 있는 한 항상 True)
     has_info = bool(map_card.get("place_url") or
                     (map_card.get("latitude") and map_card.get("longitude")))
 
@@ -349,10 +368,11 @@ async def answer_location_question(question: str) -> dict:
     return {
         "type": "location",
         "found": True,
-        "answer": _build_answer(building, room),
+        "answer": _build_answer(building, room, contacts),
         "matched_keyword": matched_keyword,
         "target": _build_target_payload(building, room),
         "map_card": map_card,
+        "contacts": contacts,
     }
 
 

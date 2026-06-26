@@ -17,6 +17,46 @@ from app.services.file_service import refresh_available_files
 from app.agents.topic_router import topic_router
 
 
+async def _seed_and_load_topics() -> list[dict]:
+    """Topic 테이블 시드 삽입 후 활성 topic 목록 반환."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import select
+    from app.models.DB_Table import Topic
+    from app.core.topics import TOPIC_SEED
+
+    async with AsyncSession(engine) as session:
+        result = await session.execute(select(Topic))
+        existing_names = {t.name for t in result.scalars().all()}
+
+        for seed in TOPIC_SEED:
+            if seed["name"] not in existing_names:
+                session.add(Topic(
+                    name=seed["name"],
+                    label=seed["label"],
+                    handler_type=seed["handler_type"],
+                    sentences=seed.get("sentences", []),
+                    description=seed.get("description"),
+                    is_system=seed.get("is_system", False),
+                    is_active=True,
+                ))
+
+        await session.commit()
+
+        result = await session.execute(
+            select(Topic).where(Topic.is_active == True)
+        )
+        topics = result.scalars().all()
+        return [
+            {
+                "name": t.name,
+                "label": t.label,
+                "handler_type": t.handler_type,
+                "sentences": t.sentences or [],
+            }
+            for t in topics
+        ]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DB 연결 (async 방식)
@@ -56,16 +96,30 @@ async def lifespan(app: FastAPI):
     refresh_available_files()
 
     # ── 임베딩 인스턴스 공유 ──────────────────────────────
-    # rag_service와 topic_router가 동일한 BaaiEmbedding 객체를 사용하도록 연결.
-    # 이렇게 하면 BGE-M3 모델이 딱 1번만 로드됨.
     topic_router._embedding = rag_service.embedding
 
-    # topic 프로토타입 벡터 사전 계산 (임베딩 모델 로드 + 6문장 인코딩)
+    # Topic 시드 삽입 + 활성 topic 로드
     try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, topic_router.warmup)
-        print("topic 라우터 워밍업 완료 (rag_service와 임베딩 공유)")
-    
+        topic_data = await _seed_and_load_topics()
+        print(f"[Server] {len(topic_data)}개 topic 로드 완료")
+    except Exception as e:
+        print(f"[Server] topic DB 로드 실패 — TOPIC_SEED 사용: {e}")
+        from app.core.topics import TOPIC_SEED
+        topic_data = [
+            {"name": t["name"], "label": t["label"],
+             "handler_type": t["handler_type"], "sentences": t.get("sentences", [])}
+            for t in TOPIC_SEED
+        ]
+
+    # FileService topic 캐시 초기화
+    from app.services.file_service import refresh_topic_cache
+    refresh_topic_cache({t["name"]: t["label"] for t in topic_data})
+
+    # topic 프로토타입 벡터 사전 계산
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, topic_router.warmup, topic_data)
+        print("topic 라우터 워밍업 완료")
     except Exception as e:
         print(f"topic 라우터 워밍업 실패 (무시): {e}")
 

@@ -1,18 +1,56 @@
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.topics import TOPICS
-from app.schemas.admins import DocumentListResponse, DocumentDeleteResponse
+from app.core.deps import get_db
+from app.schemas.admins import (
+    DocumentListResponse,
+    DocumentDeleteResponse,
+    TopicItem,
+    TopicCreateRequest,
+    TopicUpdateRequest,
+)
 from app.services.admin_service import admin_service
 
 router = APIRouter()
 
 
-@router.get("/topics", summary="토픽 목록 조회")
-async def list_topics():
-    return TOPICS
+# ── Topic CRUD ─────────────────────────────────────────────────────
 
+@router.get("/topics", response_model=list[TopicItem], summary="토픽 목록 조회")
+async def list_topics(db: AsyncSession = Depends(get_db)):
+    return await admin_service.list_topics(db)
+
+
+@router.post("/topics", response_model=TopicItem, summary="토픽 추가")
+async def create_topic(body: TopicCreateRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        return await admin_service.create_topic(db, body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/topics/{topic_name}", response_model=TopicItem, summary="토픽 수정")
+async def update_topic(topic_name: str, body: TopicUpdateRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        return await admin_service.update_topic(db, topic_name, body)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/topics/{topic_name}", summary="토픽 삭제")
+async def delete_topic(topic_name: str, db: AsyncSession = Depends(get_db)):
+    try:
+        await admin_service.delete_topic(db, topic_name)
+        return {"success": True, "name": topic_name}
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── RAG 문서 관리 ──────────────────────────────────────────────────
 
 @router.post("/documents/upload", summary="문서 업로드 및 RAG 등록")
 async def upload_document(

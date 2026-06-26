@@ -60,10 +60,11 @@ class Building(Base):
     __tablename__ = "building"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String)           
-    address = Column(Text)          
-    aliases = Column(JSONB)         
-    place_url = Column(Text)                
+    name = Column(String)
+    address = Column(Text)
+    aliases = Column(JSONB)
+    place_url = Column(Text)
+    phone = Column(String(30), nullable=True)                
 
 # ==========================================
 # 6. 호실 테이블 (room)
@@ -250,7 +251,46 @@ class Tuition(Base):
 
 
 # ==========================================
-# 18. RAG 검색 로그 (retrieval_log)
+# 18. Topic 테이블 (topic)
+# ==========================================
+class Topic(Base):
+    __tablename__ = "topic"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    name         = Column(String(50), unique=True, nullable=False)   # "course_registration"
+    label        = Column(String(50), nullable=False)                # "수강신청"
+    handler_type = Column(String(30), nullable=False)                # rag / campus / graduation / scholarship / general
+    sentences    = Column(JSON, nullable=False, server_default="[]") # 분류 프로토타입 문장 목록
+    description  = Column(String(200), nullable=True)
+    is_system    = Column(Boolean, default=False, nullable=False, server_default="false")  # True면 삭제 불가
+    is_active    = Column(Boolean, default=True, nullable=False, server_default="true")
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at   = Column(DateTime(timezone=True), onupdate=func.now())
+
+# ==========================================
+# 19. 행정부서 테이블 (office)
+# ==========================================
+class Office(Base):
+    __tablename__ = "office"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    name       = Column(String(100), unique=True, nullable=False)
+    phone      = Column(String(30), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+# ==========================================
+# 20. 건물-행정부서 연결 테이블 (building_contact)
+# ==========================================
+class BuildingContact(Base):
+    __tablename__ = "building_contact"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    building_id = Column(Integer, ForeignKey("building.id"), nullable=False)
+    office_id   = Column(Integer, ForeignKey("office.id"),   nullable=False)
+
+# ==========================================
+# 21. RAG 검색 로그 (retrieval_log)
 # ==========================================
 class RetrievalLog(Base):
     __tablename__ = "retrieval_log"

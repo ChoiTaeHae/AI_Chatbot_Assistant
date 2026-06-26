@@ -4,6 +4,9 @@ LangGraph 기반 학교 AI 에이전트
 분류 흐름:
   pre_check → embedding_classify → (신뢰도 낮으면) llm_classify
                                   → 핸들러 노드 → END
+
+라우팅 키: handler_type 문자열 (DB Topic.handler_type)
+  "campus" / "graduation" / "scholarship" / "rag" / "general"
 """
 import asyncio
 import re
@@ -14,26 +17,34 @@ from langgraph.graph import StateGraph, END
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.agent_state import AgentState
-from app.agents.intent import IntentType
-from app.agents.topic_router import topic_router
+from app.agents.topic_router import topic_router, SIMILARITY_THRESHOLD
 from app.models.DB_Table import ChatLog
 from app.services.llm_service import llm_service
 from app.prompts import GENERAL_HANDLER_PROMPT
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
-from app.services.school.rag_general import answer_rag_general_question_with_metadata, _resolve_topic
+from app.services.school.rag_general import answer_rag_general_question_with_metadata
 from app.services.school.scholarship import answer_scholarship_question
 from app.services.file_service import AVAILABLE_FILES
 
 _campus_service = CampusService()
 
-# 임베딩 유사도가 이 값 이상이면 LLM 분류 없이 임베딩 결과를 신뢰
 _HIGH_CONFIDENCE = 0.60
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
 POSITIVE_KEYWORDS = ["응", "네", "예", "ㅇㅇ", "보내줘", "보내", "좋아", "알겠어", "그래", "응응", "넹", "넵", "주세요"]
 QUESTION_KEYWORDS = ["어떻게", "언제", "뭐야", "뭔데", "왜", "어디", "?", "？", "알려", "설명"]
+
+# LLM 분류기 반환값 → handler_type 매핑
+_LLM_TO_HANDLER = {
+    "campus":      "campus",
+    "graduation":  "graduation",
+    "scholarship": "scholarship",
+    "rag_general": "rag",
+    "rag":         "rag",
+    "general":     "general",
+}
 
 
 def _is_campus_question(q: str) -> bool:
@@ -96,25 +107,33 @@ async def _pre_check(state: AgentState) -> dict:
 
 
 async def _embedding_classify(state: AgentState) -> dict:
-    """임베딩 유사도 기반 분류"""
+    """임베딩 유사도 기반 분류 — (topic_name, handler_type, score) 반환"""
     loop = asyncio.get_event_loop()
     try:
-        intent, score = await loop.run_in_executor(
+        topic_name, handler_type, score = await loop.run_in_executor(
             None, topic_router.route_with_score, state["question"]
         )
-        intent_val = intent.value if intent else None
-        print(f"[Graph] 임베딩 분류 → {intent_val} ({score:.3f})")
-        return {"intent": intent_val, "confidence": score}
+        print(f"[Graph] 임베딩 분류 → topic={topic_name} handler={handler_type} ({score:.3f})")
+        return {"intent": handler_type, "topic": topic_name, "confidence": score}
     except Exception as e:
         print(f"[Graph] 임베딩 분류 실패: {e}")
-        return {"intent": None, "confidence": 0.0}
+        return {"intent": None, "topic": None, "confidence": 0.0}
 
 
 async def _llm_classify(state: AgentState) -> dict:
     """LLM 기반 분류 (임베딩 신뢰도 낮을 때 fallback)"""
-    intent = await llm_service.classify_intent(state["question"])
-    print(f"[Graph] LLM 분류 → {intent}")
-    return {"intent": intent}
+    raw = await llm_service.classify_intent(state["question"])
+    handler_type = _LLM_TO_HANDLER.get(raw, "general")
+    print(f"[Graph] LLM 분류 → {raw} → handler={handler_type}")
+    return {"intent": handler_type}
+
+
+async def _keyword_classify(state: AgentState) -> dict:
+    """건물 코드 정규식 기반 campus 분류 (0ms)"""
+    if _is_campus_question(state["question"]):
+        print("[Graph] 키워드 분류 → campus")
+        return {"intent": "campus"}
+    return {"intent": None}
 
 
 async def _handle_campus(state: AgentState) -> dict:
@@ -148,7 +167,7 @@ async def _handle_scholarship(state: AgentState) -> dict:
         state["question"],
         student_id=state["student_id"],
         db=state["db"],
-        pending_context=state.get("pending_context"),  # 멀티턴 컨텍스트 전달
+        pending_context=state.get("pending_context"),
     )
     return {
         "answer": answer,
@@ -160,9 +179,12 @@ async def _handle_scholarship(state: AgentState) -> dict:
 
 
 async def _handle_rag_general(state: AgentState) -> dict:
-    topic = _resolve_topic(state["question"])
+    """RAG 검색 핸들러 — state["topic"]을 Qdrant 필터로 사용"""
+    topic = state.get("topic") or "rag_general"
     await _log(state["db"], state["student_id"], topic)
-    answer, metadata = await answer_rag_general_question_with_metadata(state["question"])
+    answer, metadata = await answer_rag_general_question_with_metadata(
+        state["question"], topic=topic
+    )
     return _with_file_offer({
         "answer": answer,
         "source": metadata.get("source"),
@@ -185,20 +207,23 @@ async def _handle_general(state: AgentState) -> dict:
 
 # ── 라우팅 함수들 ──────────────────────────────────────────────────
 
+_HANDLER_MAP = {
+    "done":        END,
+    "classify":    "keyword_classify",
+    "campus":      "handle_campus",
+    "graduation":  "handle_graduation",
+    "scholarship": "handle_scholarship",
+    "rag":         "handle_rag_general",
+    "general":     "handle_general",
+}
+
+
 def _route_pre_check(state: AgentState) -> str:
     if state.get("done"):
         return "done"
-    if state.get("intent"):  # pending_context에서 intent가 세팅된 경우 분류 생략
+    if state.get("intent"):
         return state["intent"]
     return "classify"
-
-
-async def _keyword_classify(state: AgentState) -> dict:
-    """건물 코드 정규식 기반 campus 분류 (0ms)"""
-    if _is_campus_question(state["question"]):
-        print("[Graph] 키워드 분류 → campus")
-        return {"intent": "campus"}
-    return {"intent": None}
 
 
 def _route_keyword(state: AgentState) -> str:
@@ -207,26 +232,14 @@ def _route_keyword(state: AgentState) -> str:
 
 def _route_embedding(state: AgentState) -> str:
     score = state.get("confidence", 0.0)
-    intent = state.get("intent")
-
-    if score >= _HIGH_CONFIDENCE and intent:
-        return _resolve_rag_subtype(intent, state["question"])
+    handler = state.get("intent")
+    if score >= _HIGH_CONFIDENCE and handler:
+        return handler
     return "llm"
 
 
 def _route_llm(state: AgentState) -> str:
-    intent = state.get("intent") or "general"
-    return _resolve_rag_subtype(intent, state["question"])
-
-
-def _resolve_rag_subtype(intent: str, question: str) -> str:
-    """rag_general이면 장학금 여부만 확인 (나머지 서브토픽은 rag_general 핸들러 내부에서 처리)"""
-    if intent == "rag_general":
-        topic = _resolve_topic(question)
-        if topic == "scholarship":
-            return "scholarship"
-        return "rag_general"
-    return intent
+    return state.get("intent") or "general"
 
 
 # ── 그래프 빌드 ────────────────────────────────────────────────────
@@ -234,47 +247,37 @@ def _resolve_rag_subtype(intent: str, question: str) -> str:
 def _build_graph():
     g = StateGraph(AgentState)
 
-    g.add_node("pre_check", _pre_check)
-    g.add_node("keyword_classify", _keyword_classify)
+    g.add_node("pre_check",         _pre_check)
+    g.add_node("keyword_classify",  _keyword_classify)
     g.add_node("embedding_classify", _embedding_classify)
-    g.add_node("llm_classify", _llm_classify)
-    g.add_node("handle_campus", _handle_campus)
+    g.add_node("llm_classify",      _llm_classify)
+    g.add_node("handle_campus",     _handle_campus)
     g.add_node("handle_graduation", _handle_graduation)
-    g.add_node("handle_scholarship", _handle_scholarship)
-    g.add_node("handle_rag_general", _handle_rag_general)
-    g.add_node("handle_general", _handle_general)
+    g.add_node("handle_scholarship",_handle_scholarship)
+    g.add_node("handle_rag_general",_handle_rag_general)
+    g.add_node("handle_general",    _handle_general)
 
     g.set_entry_point("pre_check")
-
-    _HANDLER_MAP = {
-        "done": END,
-        "classify": "keyword_classify",
-        "campus": "handle_campus",
-        "graduation": "handle_graduation",
-        "scholarship": "handle_scholarship",
-        "rag_general": "handle_rag_general",
-        "general": "handle_general",
-    }
 
     g.add_conditional_edges("pre_check", _route_pre_check, _HANDLER_MAP)
     g.add_conditional_edges("keyword_classify", _route_keyword, {
         "campus": "handle_campus",
-        "embed": "embedding_classify",
+        "embed":  "embedding_classify",
     })
     g.add_conditional_edges("embedding_classify", _route_embedding, {
-        "campus": "handle_campus",
-        "graduation": "handle_graduation",
+        "campus":      "handle_campus",
+        "graduation":  "handle_graduation",
         "scholarship": "handle_scholarship",
-        "rag_general": "handle_rag_general",
-        "general": "handle_general",
-        "llm": "llm_classify",
+        "rag":         "handle_rag_general",
+        "general":     "handle_general",
+        "llm":         "llm_classify",
     })
     g.add_conditional_edges("llm_classify", _route_llm, {
-        "campus": "handle_campus",
-        "graduation": "handle_graduation",
+        "campus":      "handle_campus",
+        "graduation":  "handle_graduation",
         "scholarship": "handle_scholarship",
-        "rag_general": "handle_rag_general",
-        "general": "handle_general",
+        "rag":         "handle_rag_general",
+        "general":     "handle_general",
     })
 
     for handler in [
