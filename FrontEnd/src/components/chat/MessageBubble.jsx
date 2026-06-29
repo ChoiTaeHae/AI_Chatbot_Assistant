@@ -271,7 +271,11 @@ export default function MessageBubble({ message }) {
           style={{ padding: '16px 20px', fontSize: '15px', lineHeight: '1.7' }}
         >
           <div className="whitespace-pre-wrap break-words">
-            {message.content}
+            {message.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+              /^https?:\/\//.test(part) ? (
+                <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-[#005956] underline underline-offset-2 hover:text-[#004a47] transition">{part}</a>
+              ) : part
+            )}
           </div>
 
           {/* 캠퍼스 지도 카드 */}

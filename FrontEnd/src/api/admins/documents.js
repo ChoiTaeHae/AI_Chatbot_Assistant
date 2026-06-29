@@ -2,12 +2,15 @@ import { authFetch } from '../utils'
 
 const BASE = 'http://localhost:8000/api/admins'
 
-export async function uploadDocument(file, source = null, topic = null, docDate = null) {
+export async function uploadDocument(file, source = null, topic = null, docDate = null, url = null, contactName = null, contactPhone = null) {
   const formData = new FormData()
   formData.append('file', file)
   if (source) formData.append('source', source)
   if (topic) formData.append('topic', topic)
   if (docDate) formData.append('doc_date', docDate)
+  if (url) formData.append('url', url)
+  if (contactName) formData.append('contact_name', contactName)
+  if (contactPhone) formData.append('contact_phone', contactPhone)
 
   const res = await authFetch(`${BASE}/documents/upload`, {
     method: 'POST',
@@ -48,12 +51,14 @@ export async function fetchDocuments() {
   return res.json()
 }
 
-export async function crawlDocument(url, source = null, topic = null, docDate = null) {
+export async function crawlDocument(url, source = null, topic = null, docDate = null, contactName = null, contactPhone = null) {
   const formData = new FormData()
   formData.append('url', url)
   if (source) formData.append('source', source)
   if (topic) formData.append('topic', topic)
   if (docDate) formData.append('doc_date', docDate)
+  if (contactName) formData.append('contact_name', contactName)
+  if (contactPhone) formData.append('contact_phone', contactPhone)
 
   const res = await authFetch(`${BASE}/documents/crawl`, {
     method: 'POST',
