@@ -58,16 +58,16 @@ def smart_split(             # 실제 진입점
 ) -> list[dict]:
     
     if "---ITEM---" in text:
-        return split_by_separator(text, min_length=min_length)
-     
-    articles = ARTICLE_DETECT_PATTERN.findall(text)    # 정규식에 맞는 것 전부 찾음
-    total_lines = max(len(text.splitlines()), 1)       # 줄 단위 분리
-    
-    # 조문 비율 체크
-    if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
-        raw_chunks = split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
+        raw_chunks = split_by_separator(text, min_length=min_length)
     else:
-        raw_chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
+        articles = ARTICLE_DETECT_PATTERN.findall(text)    # 정규식에 맞는 것 전부 찾음
+        total_lines = max(len(text.splitlines()), 1)       # 줄 단위 분리
+
+        # 조문 비율 체크
+        if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
+            raw_chunks = split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
+        else:
+            raw_chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
 
     # 최종 반환 시 make_chunk를 통과시키며 순차적으로 chunk_id 부여
     return [
