@@ -64,7 +64,7 @@ class RagService:
     # 이미지 확장자 목록 — FastLoader/Docling 은 이미지 미지원 → OCR 직행
     _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
 
-    def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None, doc_date: str | None = None) -> int:
+    def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None, doc_date: str | None = None, url: str | None = None, contact_name: str | None = None, contact_phone: str | None = None) -> int:
         path = Path(file_path)
         source_name = source or path.stem
         suffix = path.suffix.lower()
@@ -132,6 +132,9 @@ class RagService:
                 "file_name": path.name,
                 "topic": topic,
                 "doc_date": doc_date,
+                "url": url,
+                "contact_name": contact_name,
+                "contact_phone": contact_phone,
             },
             topic=topic,
             chunk_metas=[
@@ -186,6 +189,9 @@ class RagService:
                 "source": None,
                 "source_file": None,
                 "topic": topic,
+                "url": None,
+                "contact_name": None,
+                "contact_phone": None,
             }
 
         metadata = results[0].metadata
@@ -193,6 +199,9 @@ class RagService:
             "source": metadata.get("source"),
             "source_file": metadata.get("file_name"),
             "topic": metadata.get("topic") or topic,
+            "url": metadata.get("url"),
+            "contact_name": metadata.get("contact_name"),
+            "contact_phone": metadata.get("contact_phone"),
         }
 
 

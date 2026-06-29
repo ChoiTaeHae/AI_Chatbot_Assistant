@@ -58,6 +58,9 @@ async def upload_document(
     source: str = Form(None),
     topic: str = Form(None),
     doc_date: str = Form(None),
+    url: str = Form(None),
+    contact_name: str = Form(None),
+    contact_phone: str = Form(None),
 ):
     try:
         content     = await file.read()
@@ -68,6 +71,9 @@ async def upload_document(
             source=source_name,
             topic=topic or None,
             doc_date=doc_date or None,
+            url=url or None,
+            contact_name=contact_name or None,
+            contact_phone=contact_phone or None,
         )
         return {
             "success":  True,
@@ -87,6 +93,8 @@ async def crawl_document(
     source: str = Form(None),
     topic: str = Form(None),
     doc_date: str = Form(None),
+    contact_name: str = Form(None),
+    contact_phone: str = Form(None),
 ):
     try:
         source_name = source or url
@@ -95,6 +103,8 @@ async def crawl_document(
             source=source_name,
             topic=topic or None,
             doc_date=doc_date or None,
+            contact_name=contact_name or None,
+            contact_phone=contact_phone or None,
         )
         return {
             "success": True,

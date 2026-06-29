@@ -13,6 +13,9 @@ def ingest_file(
     service: RagService | None = None,
     topic: str | None = None,
     doc_date: str | None = None,
+    url: str | None = None,
+    contact_name: str | None = None,
+    contact_phone: str | None = None,
 ) -> int:
     path = Path(file_path)
 
@@ -28,6 +31,9 @@ def ingest_file(
         source=source_name,
         topic=topic,
         doc_date=doc_date,
+        url=url,
+        contact_name=contact_name,
+        contact_phone=contact_phone,
     )
 
     if chunk_count == 0:
