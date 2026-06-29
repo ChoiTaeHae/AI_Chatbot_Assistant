@@ -467,19 +467,38 @@ class AdminService:
         contact_phone: str | None = None,
     ) -> None:
         """URL 크롤링 및 RAG 인제스트 — ThreadPool 안에서 호출됨"""
-        from app.imsi.crawler import crawl_notice_page
+        from app.imsi.crawler import fetch_page_html, parse_notice_page
         from app.rag.Chunking import smart_split
+        import re as _re
         try:
             self._upload_jobs[job_id]["status"] = "processing"
-            page = crawl_notice_page(url)
+
+            # HTML 한 번만 fetch 후 재사용
+            html = fetch_page_html(url)
+            page = parse_notice_page(html, url)
             document_text = page.to_document_text()
-            raw_chunks = smart_split(document_text)
+
+            # <img> 태그가 있으면 OCR로 이미지 텍스트 추가
+            if "<img" in html:
+                try:
+                    ocr_full = rag_service.ocr_processor.process_html(html, base_url=url)
+                    # process_html 결과에서 [이미지 텍스트: ...] 부분만 추출
+                    img_texts = _re.findall(r'\[이미지 텍스트: (.+?)\]', ocr_full)
+                    if img_texts:
+                        document_text += "\n\n[이미지 OCR]\n" + "\n".join(img_texts)
+                        print(f"[AdminService] 이미지 OCR {len(img_texts)}건 추가")
+                except Exception as ocr_err:
+                    print(f"[AdminService] 이미지 OCR 실패 (무시): {ocr_err}")
+            raw_chunks = smart_split(document_text, embed_fn=rag_service.embedding.embed_texts)
             if not raw_chunks:
-                self._upload_jobs[job_id] = {
-                    "status": "error",
-                    "message": "크롤링한 페이지에서 텍스트를 추출할 수 없습니다.",
-                }
-                return
+                # 텍스트·OCR 모두 실패 시 제목+URL로 최소 청크 생성
+                fallback = f"제목: {page.title}\nURL: {url}"
+                if page.author:
+                    fallback += f"\n작성자: {page.author}"
+                if page.published_at:
+                    fallback += f"\n작성일: {page.published_at}"
+                raw_chunks = [{"chapter": None, "article": None, "path": "", "text": fallback, "embedding_text": fallback}]
+                print(f"[AdminService] 텍스트 추출 실패 → 메타데이터 fallback 청크 사용")
             texts = [c["text"] for c in raw_chunks]
             embedding_texts = [c["embedding_text"] for c in raw_chunks]
             chunk_metas = [{"chapter": c["chapter"], "article": c["article"], "path": c["path"]} for c in raw_chunks]
