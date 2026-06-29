@@ -11,7 +11,8 @@ class BgeReranker:
 
             self._model = FlagReranker(
                 "BAAI/bge-reranker-v2-m3",
-                use_fp16=True,
+                use_fp16=False,
+                device="cpu",
             )
 
             print("[Reranker] 로딩 완료")

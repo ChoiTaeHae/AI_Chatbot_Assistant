@@ -23,6 +23,11 @@ CHAPTER_PATTERN = re.compile(
 CLAUSE_SPLIT_PATTERN = re.compile(r"\n(?=[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]|\d+\.\s)")
 #endregion
 
+def _split_sentences(text: str) -> list[str]:
+    """줄 단위 문장 분리 — 한국어 공지문 최적화"""
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
 def make_chunk(             # 최종 Chunk 생성기
     chunk_id: int,          # Chunk 번호
     chapter: str | None,    # 장 정보
@@ -55,6 +60,7 @@ def smart_split(             # 실제 진입점
     chunk_size: int = 1200,
     overlap: int = 150,
     min_length: int = 50,
+    embed_fn=None,           # 시맨틱 청킹용: list[str] → list[list[float]]
 ) -> list[dict]:
     
     if "---ITEM---" in text:
@@ -66,6 +72,8 @@ def smart_split(             # 실제 진입점
         # 조문 비율 체크
         if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
             raw_chunks = split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
+        elif embed_fn is not None:
+            raw_chunks = semantic_split(text, embed_fn, chunk_size=500, min_length=min_length)  # 시맨틱 청킹
         else:
             raw_chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
 
@@ -159,6 +167,76 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
                     "text": f"[전조 맥락] {tail}\n\n{chunks[i]['text']}"
                 }
 
+    return chunks
+
+
+def semantic_split(
+    text: str,
+    embed_fn,
+    chunk_size: int = 500,
+    min_length: int = 50,
+    breakpoint_percentile: int = 70,
+) -> list[dict]:
+    """임베딩 유사도 기반 시맨틱 청킹.
+
+    인접 문장 간 코사인 거리가 상위 (100-percentile)%에 해당하면 청크 경계로 판단.
+    chunk_size는 최대 크기 가드 — 시맨틱 경계가 없어도 초과 시 강제 분할.
+    """
+    import numpy as np
+
+    sentences = _split_sentences(text)
+    if not sentences:
+        return []
+    if len(sentences) <= 2:
+        combined = "\n".join(sentences)
+        return [{"chapter": None, "article": None, "text": combined}] if len(combined) >= min_length else []
+
+    # 슬라이딩 윈도우(크기 3)로 전후 문맥 포함 임베딩 생성
+    windowed = []
+    for i in range(len(sentences)):
+        start = max(0, i - 1)
+        end = min(len(sentences), i + 2)
+        windowed.append(" ".join(sentences[start:end]))
+
+    print(f"[SemanticChunker] 문장 {len(sentences)}개 임베딩 시작")
+    embeddings = embed_fn(windowed)
+    print(f"[SemanticChunker] 임베딩 완료")
+
+    # 인접 임베딩 간 코사인 거리 (거리 = 1 - 유사도)
+    distances = []
+    for i in range(len(embeddings) - 1):
+        a = np.array(embeddings[i], dtype=np.float32)
+        b = np.array(embeddings[i + 1], dtype=np.float32)
+        sim = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+        distances.append(1.0 - sim)
+
+    # 거리 분포에서 percentile 임계값 계산
+    threshold = float(np.percentile(distances, breakpoint_percentile))
+    print(f"[SemanticChunker] 청크 경계 임계값: {threshold:.4f} (percentile={breakpoint_percentile})")
+
+    # 청크 경계 결정: 거리 > 임계값 이거나 최대 크기 초과 시 분할
+    chunks = []
+    current = [sentences[0]]
+    current_len = len(sentences[0])
+
+    for i, dist in enumerate(distances):
+        nxt = sentences[i + 1]
+        if dist > threshold or current_len + len(nxt) + 1 > chunk_size:
+            text_chunk = "\n".join(current)
+            if len(text_chunk) >= min_length:
+                chunks.append({"chapter": None, "article": None, "text": text_chunk})
+            current = [nxt]
+            current_len = len(nxt)
+        else:
+            current.append(nxt)
+            current_len += len(nxt) + 1
+
+    if current:
+        text_chunk = "\n".join(current)
+        if len(text_chunk) >= min_length:
+            chunks.append({"chapter": None, "article": None, "text": text_chunk})
+
+    print(f"[SemanticChunker] {len(sentences)}문장 → {len(chunks)}청크")
     return chunks
 
 

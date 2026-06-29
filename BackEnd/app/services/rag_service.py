@@ -107,7 +107,7 @@ class RagService:
         # 1. 텍스트 분할 (메타데이터 포함)
         # smart_split은 list[dict] 반환
         # {"chunk_id", "chapter", "article", "path", "text", "embedding_text"}
-        chunk_dicts = smart_split(text)
+        chunk_dicts = smart_split(text, embed_fn=self.embedding.embed_texts)
         if not chunk_dicts:
             print("[RAG] chunk 생성 실패")
             return 0
