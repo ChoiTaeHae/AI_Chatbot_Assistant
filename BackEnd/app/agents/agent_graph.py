@@ -70,6 +70,25 @@ def _with_file_offer(updates: dict, topic: str) -> dict:
     }
 
 
+def _append_contact_info(answer: str, metadata: dict) -> str:
+    """답변 뒤에 출처 URL, 담당 부서, 전화번호를 붙인다."""
+    parts = []
+    url = metadata.get("url")
+    contact_name = metadata.get("contact_name")
+    contact_phone = metadata.get("contact_phone")
+    if url:
+        parts.append(f"출처: {url}")
+    if contact_name and contact_phone:
+        parts.append(f"문의: {contact_name} {contact_phone}")
+    elif contact_name:
+        parts.append(f"문의: {contact_name}")
+    elif contact_phone:
+        parts.append(f"문의: {contact_phone}")
+    if parts:
+        return answer + "\n\n" + "\n".join(parts)
+    return answer
+
+
 async def _log(db: AsyncSession, student_id: int | None, intent: str) -> None:
     try:
         db.add(ChatLog(student_id=student_id, intent=intent))
@@ -153,6 +172,7 @@ async def _handle_graduation(state: AgentState) -> dict:
     answer, metadata = await graduation_service.answer_graduation_with_metadata(
         question=state["question"], student_id=state["student_id"], db=state["db"]
     )
+    answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
         "answer": answer,
         "source": metadata.get("source"),
@@ -169,6 +189,7 @@ async def _handle_scholarship(state: AgentState) -> dict:
         db=state["db"],
         pending_context=state.get("pending_context"),
     )
+    answer = _append_contact_info(answer, metadata)
     return {
         "answer": answer,
         "next_pending_context": next_ctx,
@@ -185,6 +206,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
     answer, metadata = await answer_rag_general_question_with_metadata(
         state["question"], topic=topic
     )
+    answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
         "answer": answer,
         "source": metadata.get("source"),

@@ -93,6 +93,11 @@ export default function AdminPage() {
   const [crawlTopic, setCrawlTopic] = useState('')
   const [docDate, setDocDate] = useState('')
   const [crawlDocDate, setCrawlDocDate] = useState('')
+  const [crawlContactName, setCrawlContactName] = useState('')
+  const [crawlContactPhone, setCrawlContactPhone] = useState('')
+  const [docUrl, setDocUrl] = useState('')
+  const [docContactName, setDocContactName] = useState('')
+  const [docContactPhone, setDocContactPhone] = useState('')
   const [crawling, setCrawling] = useState(false)
   const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
   const [topicFilter, setTopicFilter] = useState('all')
@@ -337,7 +342,7 @@ export default function AdminPage() {
     setUploadMsg({ type: 'info', text: '파일 업로드 중...' })
     try {
       const source = docTitle || selectedFile.name.replace(/\.[^.]+$/, '')
-      const result = await uploadDocument(selectedFile, source, topic || null, docDate || null)
+      const result = await uploadDocument(selectedFile, source, topic || null, docDate || null, docUrl || null, docContactName || null, docContactPhone || null)
 
       setUploadMsg({ type: 'info', text: 'RAG 처리 중입니다. 잠시 기다려주세요...' })
 
@@ -353,6 +358,9 @@ export default function AdminPage() {
         setSelectedFile(null)
         setDocTitle('')
         setTopic('')
+        setDocUrl('')
+        setDocContactName('')
+        setDocContactPhone('')
         await loadDocuments()
       } else {
         setUploadMsg({ type: 'error', text: final.message || 'RAG 처리 중 오류가 발생했습니다.' })
@@ -373,7 +381,7 @@ export default function AdminPage() {
     setCrawlMsg({ type: 'info', text: '크롤링 요청 중...' })
     try {
       const source = crawlSource || crawlUrl
-      const result = await crawlDocument(crawlUrl, source, crawlTopic || null, crawlDocDate || null)
+      const result = await crawlDocument(crawlUrl, source, crawlTopic || null, crawlDocDate || null, crawlContactName || null, crawlContactPhone || null)
 
       setCrawlMsg({ type: 'info', text: '크롤링 및 RAG 처리 중입니다. 잠시 기다려주세요...' })
 
@@ -388,6 +396,8 @@ export default function AdminPage() {
         setCrawlUrl('')
         setCrawlSource('')
         setCrawlTopic('')
+        setCrawlContactName('')
+        setCrawlContactPhone('')
         await loadDocuments()
       } else {
         setCrawlMsg({ type: 'error', text: final.message || 'RAG 처리 중 오류가 발생했습니다.' })
@@ -868,7 +878,8 @@ export default function AdminPage() {
               {/* 문서 업로드 폼 */}
               {uploadMode === 'document' && (
               <div className="flex flex-col" style={{ gap: '8px' }}>
-              <div className="flex items-end flex-nowrap overflow-hidden" style={{ gap: '12px' }}>
+              {/* 1단: 파일 + 문서명 + 주제 + 기준날짜 */}
+              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
 
                 {/* 파일 드롭 영역 */}
                 <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md,.hwpx" className="hidden" onChange={handleFileChange} />
@@ -895,7 +906,7 @@ export default function AdminPage() {
                 </div>
 
                 {/* 문서명 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 6 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
                   <label className="text-xs font-bold text-slate-500">문서명 (source)</label>
                   <input
                     type="text"
@@ -925,11 +936,51 @@ export default function AdminPage() {
 
                 {/* 기준 날짜 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜 (버전 관리)</label>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜</label>
                   <input
                     type="date"
                     value={docDate}
                     onChange={(e) => setDocDate(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+              </div>
+
+              {/* 2단: 출처URL + 담당부서 + 전화번호 + 버튼 */}
+              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
+
+                {/* 출처 URL */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
+                  <label className="text-xs font-bold text-slate-500">출처 URL</label>
+                  <input
+                    value={docUrl}
+                    onChange={(e) => setDocUrl(e.target.value)}
+                    placeholder="https://wsu.ac.kr/..."
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+
+                {/* 담당 부서 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500">담당 부서</label>
+                  <input
+                    value={docContactName}
+                    onChange={(e) => setDocContactName(e.target.value)}
+                    placeholder="예: 학사팀"
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+
+                {/* 전화번호 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500">전화번호</label>
+                  <input
+                    value={docContactPhone}
+                    onChange={(e) => setDocContactPhone(e.target.value)}
+                    placeholder="예: 042-630-9114"
                     className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
@@ -987,7 +1038,8 @@ export default function AdminPage() {
               {/* URL 크롤링 폼 */}
               {uploadMode === 'crawl' && (
               <div className="flex flex-col" style={{ gap: '8px' }}>
-              <div className="flex items-end flex-nowrap overflow-hidden" style={{ gap: '12px' }}>
+              {/* 1단: URL + 문서명 + 주제 + 기준날짜 */}
+              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
 
                 {/* URL 입력 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
@@ -1033,11 +1085,39 @@ export default function AdminPage() {
 
                 {/* 기준 날짜 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 2 }}>
-                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜 (버전 관리)</label>
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜</label>
                   <input
                     type="date"
                     value={crawlDocDate}
                     onChange={(e) => setCrawlDocDate(e.target.value)}
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+              </div>
+
+              {/* 2단: 담당부서 + 전화번호 + 버튼 */}
+              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
+
+                {/* 담당 부서 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500">담당 부서</label>
+                  <input
+                    value={crawlContactName}
+                    onChange={(e) => setCrawlContactName(e.target.value)}
+                    placeholder="예: 학사팀"
+                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    style={{ borderRadius: '8px', padding: '8px 10px' }}
+                  />
+                </div>
+
+                {/* 전화번호 */}
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                  <label className="text-xs font-bold text-slate-500">전화번호</label>
+                  <input
+                    value={crawlContactPhone}
+                    onChange={(e) => setCrawlContactPhone(e.target.value)}
+                    placeholder="예: 042-630-9114"
                     className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />

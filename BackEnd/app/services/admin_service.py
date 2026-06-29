@@ -366,6 +366,9 @@ class AdminService:
         filename: str,
         topic: str | None,
         doc_date: str | None = None,
+        url: str | None = None,
+        contact_name: str | None = None,
+        contact_phone: str | None = None,
     ) -> None:
         """실제 인제스트 실행 — ThreadPool 안에서 호출됨"""
         try:
@@ -376,6 +379,9 @@ class AdminService:
                 service=rag_service,
                 topic=topic,
                 doc_date=doc_date,
+                url=url,
+                contact_name=contact_name,
+                contact_phone=contact_phone,
             )
             if chunk_count == 0:
                 self._upload_jobs[job_id] = {
@@ -404,6 +410,9 @@ class AdminService:
         source: str,
         topic: str | None,
         doc_date: str | None = None,
+        url: str | None = None,
+        contact_name: str | None = None,
+        contact_phone: str | None = None,
     ) -> str:
         """
         임시 파일 저장 → ThreadPool 인제스트 등록 → job_id 반환.
@@ -429,7 +438,7 @@ class AdminService:
             "topic": topic,
             "file_name": filename,
         }
-        _ingest_executor.submit(self._run_ingest, job_id, tmp_path, source, filename, topic, doc_date)
+        _ingest_executor.submit(self._run_ingest, job_id, tmp_path, source, filename, topic, doc_date, url, contact_name, contact_phone)
         return job_id
 
     def get_job_status(self, job_id: str) -> dict:
@@ -454,6 +463,8 @@ class AdminService:
         source: str,
         topic: str | None,
         doc_date: str | None = None,
+        contact_name: str | None = None,
+        contact_phone: str | None = None,
     ) -> None:
         """URL 크롤링 및 RAG 인제스트 — ThreadPool 안에서 호출됨"""
         from app.imsi.crawler import crawl_notice_page
@@ -476,6 +487,8 @@ class AdminService:
             meta = page.metadata()
             if doc_date:
                 meta["doc_date"] = doc_date
+            meta["contact_name"] = contact_name
+            meta["contact_phone"] = contact_phone
             rag_service.vector_store.upsert_chunks(
                 chunks=texts,
                 embeddings=embeddings,
@@ -503,6 +516,8 @@ class AdminService:
         source: str,
         topic: str | None,
         doc_date: str | None = None,
+        contact_name: str | None = None,
+        contact_phone: str | None = None,
     ) -> str:
         """URL 크롤링 → ThreadPool 등록 → job_id 반환"""
         if not url.startswith(("http://", "https://")):
@@ -516,7 +531,7 @@ class AdminService:
             "topic": topic,
             "file_name": url,
         }
-        _ingest_executor.submit(self._run_crawl, job_id, url, source, topic, doc_date)
+        _ingest_executor.submit(self._run_crawl, job_id, url, source, topic, doc_date, contact_name, contact_phone)
         return job_id
 
     def delete_document(self, source: str) -> DocumentDeleteResponse:
