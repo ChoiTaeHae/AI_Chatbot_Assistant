@@ -64,7 +64,7 @@ class RagService:
     # 이미지 확장자 목록 — FastLoader/Docling 은 이미지 미지원 → OCR 직행
     _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
 
-    def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None, doc_date: str | None = None, url: str | None = None, contact_name: str | None = None, contact_phone: str | None = None) -> int:
+    def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None, doc_date: str | None = None, url: str | None = None, contact_name: str | None = None, contact_phone: str | None = None, original_filename: str | None = None) -> int:
         path = Path(file_path)
         source_name = source or path.stem
         suffix = path.suffix.lower()
@@ -129,7 +129,7 @@ class RagService:
             embeddings=embeddings,
             source=source_name,
             metadata={
-                "file_name": path.name,
+                "file_name": original_filename or path.name,
                 "topic": topic,
                 "doc_date": doc_date,
                 "url": url,

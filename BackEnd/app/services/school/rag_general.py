@@ -2,7 +2,7 @@ import asyncio
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
-from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, RAG_SCHOLARSHIP_PROMPT
 
 
 def _keyword_topic(question: str) -> str | None:
@@ -12,6 +12,8 @@ def _keyword_topic(question: str) -> str | None:
         return "leave"
     if "기숙사" in q or "생활관" in q:
         return "dormitory"
+    if "장학금" in q:
+        return "scholarship"
     if "수강신청" in q:
         return "course_registration"
     if "특별학점" in q:
@@ -113,6 +115,9 @@ async def answer_rag_general_question_with_metadata(
     elif is_club:
         prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=question)
         answer = await llm_service.answer(prompt, max_tokens=1024)
+    elif effective_topic == "scholarship":
+        prompt = RAG_SCHOLARSHIP_PROMPT.format(context=context, question=question)
+        answer = await llm_service.answer(prompt)
     else:
         prompt = RAG_GENERAL_PROMPT.format(context=context, question=question)
         answer = await llm_service.answer(prompt)
