@@ -70,6 +70,18 @@ def _with_file_offer(updates: dict, topic: str) -> dict:
     }
 
 
+def _build_prev_prefix(state: AgentState) -> str:
+    """이전 대화가 있으면 프롬프트 앞에 붙일 맥락 문자열 생성."""
+    prev = state.get("prev_context")
+    if not prev:
+        return ""
+    pq = prev.get("prev_question", "")
+    pa = prev.get("prev_answer", "")
+    if not pq and not pa:
+        return ""
+    return f"[이전 질문] {pq}\n[이전 답변] {pa}\n\n"
+
+
 def _append_contact_info(answer: str, metadata: dict) -> str:
     """답변 뒤에 출처 URL, 담당 부서, 전화번호를 붙인다."""
     parts = []
@@ -133,6 +145,14 @@ async def _embedding_classify(state: AgentState) -> dict:
             None, topic_router.route_with_score, state["question"]
         )
         print(f"[Graph] 임베딩 분류 → topic={topic_name} handler={handler_type} ({score:.3f})")
+
+        # 신뢰도 낮으면 이전 대화의 topic으로 fallback
+        prev = state.get("prev_context")
+        if score < _HIGH_CONFIDENCE and prev and prev.get("prev_topic"):
+            prev_topic = prev["prev_topic"]
+            print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용")
+            return {"intent": "rag", "topic": prev_topic, "confidence": score}
+
         return {"intent": handler_type, "topic": topic_name, "confidence": score}
     except Exception as e:
         print(f"[Graph] 임베딩 분류 실패: {e}")
@@ -169,8 +189,10 @@ async def _handle_campus(state: AgentState) -> dict:
 
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
     answer, metadata = await graduation_service.answer_graduation_with_metadata(
-        question=state["question"], student_id=state["student_id"], db=state["db"]
+        question=enriched_question, student_id=state["student_id"], db=state["db"]
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
@@ -183,8 +205,10 @@ async def _handle_graduation(state: AgentState) -> dict:
 
 async def _handle_scholarship(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "scholarship")
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
     answer, next_ctx, metadata = await answer_scholarship_question(
-        state["question"],
+        enriched_question,
         student_id=state["student_id"],
         db=state["db"],
         pending_context=state.get("pending_context"),
@@ -203,8 +227,10 @@ async def _handle_rag_general(state: AgentState) -> dict:
     """RAG 검색 핸들러 — state["topic"]을 Qdrant 필터로 사용"""
     topic = state.get("topic") or "rag_general"
     await _log(state["db"], state["student_id"], topic)
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
     answer, metadata = await answer_rag_general_question_with_metadata(
-        state["question"], topic=topic
+        enriched_question, topic=topic
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
@@ -217,7 +243,9 @@ async def _handle_rag_general(state: AgentState) -> dict:
 
 async def _handle_general(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "general")
-    prompt = GENERAL_HANDLER_PROMPT.format(question=state["question"])
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
+    prompt = GENERAL_HANDLER_PROMPT.format(question=enriched_question)
     answer = await llm_service.answer(prompt)
     return {
         "answer": answer,
@@ -337,6 +365,7 @@ class AgentGraph:
         db: AsyncSession,
         pending_file: dict | None = None,
         pending_context: dict | None = None,
+        prev_context: dict | None = None,
     ) -> AgentResult:
         initial: AgentState = {
             "question": question,
@@ -344,6 +373,7 @@ class AgentGraph:
             "db": db,
             "pending_file": pending_file,
             "pending_context": pending_context,
+            "prev_context": prev_context,
             "intent": None,
             "confidence": 0.0,
             "answer": None,

@@ -41,6 +41,25 @@ class ChatService:
         db.add(user_msg)
         await db.flush()
 
+        # 이전 대화 1세트 조회 (맥락 유지용)
+        MAX_PREV_LENGTH = 200
+        prev_context = None
+        prev_msgs = (await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session.id, ChatMessage.id != user_msg.id)
+            .order_by(ChatMessage.id.desc())
+            .limit(2)
+        )).scalars().all()
+        if len(prev_msgs) >= 2:
+            prev_answer = next((m for m in prev_msgs if m.role == "assistant"), None)
+            prev_question = next((m for m in prev_msgs if m.role == "user"), None)
+            if prev_question and prev_answer:
+                prev_context = {
+                    "prev_question": prev_question.content[:MAX_PREV_LENGTH],
+                    "prev_answer": prev_answer.content[:MAX_PREV_LENGTH],
+                    "prev_topic": prev_answer.topic,
+                }
+
         # 순환 import 방지를 위해 런타임에 가져온다.
         from app.agents.agent_graph import agent_graph
 
@@ -50,6 +69,7 @@ class ChatService:
             db=db,
             pending_file=request.pending_file,
             pending_context=request.pending_context,
+            prev_context=prev_context,
         )
 
         asst_msg = ChatMessage(
