@@ -167,6 +167,7 @@ function FeedbackModal({ type, onSubmit, onClose }) {
 function MessageActions({ messageId, content }) {
   const [feedback, setFeedback] = useState(null) // null | 'like' | 'dislike'
   const [modalType, setModalType] = useState(null) // null | 'like' | 'dislike'
+  const [copied, setCopied] = useState(false)
 
   function handleFeedbackClick(type) {
     if (!messageId) return
@@ -191,6 +192,8 @@ function MessageActions({ messageId, content }) {
 
   function handleCopy() {
     navigator.clipboard.writeText(content).catch(() => {})
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
@@ -205,9 +208,15 @@ function MessageActions({ messageId, content }) {
       <div className="flex items-center gap-3 text-slate-400" style={{ marginTop: '12px' }}>
         {/* 복사 */}
         <button type="button" onClick={handleCopy} className="hover:text-slate-600 transition" title="복사">
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
+          {copied ? (
+            <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          )}
         </button>
         {/* 좋아요 */}
         <button
