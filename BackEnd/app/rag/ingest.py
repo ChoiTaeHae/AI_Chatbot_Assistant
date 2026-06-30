@@ -16,6 +16,7 @@ def ingest_file(
     url: str | None = None,
     contact_name: str | None = None,
     contact_phone: str | None = None,
+    original_filename: str | None = None,
 ) -> int:
     path = Path(file_path)
 
@@ -34,7 +35,9 @@ def ingest_file(
         url=url,
         contact_name=contact_name,
         contact_phone=contact_phone,
+        original_filename=original_filename,
     )
+
 
     if chunk_count == 0:
         print("[RAG] No chunks created")

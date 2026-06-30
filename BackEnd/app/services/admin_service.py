@@ -382,6 +382,7 @@ class AdminService:
                 url=url,
                 contact_name=contact_name,
                 contact_phone=contact_phone,
+                original_filename=filename,
             )
             if chunk_count == 0:
                 self._upload_jobs[job_id] = {

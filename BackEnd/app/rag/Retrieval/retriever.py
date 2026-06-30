@@ -113,9 +113,21 @@ class Retriever:
         if not results:
             return []
 
-        # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (짧은 원본 청크 기준으로 평가)
-        raw_texts = [result.text for result in results]
-        scores = self.reranker.rerank(question, raw_texts)
+        # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가하되, 문맥 유지용 헤더 추가)
+        rerank_texts = []
+        for result in results:
+            src = result.metadata.get("source", "")
+            article = result.metadata.get("article", "")
+            
+            header = ""
+            if src and article:
+                header = f"[출처: {src} | 조문: {article}]\n"
+            elif src:
+                header = f"[출처: {src}]\n"
+                
+            rerank_texts.append(header + result.text)
+
+        scores = self.reranker.rerank(question, rerank_texts)
 
         # 리랭커 점수가 반영된 새로운 결과 리스트 생성
         reranked_results = [
@@ -132,9 +144,13 @@ class Retriever:
             src = result.metadata.get("source", "unknown")
             article = result.metadata.get("article", "")
             length = len(result.text)
+            chunk_index = result.metadata.get("chunk_index", "?")
             label = f"{article}" if article else f"source={src[:40]}"
             passed = "✅" if result.score >= SCORE_THRESHOLD else "❌"
-            print(f"  [{i}] {passed} score={result.score:.3f} length={length}자 | {label}")
+            print(
+                f"  [{i}] {passed} score={result.score:.3f} "
+                f"length={length}자 | idx={chunk_index} | {label}"
+            )
 
         # 3. SCORE_THRESHOLD로 필터링 (관련 있는 청크만 살리기)
         filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
@@ -146,6 +162,10 @@ class Retriever:
 
         # LLM 컨텍스트 보호를 위해 최대 반환 개수 제한
         filtered_results = filtered_results[:MAX_CHUNKS]
+
+        # ★ 디버그: threshold 통과 후 살아남은 청크의 chunk_index만 따로 출력
+        survived_indices = [r.metadata.get("chunk_index", "?") for r in filtered_results]
+        print(f"[Retriever] 임계값 통과 chunk_index 목록: {survived_indices}")
 
         # 4. 살아남은 청크들을 문서의 원래 순서(chunk_index)대로 오름차순 정렬
         # (순서대로 정렬해야 합쳤을 때 동아리나 규정 목록이 뒤죽박죽 섞이지 않음)
