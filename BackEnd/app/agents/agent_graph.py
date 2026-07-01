@@ -67,7 +67,7 @@ def _append_contact_info(answer: str, metadata: dict) -> str:
     contact_name = metadata.get("contact_name")
     contact_phone = metadata.get("contact_phone")
     if url:
-        parts.append(f"출처: {url}")
+        parts.append(f"출처: [{url}]({url})")
     if contact_name and contact_phone:
         parts.append(f"문의: {contact_name} {contact_phone}")
     elif contact_name:
@@ -75,7 +75,7 @@ def _append_contact_info(answer: str, metadata: dict) -> str:
     elif contact_phone:
         parts.append(f"문의: {contact_phone}")
     if parts:
-        return answer + "\n\n" + "\n".join(parts)
+        return answer + "\n\n" + "  \n".join(parts)
     return answer
 
 

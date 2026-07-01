@@ -53,6 +53,15 @@ def _search_rag(question: str, topic: str | None) -> tuple[str, dict]:
         if context:
             return context, metadata
 
+        # 토픽 필터로 결과 없으면 전체 검색으로 재시도
+        if topic:
+            print(f"[RAG_GENERAL] topic={topic} 결과 없음 → 전체 검색으로 재시도")
+            context, results = rag_service.search_context_with_results(question, topic=None)
+            metadata = rag_service.primary_metadata(results, topic=None)
+            print(f"[RAG] 전체 검색 결과: {len(results)}개")
+            if context:
+                return context, metadata
+
     except Exception as e:
         print(f"[RAG_GENERAL] 검색 실패: {e}")
 
