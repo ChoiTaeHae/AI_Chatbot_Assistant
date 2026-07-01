@@ -123,19 +123,11 @@ class AdminService:
             d = (now - timedelta(days=i)).date()
             daily_counts.append(DailyCount(date=d.strftime("%m-%d"), count=daily_map.get(str(d), 0)))
 
-        # 주제별 분포 (전체 기간)
-        topic_labels = {
-            "campus":              "캠퍼스",
-            "graduation":          "졸업요건",
-            "leave":               "휴학/복학",
-            "scholarship":         "장학금",
-            "dormitory":           "기숙사",
-            "course_registration": "수강신청",
-            "special_credit":      "특별학점",
-            "grades":              "성적",
-            "school_rules":        "학칙/규정",
-            "general":             "일반",
-        }
+        # 주제별 분포 (전체 기간) — DB에서 label 동적 로드
+        topic_label_rows = await db.execute(select(Topic.name, Topic.label))
+        topic_labels = {row.name: row.label for row in topic_label_rows}
+        topic_labels.setdefault("general", "일반")
+
         topic_rows = await db.execute(
             select(ChatLog.intent, func.count(ChatLog.id).label("cnt"))
             .where(ChatLog.intent.isnot(None))
