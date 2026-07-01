@@ -350,11 +350,36 @@ def _merge_fragments(fragments: list[str], chunk_size: int, overlap: int) -> lis
     return chunks
 
 
+def _get_table_header(text: str, cut_pos: int) -> str:
+    """cut_pos가 마크다운 표 내부에 있다면, 해당 표의 헤더(첫 2줄)를 반환합니다."""
+    before = text[:cut_pos]
+    lines = before.split("\n")
+    header_lines = []
+    
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            break
+        if "|" in line:
+            header_lines.insert(0, line)
+        else:
+            break
+            
+    # 완성된 블록의 두 번째 줄이 구분선(|---|)이라면 마크다운 표로 간주
+    if len(header_lines) >= 2 and re.match(r"^\|?[\s\-:|]+\|?$", header_lines[1]) and "-" in header_lines[1]:
+        return header_lines[0] + "\n" + header_lines[1] + "\n"
+    return ""
+
+
 def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_size: int, overlap: int, min_length: int) -> list[dict]:
-    # 연속 공백/줄바꿈을 스페이스 하나로 정규화
-    normalized = re.sub(r"\s+", " ", text).strip()
+    # 연속 공백/탭을 스페이스 하나로 정규화 (표 유지를 위해 줄바꿈은 보존!)
+    normalized = re.sub(r"[ \t]+", " ", text).strip()
+    # 3개 이상 연속된 줄바꿈은 2개로 축소
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    
     chunks = []
     start = 0
+    current_table_header = ""
 
     while start < len(normalized):
         end = start + chunk_size
@@ -366,18 +391,29 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
                 chunks.append({"chapter": chapter, "article": article, "text": chunk})
             break
         
-        # 단어 중간에서 자르지 않도록 공백 위치를 역방향 탐색
-        cut = normalized.rfind(" ", start, end)
-        # 공백을 못 찾거나 너무 앞에 있으면 그냥 end에서 자름
+        # 단어 중간에서 자르지 않도록 줄바꿈 또는 공백 위치를 역방향 탐색
+        cut = normalized.rfind("\n", start, end)
         if cut == -1 or cut <= start + overlap:
-            cut = end
+            cut = normalized.rfind(" ", start, end)
+            if cut == -1 or cut <= start + overlap:
+                cut = end
 
         chunk = normalized[start:cut].strip()
+        
+        # 이전 청크에서 잘린 표의 헤더가 있다면 현재 청크 맨 앞에 주입 (표 깨짐 방지)
+        if current_table_header and not chunk.startswith(current_table_header.strip()):
+            chunk = current_table_header + chunk
+
         if len(chunk) >= min_length:
             chunks.append({"chapter": chapter, "article": article, "text": chunk})
 
-        # 다음 시작점 = cut - overlap (overlap만큼 뒤로 가서 중복 포함)
-        next_start = cut - overlap
+        # 다음 청크를 위해 현재 자르는 지점이 표 내부인지 확인
+        current_table_header = _get_table_header(normalized, cut)
+
+        # 다음 시작점 = cut - overlap (표 헤더가 주입되는 상황이면 중복 방지를 위해 overlap 최소화)
+        actual_overlap = 0 if current_table_header else overlap
+        next_start = cut - actual_overlap
+        
          # 무한루프 방지: next_start가 현재 start 이하면 강제로 앞으로
         if next_start <= start:
             next_start = cut

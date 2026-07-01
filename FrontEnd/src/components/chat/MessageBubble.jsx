@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import MascotAvatar from '../common/MascotAvatar'
 import { sendFeedback } from '../../api/chat'
 
@@ -279,13 +280,50 @@ export default function MessageBubble({ message }) {
           className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white text-slate-800 shadow-sm"
           style={{ padding: '16px 20px', fontSize: '15px', lineHeight: '1.7' }}
         >
-          <div className="whitespace-pre-wrap break-words">
-            {message.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
-              /^https?:\/\//.test(part) ? (
-                <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-[#005956] underline underline-offset-2 hover:text-[#004a47] transition">{part}</a>
-              ) : part
-            )}
-          </div>
+          <ReactMarkdown
+            className="prose prose-slate max-w-none text-slate-800"
+            components={{
+              a: ({ href, children }) => (
+                <a href={href} target="_blank" rel="noopener noreferrer"
+                  className="text-[#005956] underline underline-offset-2 hover:text-[#004a47] transition">
+                  {children}
+                </a>
+              ),
+              ul: ({ children }) => (
+                <ul style={{ listStyleType: 'disc', paddingLeft: '1.25rem', margin: '8px 0' }}>
+                  {children}
+                </ul>
+              ),
+              ol: ({ children }) => (
+                <ol style={{ listStyleType: 'decimal', paddingLeft: '1.25rem', margin: '8px 0' }}>
+                  {children}
+                </ol>
+              ),
+              li: ({ children }) => {
+                const first = Array.isArray(children) ? children[0] : children
+                const text = typeof first === 'string' ? first : ''
+                const hasCircleNum = /^[①-⑳①-⑳]/.test(text.trim())
+                return (
+                  <li style={{
+                    marginBottom: '6px',
+                    lineHeight: '1.6',
+                    color: '#1e293b',
+                    ...(hasCircleNum ? { listStyleType: 'none', marginLeft: '-1rem' } : {}),
+                  }}>
+                    {children}
+                  </li>
+                )
+              },
+              p: ({ children }) => (
+                <p style={{ margin: '6px 0', lineHeight: '1.6' }}>{children}</p>
+              ),
+              strong: ({ children }) => (
+                <strong style={{ fontWeight: 600, color: '#0f172a' }}>{children}</strong>
+              ),
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
 
           {/* 캠퍼스 지도 카드 */}
           {message.mapCard && (
