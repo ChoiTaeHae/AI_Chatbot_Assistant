@@ -211,9 +211,11 @@ async def _handle_rag_general(state: AgentState) -> dict:
     topic = state.get("topic") or "rag_general"
     await _log(state["db"], state["student_id"], topic)
     prev_prefix = _build_prev_prefix(state)
-    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
+    enriched_question = prev_prefix + state["question"] if prev_prefix else None
     answer, metadata = await answer_rag_general_question_with_metadata(
-        enriched_question, topic=topic
+        state["question"],          # 검색/rewrite용 원본 질문
+        topic=topic,
+        context_question=enriched_question,  # LLM 맥락용 (이전 대화 포함)
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
