@@ -2,7 +2,20 @@ import asyncio
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
-from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT
+
+
+async def _rewrite_query(question: str) -> str:
+    """구어체 질문을 검색용 공식 용어로 변환."""
+    prompt = QUERY_REWRITE_PROMPT.format(question=question)
+    rewritten = await llm_service.answer(prompt, max_tokens=64)
+    rewritten = rewritten.strip().splitlines()[0].strip()
+    # LLM이 "입력:" 접두사를 그대로 출력하거나 원본과 동일한 경우 원본 사용
+    if rewritten.startswith("입력:") or rewritten == question:
+        print(f"[RAG_GENERAL] 질문 재작성 실패 → 원본 사용: '{question}'")
+        return question
+    print(f"[RAG_GENERAL] 질문 재작성: '{question}' → '{rewritten}'")
+    return rewritten
 
 
 def _search_rag(question: str, topic: str | None) -> tuple[str, dict]:
@@ -66,11 +79,14 @@ async def answer_rag_general_question_with_metadata(
         print("[RAG_GENERAL] ⚠️  TopicRouter 분류 실패 — topic=None, 전체 검색. 해당 질문의 분류 문장을 추가하세요.")
         print(f"[RAG_GENERAL] ⚠️  미분류 질문: {question}")
 
+    # 구어체 질문을 공식 용어로 재작성 후 검색 (리랭커 점수 향상)
+    search_query = await _rewrite_query(question)
+
     loop = asyncio.get_event_loop()
     context, metadata = await loop.run_in_executor(
         None,
         _search_rag,
-        question,
+        search_query,
         effective_topic,
     )
 
