@@ -5,14 +5,14 @@ from app.rag.Retrieval.qdrant_store import (
 )
 from app.rag.Retrieval.Reranker import BgeReranker
 
-# reranker score 임계값 - 이 값 이상인 청크는 전부 반환
-SCORE_THRESHOLD = 0.3
+# reranker score 임계값 - ko-reranker exp_normalize 방식 (합=1, 30개 평균≈0.033)
+SCORE_THRESHOLD = 0.05
 # 최대 반환 청크 수 - LLM 컨텍스트 초과 방지
 MAX_CHUNKS = 10
 
 # 같은 source URL의 청크를 합칠 때 최대 글자 수
-# (너무 길면 LLM 컨텍스트 초과 에러 발생 및 리랭커 점수 폭락 → 1200자로 제한)
-MAX_MERGED_LENGTH = 4000
+# (너무 길면 LLM 컨텍스트 초과 에러 발생 및 리랭커 점수 폭락 → 2000자로 제한)
+MAX_MERGED_LENGTH = 2000
 
 
 class Retriever:
@@ -114,18 +114,8 @@ class Retriever:
             return []
 
         # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가하되, 문맥 유지용 헤더 추가)
-        rerank_texts = []
-        for result in results:
-            src = result.metadata.get("source", "")
-            article = result.metadata.get("article", "")
-            
-            header = ""
-            if src and article:
-                header = f"[출처: {src} | 조문: {article}]\n"
-            elif src:
-                header = f"[출처: {src}]\n"
-                
-            rerank_texts.append(header + result.text)
+        # BGE reranker는 순수 (질문, 본문) 쌍으로 학습됨 — 메타데이터 헤더 없이 본문만 전달
+        rerank_texts = [result.text for result in results]
 
         scores = self.reranker.rerank(question, rerank_texts)
 
@@ -155,10 +145,14 @@ class Retriever:
         # 3. SCORE_THRESHOLD로 필터링 (관련 있는 청크만 살리기)
         filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
         
-        # 임계값 이상인 게 하나도 없으면 가장 높은 것 1개는 살림
-        if not filtered_results and reranked_results:
-            filtered_results = [reranked_results[0]]
-            print(f"[Retriever] 임계값 통과 청크 없음 → 최소 1개 강제 반환 (score={filtered_results[0].score:.3f})")
+        # 임계값 이상인 게 하나도 없으면 상위 3개 강제 반환
+        # (청크가 짧아 리랭커 점수가 낮게 나오는 경우 커버리지 확보)
+        MIN_FALLBACK = 3
+        if len(filtered_results) < MIN_FALLBACK and reranked_results:
+            fallback = reranked_results[:MIN_FALLBACK]
+            added = [r for r in fallback if r not in filtered_results]
+            filtered_results = filtered_results + added
+            print(f"[Retriever] 임계값 통과 {len(filtered_results) - len(added)}개 → 상위 {MIN_FALLBACK}개로 보강 (top score={reranked_results[0].score:.3f})")
 
         # LLM 컨텍스트 보호를 위해 최대 반환 개수 제한
         filtered_results = filtered_results[:MAX_CHUNKS]

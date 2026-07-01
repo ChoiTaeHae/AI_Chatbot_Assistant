@@ -30,13 +30,12 @@ class LlmService:
         print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.model = Llama(
             model_path=settings.MODEL_PATH,
-            n_gpu_layers=10,    # VRAM 절약 — Reranker CPU와 공존
-
-            n_ctx=2048,
+            n_gpu_layers=15,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
+            n_ctx=8192,         # Llama-3 8B 지원 스펙에 맞춰 여유있게 확장
             n_batch=512,
             verbose=False,
         )
-        print("모델 로딩 완료! (llama-cpp-python, GPU 28레이어)")
+        print("모델 로딩 완료! (llama-cpp-python, GPU 15레이어)")
 
     def _generate(self, question: str, max_tokens: int = 512) -> str:
         if settings.DEV_MODE:
@@ -51,11 +50,10 @@ class LlmService:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": question},
                 ],
-
                 max_tokens=2048,
                 temperature=0.3,
                 top_p=0.9,
-                repeat_penalty=1.2,
+                repeat_penalty=1.1,
             )
  
             result = response["choices"][0]["message"]["content"]
@@ -71,54 +69,6 @@ class LlmService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(_executor, self._generate, question, max_tokens)
 
-    def _classify(self, question: str) -> str:
-        """짧은 분류 프롬프트로 intent 이름 반환 (campus/graduation/rag_general/general)"""
-        if settings.DEV_MODE or self.model is None:
-            return "general"
-
-        prompt = (
-            "다음 질문을 아래 카테고리 중 하나로만 분류하세요. 카테고리 이름 외에는 절대 출력하지 마세요.\n\n"
-            "카테고리:\n"
-            "- campus: 건물 위치, 강의실, 캠퍼스 시설, 학과 사무실\n"
-            "- graduation: 졸업요건, 졸업학점, 이수조건\n"
-            "- rag_general: 장학금, 수강신청, 학사일정, 기숙사, 휴학, 학칙, 증명서, 성적, 동아리, 오리엔테이션, 학생카드, ROTC, 학군단\n"
-            "- general: 위 카테고리에 해당하지 않는 일반 대화\n\n"
-            f"질문: {question}\n"
-            "카테고리:"
-        )
-        try:
-            response = self.model.create_chat_completion(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=10,
-                temperature=0.0,
-            )
-            return response["choices"][0]["message"]["content"].strip().lower()
-        except Exception as e:
-            print(f"[LLMClassify] 분류 실패: {e}")
-            return "general"
-
-    async def classify_intent(self, question: str) -> str:
-        loop = asyncio.get_event_loop()
-        raw = await loop.run_in_executor(_executor, self._classify, question)
-        return _parse_llm_intent(raw)
-
-
-_VALID_INTENTS = {"campus", "graduation", "rag_general", "general"}
-
-
-def _parse_llm_intent(text: str) -> str:
-    text = text.strip().lower().replace(" ", "").replace("-", "")
-    for intent in _VALID_INTENTS:
-        if intent.replace("_", "") in text:
-            return intent
-    if "캠퍼스" in text or "건물" in text or "위치" in text:
-        return "campus"
-    if "졸업" in text:
-        return "graduation"
-    if "장학" in text or "수강" in text or "기숙" in text or "휴학" in text or \
-       "동아리" in text or "오티" in text or "학군단" in text or "rotc" in text:
-        return "rag_general"
-    return "general"
 
 
 llm_service = LlmService()

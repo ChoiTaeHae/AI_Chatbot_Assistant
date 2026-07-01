@@ -1,37 +1,58 @@
+import numpy as np
+
+
+def _exp_normalize(x: np.ndarray) -> np.ndarray:
+    b = x.max()
+    y = np.exp(x - b)
+    return y / y.sum()
+
+
 class BgeReranker:
 
     def __init__(self):
         self._model = None
+        self._tokenizer = None
 
     @property
-    def model(self):
-        if self._model is None:
-            from FlagEmbedding import FlagReranker
-            print("[Reranker] 모델 로딩")
+    def _loaded(self):
+        return self._model is not None
 
-            self._model = FlagReranker(
-                "BAAI/bge-reranker-v2-m3",
-                use_fp16=False,
-                device="cpu",
-            )
+    def _load(self):
+        import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        from app.core.config import settings
 
-            print("[Reranker] 로딩 완료")
+        model_path = settings.RERANKER_MODEL_PATH
+        print(f"[Reranker] 모델 로딩: {model_path}")
 
-        return self._model
+        self._tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self._model = AutoModelForSequenceClassification.from_pretrained(model_path)
+        self._model.eval()
+
+        print("[Reranker] 로딩 완료")
 
     def rerank(
         self,
         question: str,
         documents: list[str],
     ) -> list[float]:
+        import torch
 
-        pairs = [
-            [question, doc]
-            for doc in documents
-        ]
+        if not self._loaded:
+            self._load()
 
-        scores = self.model.compute_score(pairs, normalize=True)
+        pairs = [[question, doc] for doc in documents]
+
+        with torch.no_grad():
+            inputs = self._tokenizer(
+                pairs,
+                padding=True,
+                truncation=True,
+                return_tensors="pt",
+                max_length=512,
+            )
+            logits = self._model(**inputs, return_dict=True).logits.view(-1).float()
+            scores = _exp_normalize(logits.numpy())
 
         print("[Reranker] rerank 완료")
-
-        return scores
+        return scores.tolist()

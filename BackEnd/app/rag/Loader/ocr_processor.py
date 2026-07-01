@@ -57,13 +57,13 @@ class OcrProcessor:
 
     @property
     def models(self):
-        """Surya 0.17.1 모델들 (지연 로딩)"""
+        """Surya 0.16.7 모델들 (지연 로딩)"""
         if self._rec is None:
             from surya.recognition import RecognitionPredictor
             from surya.foundation import FoundationPredictor
             from surya.detection import DetectionPredictor
 
-            logger.info("[OcrProcessor] Surya Predictors 로딩 시작 (v0.17.1)")
+            logger.info("[OcrProcessor] Surya Predictors 로딩 시작 (v0.16.7)")
             self._foundation = FoundationPredictor()
             self._det = DetectionPredictor()
             self._rec = RecognitionPredictor(self._foundation)
@@ -71,11 +71,10 @@ class OcrProcessor:
         return self._rec, self._det
 
     def _run_ocr(self, images: list) -> list:
-        from surya.common.surya.schema import TaskNames
         rec, det = self.models
         results = rec(
             images,
-            task_names=[TaskNames.ocr_with_boxes] * len(images),
+            task_names=["ocr_with_boxes"] * len(images),
             det_predictor=det,
             math_mode=True
         )

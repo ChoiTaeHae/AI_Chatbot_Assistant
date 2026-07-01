@@ -36,16 +36,6 @@ _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 POSITIVE_KEYWORDS = ["응", "네", "예", "ㅇㅇ", "보내줘", "보내", "좋아", "알겠어", "그래", "응응", "넹", "넵", "주세요"]
 QUESTION_KEYWORDS = ["어떻게", "언제", "뭐야", "뭔데", "왜", "어디", "?", "？", "알려", "설명"]
 
-# LLM 분류기 반환값 → handler_type 매핑
-_LLM_TO_HANDLER = {
-    "campus":      "campus",
-    "graduation":  "graduation",
-    "scholarship": "scholarship",
-    "rag_general": "rag",
-    "rag":         "rag",
-    "general":     "general",
-}
-
 
 def _is_campus_question(q: str) -> bool:
     return bool(_BUILDING_CODE_RE.search(q))
@@ -158,13 +148,6 @@ async def _embedding_classify(state: AgentState) -> dict:
         print(f"[Graph] 임베딩 분류 실패: {e}")
         return {"intent": None, "topic": None, "confidence": 0.0}
 
-
-async def _llm_classify(state: AgentState) -> dict:
-    """LLM 기반 분류 (임베딩 신뢰도 낮을 때 fallback)"""
-    raw = await llm_service.classify_intent(state["question"])
-    handler_type = _LLM_TO_HANDLER.get(raw, "general")
-    print(f"[Graph] LLM 분류 → {raw} → handler={handler_type}")
-    return {"intent": handler_type}
 
 
 async def _keyword_classify(state: AgentState) -> dict:
@@ -285,11 +268,9 @@ def _route_embedding(state: AgentState) -> str:
     handler = state.get("intent")
     if score >= _HIGH_CONFIDENCE and handler:
         return handler
-    return "llm"
+    # 신뢰도 낮으면 LLM 분류 없이 topic 필터 없는 전체 RAG 검색
+    return "rag"
 
-
-def _route_llm(state: AgentState) -> str:
-    return state.get("intent") or "general"
 
 
 # ── 그래프 빌드 ────────────────────────────────────────────────────
@@ -300,7 +281,6 @@ def _build_graph():
     g.add_node("pre_check",         _pre_check)
     g.add_node("keyword_classify",  _keyword_classify)
     g.add_node("embedding_classify", _embedding_classify)
-    g.add_node("llm_classify",      _llm_classify)
     g.add_node("handle_campus",     _handle_campus)
     g.add_node("handle_graduation", _handle_graduation)
     g.add_node("handle_scholarship",_handle_scholarship)
@@ -315,14 +295,6 @@ def _build_graph():
         "embed":  "embedding_classify",
     })
     g.add_conditional_edges("embedding_classify", _route_embedding, {
-        "campus":      "handle_campus",
-        "graduation":  "handle_graduation",
-        "scholarship": "handle_scholarship",
-        "rag":         "handle_rag_general",
-        "general":     "handle_general",
-        "llm":         "llm_classify",
-    })
-    g.add_conditional_edges("llm_classify", _route_llm, {
         "campus":      "handle_campus",
         "graduation":  "handle_graduation",
         "scholarship": "handle_scholarship",
