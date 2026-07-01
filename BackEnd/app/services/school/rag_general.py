@@ -10,6 +10,10 @@ async def _rewrite_query(question: str) -> str:
     prompt = QUERY_REWRITE_PROMPT.format(question=question)
     rewritten = await llm_service.answer(prompt, max_tokens=64)
     rewritten = rewritten.strip().splitlines()[0].strip()
+    # LLM이 "입력:" 접두사를 그대로 출력하거나 원본과 동일한 경우 원본 사용
+    if rewritten.startswith("입력:") or rewritten == question:
+        print(f"[RAG_GENERAL] 질문 재작성 실패 → 원본 사용: '{question}'")
+        return question
     print(f"[RAG_GENERAL] 질문 재작성: '{question}' → '{rewritten}'")
     return rewritten
 

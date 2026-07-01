@@ -9,6 +9,9 @@ services:
       - ./BackEnd/llm:/app/llm
       - ./BackEnd/documents:/app/documents
       - ./BackEnd/app:/app/app
+      - ./models:/app/models
+    environment:
+      - RERANKER_MODEL_PATH=/app/models/ko-reranker
     deploy:
       resources:
         reservations:

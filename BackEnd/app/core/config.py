@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24   # 24시간
 
+    # Reranker 모델 경로 (venv: 절대경로, Docker: /app/models/ko-reranker)
+    RERANKER_MODEL_PATH: str = "/app/models/ko-reranker"
+
     # 개발 모드 (True 시 LLM 로딩 스킵)
     DEV_MODE: bool = False
 
