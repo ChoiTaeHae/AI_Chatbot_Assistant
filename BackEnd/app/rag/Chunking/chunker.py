@@ -117,55 +117,49 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
         next_chap_matches = list(CHAPTER_PATTERN.finditer(body))
         next_chapter = current_chapter  # 일단 현재 장 유지
         
+        new_chap_preamble = ""
         if next_chap_matches:
-            match = next_chap_matches[0]
-            next_chapter = match.group(1).strip()   # 새 장 제목 저장
-            body = body[:match.start()].strip()     # 장 제목 이전까지만 본문으로 사용
+            first_match = next_chap_matches[0]
+            last_match = next_chap_matches[-1]
+            
+            next_chapter = last_match.group(1).strip()
+            new_chap_preamble = body[first_match.end():].strip()
+            body = body[:first_match.start()].strip()
 
         chunk_text = f"{title}\n{body}".strip()     # 제목 + 본문 합치기
 
-        # min_length(50자) 미만이면 너무 짧은 조문이므로 건너뜀
-        if len(chunk_text) < min_length:
-            current_chapter = next_chapter
-            continue
-        
-        # chunk_size(1200자) 초과 시 → 항/호 단위로 분할
-        if len(chunk_text) > chunk_size:
-            clauses = CLAUSE_SPLIT_PATTERN.split(body)   # CLAUSE_SPLIT_PATTERN: ①②③ 또는 1. 2. 3. 기준으로 분리
-            # 항/호들을 chunk_size에 맞게 합치기
-            # 제목 길이(-len(title)-10)만큼 빼서 합산 후 chunk_size 초과 방지
-            merged_body_chunks = _merge_fragments(clauses, chunk_size - len(title) - 10, overlap)
-            
-            for sub_body in merged_body_chunks:
-                # 잘린 조각에 조문 제목 + (계속) 표시로 문맥 유지
+        # min_length(50자) 미만이면 너무 짧은 조문이므로 본문 추가는 건너뜀
+        if len(chunk_text) >= min_length:
+            # chunk_size(1200자) 초과 시 → 항/호 단위로 분할
+            if len(chunk_text) > chunk_size:
+                clauses = CLAUSE_SPLIT_PATTERN.split(body)   # CLAUSE_SPLIT_PATTERN: ①②③ 또는 1. 2. 3. 기준으로 분리
+                # 항/호들을 chunk_size에 맞게 합치기
+                # 제목 길이(-len(title)-10)만큼 빼서 합산 후 chunk_size 초과 방지
+                merged_body_chunks = _merge_fragments(clauses, chunk_size - len(title) - 10, overlap)
+                
+                for sub_body in merged_body_chunks:
+                    # 잘린 조각에 조문 제목 + (계속) 표시로 문맥 유지
+                    chunks.append({
+                        "chapter": current_chapter,
+                        "article": title,
+                        "text": f"{title} (계속)\n{sub_body}".strip()
+                    })
+            else:
+                # 적당한 크기면 그대로 저장
                 chunks.append({
                     "chapter": current_chapter,
                     "article": title,
-                    "text": f"{title} (계속)\n{sub_body}".strip()
+                    "text": chunk_text
                 })
-        else:
-            # 적당한 크기면 그대로 저장
-            chunks.append({
-                "chapter": current_chapter,
-                "article": title,
-                "text": chunk_text
-            })
+
+        # 현재 조문 처리가 끝난 후, 새로운 장의 서론(안내문)이 있다면 청크로 추가 (데이터 유실 방지)
+        if new_chap_preamble and len(new_chap_preamble) >= min_length:
+            chunks.extend(_build_chunks(new_chap_preamble, next_chapter, "서론", chunk_size, overlap, min_length))
 
         # 다음 조문 처리 전에 chapter 업데이트
         current_chapter = next_chapter
 
-    # 조문 간 overlap — 서로 다른 조문 경계에서 이전 조문 끝부분을 맥락으로 추가
-    # 같은 조문 내 분할은 _merge_fragments 에서 이미 처리되므로 article 이 바뀌는 경계만 대상으로 함
-    if overlap > 0 and len(chunks) > 1:
-        for i in range(1, len(chunks)):
-            prev_article = chunks[i - 1].get("article")
-            curr_article = chunks[i].get("article")
-            if prev_article != curr_article:          # 다른 조문으로 넘어가는 경계
-                tail = chunks[i - 1]["text"][-overlap:].lstrip()
-                chunks[i] = {
-                    **chunks[i],
-                    "text": f"[전조 맥락] {tail}\n\n{chunks[i]['text']}"
-                }
+
 
     return chunks
 
