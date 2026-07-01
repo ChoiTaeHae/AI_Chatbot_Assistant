@@ -155,6 +155,8 @@ async def answer_scholarship_question(
             {"source": None, "source_file": None, "topic": "scholarship"},
         )
 
+    from app.prompts import RAG_SCHOLARSHIP_PROMPT
+
     # 일반 장학금 정보 → RAG
     print("[SCHOLARSHIP] RAG 검색 시작")
     loop = asyncio.get_event_loop()
@@ -166,10 +168,5 @@ async def answer_scholarship_question(
 
     context, metadata = search_data
     print("[SCHOLARSHIP] RAG 검색 완료, LLM 호출")
-    prompt = (
-        f"[참고 문서]\n{context}\n\n"
-        f"{_PROMPT_RULES}\n"
-        f"위 규칙을 지켜 다음 질문에 답변해주세요.\n"
-        f"질문: {question}\n답변:"
-    )
+    prompt = RAG_SCHOLARSHIP_PROMPT.format(context=context, question=question)
     return await llm_service.answer(prompt), None, metadata
