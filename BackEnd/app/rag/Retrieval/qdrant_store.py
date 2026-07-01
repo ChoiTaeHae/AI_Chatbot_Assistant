@@ -104,10 +104,10 @@ class QdrantVectorStore:
                 id=str(uuid5(NAMESPACE_URL, f"{source}:{index}")),
                 vector=embedding,
                 payload={
-                    **base_metadata,
-                    "source": source,
-                    "topic": topic,
                     "chunk_index": index,
+                    "source": source,
+                    **base_metadata,
+                    "topic": topic,
                     "text": chunk,
                     # chapter, article, path 저장 (없으면 None)
                     **(chunk_metas[index] if chunk_metas else {}),
