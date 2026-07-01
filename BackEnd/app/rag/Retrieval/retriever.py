@@ -11,8 +11,8 @@ SCORE_THRESHOLD = 0.3
 MAX_CHUNKS = 10
 
 # 같은 source URL의 청크를 합칠 때 최대 글자 수
-# (너무 길면 LLM 컨텍스트 초과 에러 발생 및 리랭커 점수 폭락 → 1200자로 제한)
-MAX_MERGED_LENGTH = 4000
+# (너무 길면 LLM 컨텍스트 초과 에러 발생 및 리랭커 점수 폭락 → 2000자로 제한)
+MAX_MERGED_LENGTH = 2000
 
 
 class Retriever:

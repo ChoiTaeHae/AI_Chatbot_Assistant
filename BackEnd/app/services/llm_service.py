@@ -31,12 +31,11 @@ class LlmService:
         self.model = Llama(
             model_path=settings.MODEL_PATH,
             n_gpu_layers=15,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
-
-            n_ctx=4096,
+            n_ctx=8192,         # Llama-3 8B 지원 스펙에 맞춰 여유있게 확장
             n_batch=512,
             verbose=False,
         )
-        print("모델 로딩 완료! (llama-cpp-python, GPU 28레이어)")
+        print("모델 로딩 완료! (llama-cpp-python, GPU 15레이어)")
 
     def _generate(self, question: str, max_tokens: int = 512) -> str:
         if settings.DEV_MODE:
@@ -51,11 +50,10 @@ class LlmService:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": question},
                 ],
-
                 max_tokens=2048,
                 temperature=0.3,
                 top_p=0.9,
-                repeat_penalty=1.2,
+                repeat_penalty=1.1,
             )
  
             result = response["choices"][0]["message"]["content"]
