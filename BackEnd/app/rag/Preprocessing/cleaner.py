@@ -5,10 +5,11 @@ def preprocess_text(text: str) -> str:
     """RAG 인제스트 전 텍스트 정제 파이프라인"""
     text = _normalize_whitespace_chars(text)
     text = _remove_page_numbers(text)
+    text = _remove_document_headers(text)
     text = _remove_repeated_lines(text) # 고침 / ext로 받고 있었음.
     text = _collapse_whitespace(text)
     text = _remove_special_chars(text)
-    text = _fix_pdf_line_breaks(text) 
+    text = _fix_pdf_line_breaks(text)
     return text
 
 
@@ -21,6 +22,15 @@ def _normalize_whitespace_chars(text: str) -> str:
     text = text.replace('&amp;', '&')
     text = text.replace('&lt;', '<')
     text = text.replace('&gt;', '>')
+    return text
+
+
+def _remove_document_headers(text: str) -> str:
+    """PDF 페이지 상단 반복 헤더 제거 (우송대 문서 형식)"""
+    # "우송대학교 규정  문서명 [코드]" 형태의 페이지 헤더
+    text = re.sub(r'^우송대학교\s+규정\s+.{1,60}$', '', text, flags=re.MULTILINE)
+    # "우송대학교  부서명  내용" 형태
+    text = re.sub(r'^우송대학교\s{2,}.{1,60}$', '', text, flags=re.MULTILINE)
     return text
 
 

@@ -170,6 +170,10 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
     return chunks
 
 
+# 최상위 번호 항목 (1. 2. 3. ...) 감지용 패턴
+_TOP_SECTION_PATTERN = re.compile(r"(?:^|\n)(\d+\.\s+\S)")
+
+
 def semantic_split(
     text: str,
     embed_fn,
@@ -181,7 +185,33 @@ def semantic_split(
 
     인접 문장 간 코사인 거리가 상위 (100-percentile)%에 해당하면 청크 경계로 판단.
     chunk_size는 최대 크기 가드 — 시맨틱 경계가 없어도 초과 시 강제 분할.
+    번호 항목(1. 2. 3.)이 2개 이상 있으면 먼저 구조적으로 분할 후 각 섹션에 시맨틱 청킹 적용.
     """
+    import numpy as np
+
+    # 최상위 번호 항목이 2개 이상이면 구조적으로 먼저 분할
+    top_sections = re.split(r"(?=\n\d+\.\s)", text)
+    if len(top_sections) >= 2:
+        all_chunks: list[dict] = []
+        for section in top_sections:
+            section = section.strip()
+            if not section:
+                continue
+            sub_chunks = _semantic_split_inner(section, embed_fn, chunk_size, min_length, breakpoint_percentile)
+            all_chunks.extend(sub_chunks)
+        return all_chunks
+
+    return _semantic_split_inner(text, embed_fn, chunk_size, min_length, breakpoint_percentile)
+
+
+def _semantic_split_inner(
+    text: str,
+    embed_fn,
+    chunk_size: int = 500,
+    min_length: int = 50,
+    breakpoint_percentile: int = 70,
+) -> list[dict]:
+    """시맨틱 청킹 내부 구현"""
     import numpy as np
 
     sentences = _split_sentences(text)
