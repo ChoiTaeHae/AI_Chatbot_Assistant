@@ -17,31 +17,13 @@ from app.services.file_service import refresh_available_files
 from app.agents.topic_router import topic_router
 
 
-async def _seed_and_load_topics() -> list[dict]:
-    """Topic 테이블 시드 삽입 후 활성 topic 목록 반환."""
+async def _load_topics() -> list[dict]:
+    """DB에서 활성 topic 목록 반환."""
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy import select
     from app.models.DB_Table import Topic
-    from app.core.topics import TOPIC_SEED
 
     async with AsyncSession(engine) as session:
-        result = await session.execute(select(Topic))
-        existing_names = {t.name for t in result.scalars().all()}
-
-        for seed in TOPIC_SEED:
-            if seed["name"] not in existing_names:
-                session.add(Topic(
-                    name=seed["name"],
-                    label=seed["label"],
-                    handler_type=seed["handler_type"],
-                    sentences=seed.get("sentences", []),
-                    description=seed.get("description"),
-                    is_system=seed.get("is_system", False),
-                    is_active=True,
-                ))
-
-        await session.commit()
-
         result = await session.execute(
             select(Topic).where(Topic.is_active == True)
         )
@@ -92,28 +74,17 @@ async def lifespan(app: FastAPI):
     # LLM 모델 GPU 로드
     llm_service.load_model()
 
-    # 다운로드 파일 캐시 초기화
-    refresh_available_files()
-
     # ── 임베딩 인스턴스 공유 ──────────────────────────────
     topic_router._embedding = rag_service.embedding
 
-    # Topic 시드 삽입 + 활성 topic 로드
-    try:
-        topic_data = await _seed_and_load_topics()
-        print(f"[Server] {len(topic_data)}개 topic 로드 완료")
-    except Exception as e:
-        print(f"[Server] topic DB 로드 실패 — TOPIC_SEED 사용: {e}")
-        from app.core.topics import TOPIC_SEED
-        topic_data = [
-            {"name": t["name"], "label": t["label"],
-             "handler_type": t["handler_type"], "sentences": t.get("sentences", [])}
-            for t in TOPIC_SEED
-        ]
+    # DB에서 활성 topic 로드
+    topic_data = await _load_topics()
+    print(f"[Server] {len(topic_data)}개 topic 로드 완료")
 
-    # FileService topic 캐시 초기화
+    # FileService topic 캐시 초기화 → 파일 캐시는 topic 로드 후 갱신
     from app.services.file_service import refresh_topic_cache
     refresh_topic_cache({t["name"]: t["label"] for t in topic_data})
+    refresh_available_files()
 
     # topic 프로토타입 벡터 사전 계산
     try:
