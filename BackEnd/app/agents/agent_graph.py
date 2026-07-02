@@ -30,6 +30,7 @@ from app.services.file_service import AVAILABLE_FILES
 _campus_service = CampusService()
 
 _HIGH_CONFIDENCE = 0.60
+_TOPIC_SWITCH_CONFIDENCE = 0.75
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
@@ -61,15 +62,23 @@ def _with_file_offer(updates: dict, topic: str) -> dict:
 
 
 def _build_prev_prefix(state: AgentState) -> str:
-    """이전 대화가 있으면 프롬프트 앞에 붙일 맥락 문자열 생성."""
+    """이전 대화가 있으면 프롬프트 앞에 붙일 맥락 문자열 생성.
+    topic이 바뀌었으면 이전 맥락을 전달하지 않음 (LLM이 이전 topic 질문으로 혼동).
+
+    [이전 질문]+[이전 답변] → LLM이 이전 답변 반복
+    [이전 질문]만 → LLM이 이전 질문에 답하려 함
+    "이전 주제:" 형식 → 맥락 힌트만 부여, LLM이 답변 대상으로 인식 안 함"""
     prev = state.get("prev_context")
     if not prev:
         return ""
-    pq = prev.get("prev_question", "")
-    pa = prev.get("prev_answer", "")
-    if not pq and not pa:
+    prev_topic = prev.get("prev_topic")
+    current_topic = state.get("topic")
+    if prev_topic and current_topic and prev_topic != current_topic:
         return ""
-    return f"[이전 질문] {pq}\n[이전 답변] {pa}\n\n"
+    pq = prev.get("prev_question", "")
+    if not pq:
+        return ""
+    return f"이전 주제: {pq}\n\n"
 
 
 def _append_contact_info(answer: str, metadata: dict) -> str:
@@ -136,12 +145,22 @@ async def _embedding_classify(state: AgentState) -> dict:
         )
         print(f"[Graph] 임베딩 분류 → topic={topic_name} handler={handler_type} ({score:.3f})")
 
-        # 신뢰도 낮으면 이전 대화의 topic으로 fallback
         prev = state.get("prev_context")
-        if score < _HIGH_CONFIDENCE and prev and prev.get("prev_topic"):
-            prev_topic = prev["prev_topic"]
+        prev_topic = prev.get("prev_topic") if prev else None
+
+        # 신뢰도 낮으면 이전 topic으로 fallback
+        if score < _HIGH_CONFIDENCE and prev_topic:
+            prev_info = topic_router._proto_vecs.get(prev_topic, {})
+            prev_handler = prev_info.get("handler_type", "rag")
             print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용")
-            return {"intent": "rag", "topic": prev_topic, "confidence": score}
+            return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+
+        # topic이 바뀌었지만 전환 신뢰도 미달 → 이전 topic 유지
+        if prev_topic and topic_name != prev_topic and score < _TOPIC_SWITCH_CONFIDENCE:
+            prev_info = topic_router._proto_vecs.get(prev_topic, {})
+            prev_handler = prev_info.get("handler_type", "rag")
+            print(f"[Graph] topic 전환 신뢰도 미달 ({score:.3f} < {_TOPIC_SWITCH_CONFIDENCE}) → 이전 topic '{prev_topic}' 유지")
+            return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
 
         return {"intent": handler_type, "topic": topic_name, "confidence": score}
     except Exception as e:
@@ -150,11 +169,21 @@ async def _embedding_classify(state: AgentState) -> dict:
 
 
 
+_KEYWORD_TOPIC_MAP: list[tuple[list[str], str]] = [
+    (["공결", "출석인정", "출석 인정"], "absence"),
+]
+
+
 async def _keyword_classify(state: AgentState) -> dict:
-    """건물 코드 정규식 기반 campus 분류 (0ms)"""
-    if _is_campus_question(state["question"]):
+    """건물 코드 정규식 기반 campus 분류, 명확한 키워드 → topic 직행 (0ms)"""
+    q = state["question"]
+    if _is_campus_question(q):
         print("[Graph] 키워드 분류 → campus")
         return {"intent": "campus"}
+    for keywords, topic in _KEYWORD_TOPIC_MAP:
+        if any(kw in q for kw in keywords):
+            print(f"[Graph] 키워드 분류 → {topic} ({[kw for kw in keywords if kw in q]})")
+            return {"intent": "rag", "topic": topic}
     return {"intent": None}
 
 
@@ -210,12 +239,14 @@ async def _handle_rag_general(state: AgentState) -> dict:
     """RAG 검색 핸들러 — state["topic"]을 Qdrant 필터로 사용"""
     topic = state.get("topic") or "rag_general"
     await _log(state["db"], state["student_id"], topic)
+
     prev_prefix = _build_prev_prefix(state)
     enriched_question = prev_prefix + state["question"] if prev_prefix else None
+
     answer, metadata = await answer_rag_general_question_with_metadata(
         state["question"],          # 검색/rewrite용 원본 질문
         topic=topic,
-        context_question=enriched_question,  # LLM 맥락용 (이전 대화 포함)
+        context_question=enriched_question,  # LLM 맥락용 (이전 주제 힌트 포함)
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
@@ -262,7 +293,12 @@ def _route_pre_check(state: AgentState) -> str:
 
 
 def _route_keyword(state: AgentState) -> str:
-    return "campus" if state.get("intent") == "campus" else "embed"
+    intent = state.get("intent")
+    if intent == "campus":
+        return "campus"
+    if intent == "rag":
+        return "rag"
+    return "embed"
 
 
 def _route_embedding(state: AgentState) -> str:
@@ -294,6 +330,7 @@ def _build_graph():
     g.add_conditional_edges("pre_check", _route_pre_check, _HANDLER_MAP)
     g.add_conditional_edges("keyword_classify", _route_keyword, {
         "campus": "handle_campus",
+        "rag":    "handle_rag_general",
         "embed":  "embedding_classify",
     })
     g.add_conditional_edges("embedding_classify", _route_embedding, {

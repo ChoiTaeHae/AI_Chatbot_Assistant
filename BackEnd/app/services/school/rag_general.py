@@ -2,13 +2,14 @@ import asyncio
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
-from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_TOPIC_PROMPT
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT
 
 
 async def _rewrite_query(question: str, topic_hint: str | None = None) -> str:
-    """구어체 질문을 검색용 공식 용어로 변환. topic_hint가 있으면 주제 맥락 포함."""
+    """구어체 질문을 검색용 공식 용어로 변환. topic_hint가 있으면 질문 앞에 붙여 문맥 강제."""
     if topic_hint:
-        prompt = QUERY_REWRITE_WITH_TOPIC_PROMPT.format(topic=topic_hint, question=question)
+        question_with_topic = f"[{topic_hint}] {question}"
+        prompt = QUERY_REWRITE_PROMPT.format(question=question_with_topic)
     else:
         prompt = QUERY_REWRITE_PROMPT.format(question=question)
     rewritten = await llm_service.answer(prompt, max_tokens=64)
@@ -85,8 +86,28 @@ async def answer_rag_general_question_with_metadata(
         print("[RAG_GENERAL] ⚠️  TopicRouter 분류 실패 — topic=None, 전체 검색. 해당 질문의 분류 문장을 추가하세요.")
         print(f"[RAG_GENERAL] ⚠️  미분류 질문: {question}")
 
-    # 원본 질문 + topic 힌트로 재작성 — enriched question을 넘기면 LLM이 이전 답변을 검색어로 오해함
-    search_query = await _rewrite_query(question, topic_hint=effective_topic)
+    # topic 코드 → 한국어 힌트 변환 (LLM이 영문 코드를 이해 못해서 검색어를 잘못 생성함)
+    _TOPIC_KO = {
+        "absence": "공결/출석인정",
+        "course_registration": "수강신청",
+        "leave": "휴학/복학",
+        "scholarship": "장학금",
+        "graduation": "졸업",
+        "campus": "캠퍼스/건물 위치",
+        "welfare_facilities": "복지시설",
+        "student_support": "학생지원/동아리",
+        "facility_rental": "시설대여",
+        "academic_status": "학적/전과/자퇴",
+    }
+    topic_hint_ko = _TOPIC_KO.get(effective_topic) if effective_topic else None
+
+    # "어떻게/방법/절차/순서" 포함 질문은 원본에 이미 핵심 키워드가 있어서 rewrite가 역효과
+    _SKIP_REWRITE_KW = {"어떻게", "방법", "절차", "순서"}
+    if any(kw in question for kw in _SKIP_REWRITE_KW):
+        search_query = question
+        print(f"[RAG_GENERAL] 절차형 질문 → rewrite 스킵, 원본 사용: '{question}'")
+    else:
+        search_query = await _rewrite_query(question, topic_hint=topic_hint_ko)
 
     loop = asyncio.get_event_loop()
     context, metadata = await loop.run_in_executor(
@@ -115,6 +136,19 @@ async def answer_rag_general_question_with_metadata(
     else:
         prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
         answer = await llm_service.answer(prompt)
+
+    # 모델이 프롬프트 레이블을 이어서 출력하는 경우 가장 앞에 나온 위치에서 잘라내기
+    _STOP_MARKERS = ["[참고 문서]", "[사용자 질문]", "[답변]", "[이전 질문]", "[이전 답변]"]
+    earliest_pos = len(answer)
+    earliest_marker = None
+    for marker in _STOP_MARKERS:
+        pos = answer.find(marker)
+        if pos != -1 and pos < earliest_pos:
+            earliest_pos = pos
+            earliest_marker = marker
+    if earliest_marker:
+        answer = answer[:earliest_pos].strip()
+        print(f"[RAG_GENERAL] 프롬프트 누출 감지 → '{earliest_marker}' 앞에서 잘라냄")
 
     return answer, metadata
 
