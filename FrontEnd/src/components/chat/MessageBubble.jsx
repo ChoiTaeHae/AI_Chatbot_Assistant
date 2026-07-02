@@ -248,8 +248,9 @@ function MessageActions({ messageId, content }) {
   )
 }
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, onClearPendingFile }) {
   const isUser = message.role === 'user'
+  const [downloadedFiles, setDownloadedFiles] = useState(new Set())
 
   if (isUser) {
     return (
@@ -392,6 +393,75 @@ export default function MessageBubble({ message }) {
               >
                 {message.fileDownload.filename}
               </button>
+            </div>
+          )}
+
+          {/* 파일 선택 버튼 (사용자가 '응' 확인 후에만 표시) */}
+          {message.fileOffer && message.fileOffer.show_buttons && message.fileOffer.files && message.fileOffer.files.length > 0 && (
+            <div style={{ marginTop: '14px' }}>
+              <p className="text-xs text-slate-400" style={{ marginBottom: '8px' }}>원하시는 파일을 선택해 주세요.</p>
+              <div className="flex flex-wrap gap-2">
+                {/* 개별 파일 버튼 */}
+                {message.fileOffer.files.map((filename) => {
+                  const stem = filename.replace(/\.[^/.]+$/, '')
+                  const isDone = downloadedFiles.has(filename)
+                  return (
+                    <button
+                      key={filename}
+                      type="button"
+                      disabled={isDone}
+                      onClick={async () => {
+                        await downloadFileWithAuth(`/api/files/${message.fileOffer.topic}/${filename}`, filename)
+                        setDownloadedFiles(prev => new Set([...prev, filename]))
+                        if (onClearPendingFile) onClearPendingFile()
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg border text-sm font-medium transition"
+                      style={{
+                        padding: '6px 12px',
+                        borderColor: isDone ? '#a0aec0' : '#005956',
+                        color: isDone ? '#a0aec0' : '#005956',
+                        backgroundColor: isDone ? '#f8f8f8' : '#f0f9f8',
+                        cursor: isDone ? 'default' : 'pointer',
+                      }}
+                    >
+                      <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      {isDone ? `${stem} ✓` : stem}
+                    </button>
+                  )
+                })}
+
+                {/* 전체 다운로드 버튼 (파일 2개 이상일 때만) */}
+                {message.fileOffer.files.length > 1 && (
+                  <button
+                    type="button"
+                    disabled={message.fileOffer.files.every(f => downloadedFiles.has(f))}
+                    onClick={async () => {
+                      for (const filename of message.fileOffer.files) {
+                        if (!downloadedFiles.has(filename)) {
+                          await downloadFileWithAuth(`/api/files/${message.fileOffer.topic}/${filename}`, filename)
+                        }
+                      }
+                      setDownloadedFiles(new Set(message.fileOffer.files))
+                      if (onClearPendingFile) onClearPendingFile()
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg border text-sm font-medium transition"
+                    style={{
+                      padding: '6px 12px',
+                      borderColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '#a0aec0' : '#1a5276',
+                      color: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '#a0aec0' : '#1a5276',
+                      backgroundColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '#f8f8f8' : '#eaf2f8',
+                      cursor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'default' : 'pointer',
+                    }}
+                  >
+                    <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    {message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '모두 다운로드 완료 ✓' : '전부 다운로드'}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
