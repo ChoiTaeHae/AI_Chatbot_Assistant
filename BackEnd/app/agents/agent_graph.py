@@ -34,7 +34,51 @@ _TOPIC_SWITCH_CONFIDENCE = 0.75
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
-POSITIVE_KEYWORDS = ["응", "네", "예", "ㅇㅇ", "보내줘", "보내", "좋아", "알겠어", "그래", "응응", "넹", "넵", "주세요"]
+POSITIVE_KEYWORDS = [
+    # 기본 긍정 (단답/구어체 포함)
+    "응", "네", "예", "응응", "네네", "ㅇㅇ", "웅", "웅웅", "어", "어어",
+    "넵", "넹", "옙", "얍",
+    
+    # 파일 요청 및 행동 유도
+    "주세요", "줘", "줘요", "줘봐", "내놔", "보내줘", "보내줘요", "보내주세요",
+    "보내봐", "보내봐봐", "부탁해", "부탁해요", "부탁드립니다", "주라", "줘라", "줘봐라"
+    
+    # 긍정 동의 및 호응
+    "좋아", "좋아요", "알겠어", "알겠습니다", "그래", "그래요", "그럼", "그럼요",
+    "당연", "물론", "당근", "당빠", "맞아", "맞아요", "그치", "그렇지", "좋지",
+    
+    # 영어 및 인터넷 용어/초성
+    "오케", "오케이", "ok", "OK", "Ok", "ㅇㅋ", "ㅇㅋㅇㅋ", "오키", 
+    "콜", "고고", "ㄱㄱ", "고", "조아", "쪼아",
+    
+    # 필요 표현
+    "주셔", "주셔도", "바라요", "원해요", "필요해요", "필요합니다", "필요해",
+    "요청합니다", "요청해", "원해",
+    
+    # 음슴체
+    "좋음", "필요함", "주셈", "보내주셈", "주삼", "콜임", "원함", "동의함"
+]
+
+NEGATIVE_KEYWORDS = [
+    # 명확한 부정
+    "아니요", "아니", "아니다", "아니에요", "아닙니다",
+    
+    # 영어 및 인터넷 용어/초성
+    "no", "No", "NO", "놉", "노노", "ㄴㄴ", "ㄴ", "패스", "엑스", "에바",
+    
+    # 구어체 / 거절 / 만류
+    "됐어", "됐습니다", "안해도돼", "안해도", "안해", "안할래",
+    "싫어", "싫어요", "싫습니다", "별로", "별로야", "사양할게", "사양할게요",
+    "괜찮아", "괜찮아요", "괜찮습니다", "괜찮", 
+    "필요없어", "필요없어요", "필요없습니다",
+    "안받을게", "안받아도돼", "안받아", "안주셔도", "안주셔도됩니다",
+    "그만", "그만해요", "치워",
+    
+    # 음슴체
+    "아님", "됐음", "싫음", "괜찮음", "필요없음", "안받음", "사양함", "안함", "별로임", "패스함"
+]
+
+
 QUESTION_KEYWORDS = ["어떻게", "언제", "뭐야", "뭔데", "왜", "어디", "?", "？", "알려", "설명"]
 
 
@@ -48,16 +92,27 @@ def _is_confirmation(text: str) -> bool:
     return any(kw in text for kw in POSITIVE_KEYWORDS)
 
 
+def _is_rejection(text: str) -> bool:
+    """명확한 거절/부정 표현인지 확인"""
+    return any(kw in text for kw in NEGATIVE_KEYWORDS)
+
+
 def _with_file_offer(updates: dict, topic: str) -> dict:
     files = AVAILABLE_FILES.get(topic, [])
     if not files:
         return updates
-    filename = files[0]
-    stem = Path(filename).stem
+
+    if len(files) == 1:
+        stem = Path(files[0]).stem
+        offer_text = f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?"
+    else:
+        offer_text = f"\n\n관련 파일이 {len(files)}개 있어요. 드릴까요?"
+
     return {
         **updates,
-        "answer": updates["answer"] + f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?",
-        "file_offer": {"topic": topic, "filename": filename},
+        "answer": updates["answer"] + offer_text,
+        # show_buttons=False: 첫 응답에는 버튼 숨김, '응' 입력 후에 True로 전환
+        "file_offer": {"topic": topic, "files": files, "show_buttons": False},
     }
 
 
@@ -111,22 +166,53 @@ async def _log(db: AsyncSession, student_id: int | None, intent: str) -> None:
 # ── 노드 함수들 ────────────────────────────────────────────────────
 
 async def _pre_check(state: AgentState) -> dict:
-    """파일 확인 응답 및 멀티턴 컨텍스트 처리"""
-    if state.get("pending_file") and _is_confirmation(state["question"]):
-        pf = state["pending_file"]
-        stem = Path(pf["filename"]).stem
-        return {
-            "answer": f"네, {stem}을 보내드릴게요!",
-            "file_download": {
-                "topic": pf["topic"],
-                "filename": pf["filename"],
-                "url": f"/api/files/{pf['topic']}/{pf['filename']}",
-            },
-            "source": "file_download",
-            "source_file": pf["filename"],
-            "topic": pf["topic"],
-            "done": True,
-        }
+    """파일 확인 응답 및 멀티턴 컨텍스트 처리
+
+    pending_file 구조:
+      단일 파일 (구버전 호환): { topic, filename }
+      다중 파일 (신버전):     { topic, files: [str, ...] }
+
+    다중 파일은 프론트 버튼으로 직접 다운로드하므로
+    텍스트 '응' 응답은 파일이 정확히 1개일 때만 처리한다.
+    """
+    pf = state.get("pending_file")
+    if pf:
+        q = state["question"]
+
+        # 1순위: 거절 표현 체크 → 바로 종료
+        if _is_rejection(q):
+            return {
+                "answer": "알겠습니다! 다른 궁금하신 점이 있으시면 언제든지 질문해 주세요. 😊",
+                "done": True,
+            }
+
+        # 2순위: 긍정 표현 체크
+        if _is_confirmation(q):
+            # 단일 파일: 기존 키(filename) 또는 files 리스트 1개짜리
+            filename = pf.get("filename") or (
+                pf["files"][0] if pf.get("files") and len(pf["files"]) == 1 else None
+            )
+            if filename:
+                stem = Path(filename).stem
+                return {
+                    "answer": f"네, {stem} 보내드릴게요!",
+                    "file_download": {
+                        "topic": pf["topic"],
+                        "filename": filename,
+                        "url": f"/api/files/{pf['topic']}/{filename}",
+                    },
+                    "source": "file_download",
+                    "source_file": filename,
+                    "topic": pf["topic"],
+                    "done": True,
+                }
+            # 파일이 2개 이상 → 버튼 선택 화면으로 전환
+            if pf.get("files") and len(pf["files"]) > 1:
+                return {
+                    "answer": "어떤 파일이 필요하신가요? 아래에서 골라주세요!",
+                    "file_offer": {"topic": pf["topic"], "files": pf["files"], "show_buttons": True},
+                    "done": True,
+                }
 
     # 진행 중인 멀티턴 → context type을 intent로 세팅해서 해당 핸들러로 직행
     if state.get("pending_context"):

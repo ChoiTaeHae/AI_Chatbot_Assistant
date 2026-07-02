@@ -35,7 +35,13 @@ export function useChat(lang = 'ko') {
       if (data.file_download) {
         setPendingFile(null)
       } else if (data.file_offer) {
-        setPendingFile(data.file_offer)
+        // show_buttons=true면 버튼이 메시지에 표시되므로 pendingFile 제거
+        // show_buttons=false면 사용자의 '응' 텍스트 응답 처리를 위해 유지
+        if (data.file_offer.show_buttons) {
+          setPendingFile(null)
+        } else {
+          setPendingFile(data.file_offer)
+        }
       } else {
         setPendingFile(null)
       }
@@ -48,9 +54,10 @@ export function useChat(lang = 'ko') {
         role: 'ai',
         content: data.answer,
         time: getTime(),
-        messageId: data.message_id || null,       // chat_message.id (피드백용)
-        fileDownload: data.file_download || null, // { topic, filename, url }
-        mapCard: data.map_card || null,           // { title, address, place_url, latitude, longitude }
+        messageId: data.message_id || null,
+        fileOffer: data.file_offer || null,        // { topic, files: [str] } 파일 선택 버튼용
+        fileDownload: data.file_download || null,  // { topic, filename, url }
+        mapCard: data.map_card || null,
       }
       setMessages((prev) => [...prev, aiMsg])
     } catch (err) {
@@ -67,6 +74,10 @@ export function useChat(lang = 'ko') {
     }
   }, [sessionId, pendingFile, pendingContext, lang])
   
+  function clearPendingFile() {
+    setPendingFile(null)
+  }
+
   function reset() {
     setMessages([])
     setSessionId(null)
@@ -74,5 +85,5 @@ export function useChat(lang = 'ko') {
     setPendingContext(null)
   }
 
-  return { messages, isLoading, sessionId, send, reset }
+  return { messages, isLoading, sessionId, send, reset, clearPendingFile }
 }

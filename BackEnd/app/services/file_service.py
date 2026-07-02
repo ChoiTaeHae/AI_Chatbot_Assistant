@@ -8,16 +8,14 @@ from pathlib import Path
 
 DOCUMENTS_BASE = Path("documents")
 
-from app.core.topics import TOPICS as TOPIC_LABELS, VALID_TOPICS
-
 ALLOWED_EXTENSIONS = {
     ".pdf", ".docx", ".pptx", ".xlsx", ".hwp", ".hwpx",
     ".txt", ".md", ".jpg", ".jpeg", ".png",
 }
 
-# ── Topic 캐시 (DB topic 추가 시 갱신 가능) ──────────────────────
-_topic_labels: dict[str, str] = dict(TOPIC_LABELS)
-_valid_topics: set[str] = set(VALID_TOPICS)
+# ── Topic 캐시 — 서버 시작 시 DB에서 refresh_topic_cache()로 채워짐 ──
+_topic_labels: dict[str, str] = {}
+_valid_topics: set[str] = set()
 
 
 def refresh_topic_cache(labels: dict[str, str]) -> None:
