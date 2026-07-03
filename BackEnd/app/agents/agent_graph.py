@@ -89,10 +89,45 @@ def _is_rejection(text: str) -> bool:
 
 
 
-def _with_file_offer(updates: dict, topic: str) -> dict:
+def _filter_files_by_question(files: list[str], question: str) -> list[str]:
+    """
+    질문에 등장하는 파일명 핵심 키워드를 기준으로 관련 파일만 필터링.
+
+    예: 질문 "자퇴하려면" → "자퇴" 유일 파일만 반환 (휴학/복학 제외)
+    매칭 파일 없으면 전체 반환 (폴백).
+    """
+    if not question or len(files) <= 1:
+        return files
+
+    q_flat = question.replace(" ", "").replace("_", "")
+    matched = []
+
+    for f in files:
+        stem = Path(f).stem.replace(" ", "").replace("_", "")
+        found = False
+        # 파일명의 부분 문자열을 긴 것부터 체크 (2자 이상)
+        for length in range(len(stem), 1, -1):
+            for start in range(len(stem) - length + 1):
+                chunk = stem[start:start + length]
+                if chunk in q_flat:
+                    found = True
+                    break
+            if found:
+                break
+        if found:
+            matched.append(f)
+
+    # 매칭 파일 있으면 필터링된 목록, 없으면 전체 반환
+    return matched if matched else files
+
+
+def _with_file_offer(updates: dict, topic: str, question: str = "") -> dict:
     files = AVAILABLE_FILES.get(topic, [])
     if not files:
         return updates
+
+    # 질문 기반 관련 파일만 필터링
+    files = _filter_files_by_question(files, question)
 
     if len(files) == 1:
         stem = Path(files[0]).stem
@@ -243,7 +278,7 @@ async def _handle_graduation(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "graduation",
-    }, "graduation")
+    }, "graduation", state["question"])
 
 
 async def _handle_scholarship(state: AgentState) -> dict:
@@ -261,7 +296,7 @@ async def _handle_scholarship(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "scholarship",
-    }, metadata.get("topic") or "scholarship")
+    }, metadata.get("topic") or "scholarship", state["question"])
 
 
 async def _handle_rag_general(state: AgentState) -> dict:
@@ -277,7 +312,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or topic,
-    }, topic)
+    }, topic, state["question"])
 
 
 async def _handle_general(state: AgentState) -> dict:
