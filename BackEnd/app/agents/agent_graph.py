@@ -25,6 +25,7 @@ from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata
 from app.services.school.scholarship import answer_scholarship_question
+from app.services.rag_service import rag_service
 from app.services.file_service import AVAILABLE_FILES
 
 _campus_service = CampusService()
@@ -247,6 +248,21 @@ async def _embedding_classify(state: AgentState) -> dict:
             prev_handler = prev_info.get("handler_type", "rag")
             print(f"[Graph] topic 전환 신뢰도 미달 ({score:.3f} < {_TOPIC_SWITCH_CONFIDENCE}) → 이전 topic '{prev_topic}' 유지")
             return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+
+        # 새 topic에 문서가 하나도 없으면 전환 취소 → 이전 topic 유지
+        # (빈 topic 전환 → 검색 0건 → 환각 답변으로 이어지는 함정 방지)
+        if prev_topic and topic_name != prev_topic:
+            try:
+                doc_count = await loop.run_in_executor(
+                    None, rag_service.vector_store.count_by_topic, topic_name
+                )
+                if doc_count == 0:
+                    prev_info = topic_router._proto_vecs.get(prev_topic, {})
+                    prev_handler = prev_info.get("handler_type", "rag")
+                    print(f"[Graph] '{topic_name}' 문서 0개 → 전환 취소, 이전 topic '{prev_topic}' 유지")
+                    return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+            except Exception as e:
+                print(f"[Graph] topic 문서 수 확인 실패 (전환 진행): {e}")
 
         return {"intent": handler_type, "topic": topic_name, "confidence": score}
     except Exception as e:

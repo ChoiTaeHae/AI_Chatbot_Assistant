@@ -117,6 +117,16 @@ async def answer_rag_general_question_with_metadata(
         effective_topic,
     )
 
+    # 검색 결과가 없으면 LLM 호출 스킵 — 근거 없는 답변(환각) 생성 방지
+    if not context:
+        print("[RAG_GENERAL] ⚠️ 검색 결과 0건 → LLM 호출 스킵, 안내 응답 반환")
+        return (
+            "죄송해요, 해당 내용에 대한 자료를 찾지 못했어요. "
+            "조금 더 구체적으로 질문해 주시거나, "
+            "학교 공식 홈페이지(wsu.ac.kr) 또는 담당 부서에 문의해 주세요.",
+            metadata,
+        )
+
     print("[RAG_GENERAL] RAG 검색 완료, LLM 호출")
 
     # LLM에는 이전 대화 맥락이 포함된 질문 전달
