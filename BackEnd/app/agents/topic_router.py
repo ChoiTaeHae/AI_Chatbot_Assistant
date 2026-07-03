@@ -2,7 +2,7 @@
 임베딩 기반 topic 자동 분류기
 
 서버 시작 시 DB에서 topic 목록과 프로토타입 문장을 로드해 벡터화한다.
-route_with_score()는 (topic_name, handler_type, score) 튜플을 반환한다.
+route_with_score()는 (topic_name, handler_type, score, all_scores) 튜플을 반환한다.
   - topic_name: DB Topic.name (Qdrant 필터 및 로그용)
   - handler_type: DB Topic.handler_type (agent_graph 라우팅용)
   - score: 코사인 유사도
@@ -70,33 +70,37 @@ class TopicRouter:
 
         print(f"[TopicRouter] {len(self._proto_vecs)}개 topic, 총 {len(all_sentences)}개 문장 임베딩 완료")
 
-    def route_with_score(self, question: str) -> tuple[str | None, str, float]:
-        """(topic_name, handler_type, score) 반환.
+    def route_with_score(self, question: str) -> tuple[str | None, str, float, dict[str, float]]:
+        """(topic_name, handler_type, score, all_scores) 반환.
 
-        warmup 미완료 또는 매칭 없으면 (None, "general", 0.0) 반환.
+        all_scores: 전체 topic별 유사도 {topic_name: score}
+                    — 이전 topic과의 상대 비교(topic 전환 판단)에 사용
+        warmup 미완료 또는 매칭 없으면 (None, "general", 0.0, {}) 반환.
         """
         if self._proto_vecs is None:
             print("[TopicRouter] warmup 미완료 — general로 fallback")
-            return None, "general", 0.0
+            return None, "general", 0.0, {}
 
         if not self._proto_vecs:
-            return None, "general", 0.0
+            return None, "general", 0.0, {}
 
         q_vec = self.embedding.embed_text(question)
 
         best_name: str | None = None
         best_handler = "general"
         best_score = -1.0
+        all_scores: dict[str, float] = {}
 
         for name, info in self._proto_vecs.items():
             score = _dot(q_vec, info["vec"])
+            all_scores[name] = score
             if score > best_score:
                 best_score = score
                 best_name = name
                 best_handler = info["handler_type"]
 
         print(f"[TopicRouter] 최고 유사도 → {best_name} / {best_handler} ({best_score:.3f})")
-        return best_name, best_handler, best_score
+        return best_name, best_handler, best_score, all_scores
 
     def reload(self, topic_data: list[dict]) -> None:
         """어드민에서 topic 수정 후 라우터 즉시 갱신."""

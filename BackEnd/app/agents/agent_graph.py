@@ -31,7 +31,9 @@ from app.services.file_service import AVAILABLE_FILES
 _campus_service = CampusService()
 
 _HIGH_CONFIDENCE = 0.60
-_TOPIC_SWITCH_CONFIDENCE = 0.75
+# topic 전환 조건: 새 topic 점수가 이전 topic 점수보다 이 값 이상 높아야 전환
+# (절대 임계값 대신 상대 비교 — 애매한 후속 질문은 유지, 명확한 주제 전환은 허용)
+_SWITCH_MARGIN = 0.10
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
@@ -255,10 +257,10 @@ async def _pre_check(state: AgentState) -> dict:
 
 
 async def _embedding_classify(state: AgentState) -> dict:
-    """임베딩 유사도 기반 분류 — (topic_name, handler_type, score) 반환"""
+    """임베딩 유사도 기반 분류 — (topic_name, handler_type, score, all_scores) 사용"""
     loop = asyncio.get_event_loop()
     try:
-        topic_name, handler_type, score = await loop.run_in_executor(
+        topic_name, handler_type, score, all_scores = await loop.run_in_executor(
             None, topic_router.route_with_score, state["question"]
         )
         print(f"[Graph] 임베딩 분류 → topic={topic_name} handler={handler_type} ({score:.3f})")
@@ -273,12 +275,23 @@ async def _embedding_classify(state: AgentState) -> dict:
             print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용")
             return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
 
-        # topic이 바뀌었지만 전환 신뢰도 미달 → 이전 topic 유지
-        if prev_topic and topic_name != prev_topic and score < _TOPIC_SWITCH_CONFIDENCE:
-            prev_info = topic_router._proto_vecs.get(prev_topic, {})
-            prev_handler = prev_info.get("handler_type", "rag")
-            print(f"[Graph] topic 전환 신뢰도 미달 ({score:.3f} < {_TOPIC_SWITCH_CONFIDENCE}) → 이전 topic '{prev_topic}' 유지")
-            return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+        # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환
+        # (절대 점수 기준은 애매한 후속 질문과 명확한 주제 전환을 구분 못 함)
+        prev_score = all_scores.get(prev_topic) if prev_topic else None
+        if prev_topic and topic_name != prev_topic and prev_score is not None:
+            if score - prev_score < _SWITCH_MARGIN:
+                prev_info = topic_router._proto_vecs.get(prev_topic, {})
+                prev_handler = prev_info.get("handler_type", "rag")
+                print(
+                    f"[Graph] topic 전환 우세 미달 (새 {topic_name}={score:.3f} vs "
+                    f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} < {_SWITCH_MARGIN})"
+                    f" → 이전 topic 유지"
+                )
+                return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+            print(
+                f"[Graph] topic 전환 승인 (새 {topic_name}={score:.3f} vs "
+                f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} ≥ {_SWITCH_MARGIN})"
+            )
 
         # 새 topic에 문서가 하나도 없으면 전환 취소 → 이전 topic 유지
         # (빈 topic 전환 → 검색 0건 → 환각 답변으로 이어지는 함정 방지)
