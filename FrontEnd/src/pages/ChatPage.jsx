@@ -21,7 +21,7 @@ const T = {
 
 export default function ChatPage() {
   const [lang, setLang] = useState('ko')
-  const { messages, isLoading, send, reset, clearPendingFile } = useChat(lang)
+  const { messages, isLoading, send, confirmFile, reset, clearPendingFile, pendingFile } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const profileRef = useRef(null)
   const { user, clearUser } = useAuth()
@@ -127,7 +127,14 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 flex flex-col min-h-0">
-          <ChatWindow messages={messages} isLoading={isLoading} lang={lang} onClearPendingFile={clearPendingFile} />
+          <ChatWindow 
+            messages={messages} 
+            isLoading={isLoading} 
+            lang={lang} 
+            onClearPendingFile={clearPendingFile} 
+            pendingFile={pendingFile}
+            onConfirmFile={confirmFile}
+          />
           <ChatInput onSend={send} disabled={isLoading} lang={lang} />
         </div>      
       </div>

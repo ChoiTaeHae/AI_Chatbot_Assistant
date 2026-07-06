@@ -30,9 +30,9 @@ class LlmService:
         print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.model = Llama(
             model_path=settings.MODEL_PATH,
-            n_gpu_layers=15,    # RTX 3070 8GB 기준 (Q8_0 ~7.95GB)
-            n_ctx=8192,         # Llama-3 8B 지원 스펙에 맞춰 여유있게 확장
-            n_batch=512,
+            n_gpu_layers=25,
+            n_ctx=2048,
+            n_batch=256,
             verbose=False,
         )
         print("모델 로딩 완료! (llama-cpp-python, GPU 15레이어)")
@@ -52,6 +52,7 @@ class LlmService:
                 ],
                 max_tokens=max_tokens,
                 temperature=temperature,
+
                 top_p=0.9,
                 repeat_penalty=1.1,
             )
