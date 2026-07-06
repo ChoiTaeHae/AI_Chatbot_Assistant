@@ -1,18 +1,57 @@
 import asyncio
+import math
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
-from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT
+
+# 재작성 드리프트 임계값 — 원문과 재작성의 의미 유사도가 이 값 미만이면
+# 환각(엉뚱한 주제로 변형)으로 보고 원본 질문을 사용한다. (bge-m3 코사인, 튜닝 가능)
+_REWRITE_DRIFT_THRESHOLD = 0.5
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+async def _is_semantic_drift(original: str, rewritten: str) -> bool:
+    """재작성 결과가 원문과 의미상 너무 멀어졌는지(환각) 임베딩 유사도로 판단."""
+    try:
+        loop = asyncio.get_event_loop()
+        vecs = await loop.run_in_executor(
+            None, rag_service.embedding.embed_texts, [original, rewritten]
+        )
+        sim = _cosine(vecs[0], vecs[1])
+        print(f"[RAG_GENERAL] 재작성 의미 유사도={sim:.3f} (임계 {_REWRITE_DRIFT_THRESHOLD})")
+        return sim < _REWRITE_DRIFT_THRESHOLD
+    except Exception as e:
+        # 검사 실패 시 재작성을 막지 않음 (검색 자체를 못하는 것보단 나음)
+        print(f"[RAG_GENERAL] 드리프트 검사 실패(무시): {e}")
+        return False
 
 
 async def _rewrite_query(question: str) -> str:
     """구어체 질문을 검색용 공식 용어로 변환."""
     prompt = QUERY_REWRITE_PROMPT.format(question=question)
-    rewritten = await llm_service.answer(prompt, max_tokens=64)
+    rewritten = await llm_service.answer(
+        prompt,
+        max_tokens=64,
+        system_prompt=KEYWORD_EXTRACTION_SYSTEM_PROMPT,
+        temperature=0.0,   # 결정론적 출력으로 창의적 변형(환각) 억제
+    )
     rewritten = rewritten.strip().splitlines()[0].strip()
     # LLM이 "입력:" 접두사를 그대로 출력하거나 원본과 동일한 경우 원본 사용
     if rewritten.startswith("입력:") or rewritten == question:
         print(f"[RAG_GENERAL] 질문 재작성 실패 → 원본 사용: '{question}'")
+        return question
+    # 드리프트 가드: 재작성이 원문과 의미가 너무 멀어지면(예: 공결→전과) 원본 사용
+    if await _is_semantic_drift(question, rewritten):
+        print(f"[RAG_GENERAL] 재작성 드리프트 감지 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
         return question
     print(f"[RAG_GENERAL] 질문 재작성: '{question}' → '{rewritten}'")
     return rewritten
@@ -89,6 +128,9 @@ async def answer_rag_general_question_with_metadata(
         search_query,
         effective_topic,
     )
+
+    # 파인튜닝 데이터용: 실제로 재작성된 경우에만 기록 (원본과 같으면 no-op이므로 None)
+    metadata["rewritten_query"] = search_query if search_query != question else None
 
     print("[RAG_GENERAL] RAG 검색 완료, LLM 호출")
 

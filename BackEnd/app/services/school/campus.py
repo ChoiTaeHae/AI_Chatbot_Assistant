@@ -10,6 +10,7 @@ from app.core.Database import AsyncSessionLocal
 from app.core.config import settings
 from app.models.DB_Table import Building, Room, BuildingContact, Office
 from app.services.llm_service import llm_service
+from app.prompts import KEYWORD_EXTRACTION_SYSTEM_PROMPT
 
 
 KAKAO_KEYWORD_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
@@ -131,7 +132,9 @@ async def _extract_location_keyword(question: str) -> str | None:
     )
 
     try:
-        keyword = await llm_service.answer(prompt)
+        keyword = await llm_service.answer(
+            prompt, max_tokens=32, system_prompt=KEYWORD_EXTRACTION_SYSTEM_PROMPT
+        )
     except Exception as e:
         print(f"[LOCATION] 키워드 추출 실패: {e}")
         return None

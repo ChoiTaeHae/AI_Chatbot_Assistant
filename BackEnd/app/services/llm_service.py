@@ -37,7 +37,7 @@ class LlmService:
         )
         print("모델 로딩 완료! (llama-cpp-python, GPU 15레이어)")
 
-    def _generate(self, question: str, max_tokens: int = 512) -> str:
+    def _generate(self, question: str, max_tokens: int = 512, system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str:
         if settings.DEV_MODE:
             return f"[DEV_MODE] 질문 수신: {question}"
 
@@ -47,11 +47,12 @@ class LlmService:
 
             response = self.model.create_chat_completion(
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": question},
                 ],
                 max_tokens=max_tokens,
-                temperature=0.3,
+                temperature=temperature,
+
                 top_p=0.9,
                 repeat_penalty=1.1,
             )
@@ -65,9 +66,9 @@ class LlmService:
             print(f"[LLM] 추론 오류: {type(e).__name__}: {e}")
             raise
 
-    async def answer(self, question: str, max_tokens: int = 512) -> str: #답변 최대 토큰수 지정
+    async def answer(self, question: str, max_tokens: int = 512, system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str: #답변 최대 토큰수 지정
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_executor, self._generate, question, max_tokens)
+        return await loop.run_in_executor(_executor, self._generate, question, max_tokens, system_prompt, temperature)
 
 
 

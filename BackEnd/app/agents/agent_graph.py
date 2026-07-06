@@ -255,6 +255,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or topic,
+        "rewritten_query": metadata.get("rewritten_query"),
     }, topic, state["question"])
 
 
@@ -356,6 +357,7 @@ class AgentResult:
     topic: str | None = None
     source: str | None = None
     source_file: str | None = None
+    rewritten_query: str | None = None
 
 
 class AgentGraph:
@@ -388,6 +390,7 @@ class AgentGraph:
             "source": None,
             "source_file": None,
             "topic": None,
+            "rewritten_query": None,
             "done": False,
         }
 
@@ -403,6 +406,7 @@ class AgentGraph:
             topic=result.get("topic"),
             source=result.get("source"),
             source_file=result.get("source_file"),
+            rewritten_query=result.get("rewritten_query"),
         )
 
 
