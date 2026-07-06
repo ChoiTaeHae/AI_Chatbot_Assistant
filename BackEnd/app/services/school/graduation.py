@@ -2,7 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, distinct
 
 from app.models.DB_Table import (
     Student, Department, RequirementSet, RequirementRule,
@@ -219,14 +219,24 @@ class GraduationService:
         return req_set, rule_result.scalar_one_or_none()
 
     async def _get_earned_credits(self, db: AsyncSession, student_id: int) -> dict:
-        """이수 학점 카테고리별 합산"""
-        result = await db.execute(
-            select(Course.category, func.sum(Course.credits))
-            .join(StudentCourse, Course.code == StudentCourse.course_code)
+        """이수 학점 카테고리별 합산
+
+        재수강 대응: student_course에 (student_id, course_code) 유니크 제약이 없어
+        같은 과목이 여러 행일 수 있으므로, 통과한 과목 코드를 중복 제거(distinct)한 뒤
+        과목당 학점을 한 번만 합산한다. (재수강 과목 학점 이중 계산 방지)
+        """
+        # 학생이 통과한 과목 코드 목록 (중복 제거)
+        passed_codes = (
+            select(distinct(StudentCourse.course_code))
             .where(
                 StudentCourse.student_id == student_id,
-                StudentCourse.is_passed == True
+                StudentCourse.is_passed == True,
             )
+            .scalar_subquery()
+        )
+        result = await db.execute(
+            select(Course.category, func.sum(Course.credits))
+            .where(Course.code.in_(passed_codes))
             .group_by(Course.category)
         )
         return {row[0]: float(row[1]) for row in result.all()}
@@ -294,12 +304,14 @@ class GraduationService:
             insufficient_details.append(f"총학점 {rule.min_credits_total - total_earned}학점 부족")
 
         # 영어 인증 확인
-        if not await self._has_english_cert(db, student_id):
+        english_cert_passed = await self._has_english_cert(db, student_id)
+        if not english_cert_passed:
             is_graduated = False
             insufficient_details.append("영어 공인성적 미취득")
 
         return {
             "is_graduated":       is_graduated,
+            "english_cert_passed": english_cert_passed,
             "dept_name":          dept_name,
             "earned_major":       earned_major,
             "req_major":          rule.min_credits_major,
@@ -320,12 +332,14 @@ class GraduationService:
         """DB 조회 결과를 LLM 컨텍스트 문자열로 변환"""
         status = "졸업 가능" if report["is_graduated"] else "졸업 불가"
 
-        major_short  = report['req_major'] - report['earned_major']
-        liberal_short = report['req_liberal'] - report['earned_liberal']
-        general_short = report['req_general'] - report['earned_general']
-        total_short  = report['total_required'] - report['total_earned']
+        # 초과 이수 시 음수가 나오지 않도록 0으로 클램프
+        major_short   = max(0, report['req_major'] - report['earned_major'])
+        liberal_short = max(0, report['req_liberal'] - report['earned_liberal'])
+        general_short = max(0, report['req_general'] - report['earned_general'])
+        total_short   = max(0, report['total_required'] - report['total_earned'])
 
         dept_name = report.get("dept_name", "")
+        english_status = "취득 완료" if report.get("english_cert_passed") else "미취득"
 
         return (
             f"[학생 졸업요건 조회 결과 - 아래 수치는 정확한 DB 데이터임]\n"
@@ -335,7 +349,7 @@ class GraduationService:
             f"교양 학점: 현재 {report['earned_liberal']}학점 이수, 졸업에 필요한 학점 {report['req_liberal']}학점, 아직 부족한 학점 {liberal_short}학점\n"
             f"일반 학점: 현재 {report['earned_general']}학점 이수, 졸업에 필요한 학점 {report['req_general']}학점, 아직 부족한 학점 {general_short}학점\n"
             f"총 이수 학점: 현재 {report['total_earned']}학점 이수, 졸업에 필요한 총 학점 {report['total_required']}학점, 아직 부족한 학점 {total_short}학점\n"
-            f"영어 공인성적: {'취득 완료' if not report['insufficient_details'] or '영어 공인성적 미취득' not in report['insufficient_details'] else '미취득'}\n"
+            f"영어 공인성적: {english_status}\n"
         )
 
     def _build_db_prompt(self, question: str, context: str) -> str:

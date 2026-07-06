@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
+from app.prompts import SCHOLARSHIP_SYSTEM_PROMPT
 
 MAX_CONTEXT_LENGTH = 1000
 
@@ -84,7 +85,7 @@ async def _rag_and_llm(question: str, gpa: float, income: int) -> tuple[str, dic
         f"위 규칙을 지켜 이 학생이 받을 수 있는 장학금을 알려주세요.\n"
         f"질문: {question}\n답변:"
     )
-    return await llm_service.answer(prompt), metadata
+    return await llm_service.answer(prompt, system_prompt=SCHOLARSHIP_SYSTEM_PROMPT), metadata
 
 
 async def answer_scholarship_question(
@@ -169,4 +170,4 @@ async def answer_scholarship_question(
     context, metadata = search_data
     print("[SCHOLARSHIP] RAG 검색 완료, LLM 호출")
     prompt = RAG_SCHOLARSHIP_PROMPT.format(context=context, question=question)
-    return await llm_service.answer(prompt), None, metadata
+    return await llm_service.answer(prompt, system_prompt=SCHOLARSHIP_SYSTEM_PROMPT), None, metadata
