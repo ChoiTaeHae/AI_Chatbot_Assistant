@@ -50,6 +50,7 @@ class ChatService:
             db=db,
             pending_file=request.pending_file,
             pending_context=request.pending_context,
+            file_confirm=request.file_confirm,
         )
 
         asst_msg = ChatMessage(
