@@ -10,6 +10,7 @@ class AgentState(TypedDict):
     pending_file: dict | None
     pending_context: dict | None
     prev_context: dict | None        # 이전 대화 맥락 {"prev_question", "prev_answer", "prev_topic"}
+    file_confirm: bool | None    # 프론트 예/아니오 버튼값 (True/False/None)
 
     # 분류
     intent: str | None       # campus / graduation / rag_general / general

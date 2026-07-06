@@ -6,6 +6,7 @@ class ChatRequest(BaseModel):
     session_id: int | None = None
     pending_file: dict | None = None     # { topic, filename } 파일 제안에 대한 응답 시 프론트가 전달
     pending_context: dict | None = None  # { type: "scholarship" } 멀티턴 대화 상태
+    file_confirm: bool | None = None     # 프론트 예/아니오 버튼: True=예, False=아니오, None=일반 질문
 
 
 class ChatResponse(BaseModel):

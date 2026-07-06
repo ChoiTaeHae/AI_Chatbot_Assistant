@@ -9,7 +9,7 @@ const T = {
   zh: { greeting: '你好！有什么可以帮您？👋',                subtitle: '请输入与学业相관的问题，AI将为您解答。' },
 }
 
-export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile }) {
+export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -31,8 +31,15 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
         </div>
 
         {/* 메시지 목록 */}
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onClearPendingFile={onClearPendingFile} />
+        {messages.map((msg, index) => (
+          <MessageBubble 
+            key={msg.id} 
+            message={msg} 
+            onClearPendingFile={onClearPendingFile} 
+            pendingFile={pendingFile}
+            onConfirmFile={onConfirmFile}
+            isLatest={index === messages.length - 1}
+          />
         ))}
 
         {/* 로딩 */}

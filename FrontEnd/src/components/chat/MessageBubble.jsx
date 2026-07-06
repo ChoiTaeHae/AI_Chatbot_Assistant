@@ -248,7 +248,7 @@ function MessageActions({ messageId, content }) {
   )
 }
 
-export default function MessageBubble({ message, onClearPendingFile }) {
+export default function MessageBubble({ message, onClearPendingFile, pendingFile, onConfirmFile, isLatest }) {
   const isUser = message.role === 'user'
   const [downloadedFiles, setDownloadedFiles] = useState(new Set())
 
@@ -347,16 +347,6 @@ export default function MessageBubble({ message, onClearPendingFile }) {
               </div>
 
               {/* 지도 (좌표 있을 때 — OpenStreetMap 무료 임베드) */}
-              {message.mapCard.latitude && message.mapCard.longitude ? (
-                <div style={{ width: '100%', height: '200px', overflow: 'hidden' }}>
-                  <iframe
-                    title={message.mapCard.title}
-                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${message.mapCard.longitude - 0.003},${message.mapCard.latitude - 0.003},${message.mapCard.longitude + 0.003},${message.mapCard.latitude + 0.003}&layer=mapnik&marker=${message.mapCard.latitude},${message.mapCard.longitude}`}
-                    style={{ width: '100%', height: '260px', border: 'none', display: 'block' }}
-                  />
-                </div>
-              ) : null}
-
               {/* 카카오맵 링크 */}
               {message.mapCard.place_url && (
                 <a
@@ -396,12 +386,29 @@ export default function MessageBubble({ message, onClearPendingFile }) {
             </div>
           )}
 
+          {/* 파일 전송 확인 버튼 (show_buttons=false 인 단일 파일 제안, 대기 중일 때만 표시) */}
+          {message.fileOffer && !message.fileOffer.show_buttons && isLatest && pendingFile && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => onConfirmFile(pendingFile, true)}
+                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-[#005956] text-[#005956] bg-[#f0f9f8] hover:bg-[#e2f1f0]"
+              >
+                예
+              </button>
+              <button
+                onClick={() => onConfirmFile(pendingFile, false)}
+                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-slate-300 text-slate-600 bg-slate-50 hover:bg-slate-100"
+              >
+                아니요
+              </button>
+              </div>
+           )}
+
           {/* 파일 선택 버튼 (사용자가 '응' 확인 후에만 표시) */}
           {message.fileOffer && message.fileOffer.show_buttons && message.fileOffer.files && message.fileOffer.files.length > 0 && (
             <div style={{ marginTop: '14px' }}>
               <p className="text-xs text-slate-400" style={{ marginBottom: '8px' }}>원하시는 파일을 선택해 주세요.</p>
               <div className="flex flex-wrap gap-2">
-                {/* 개별 파일 버튼 */}
                 {message.fileOffer.files.map((filename) => {
                   const stem = filename.replace(/\.[^/.]+$/, '')
                   const isDone = downloadedFiles.has(filename)

@@ -70,6 +70,7 @@ class ChatService:
             pending_file=request.pending_file,
             pending_context=request.pending_context,
             prev_context=prev_context,
+            file_confirm=request.file_confirm,
         )
 
         # RAG 경로에서 질문이 재작성됐으면 원본 질문(user_msg) 행에 기록 (파인튜닝 데이터용)

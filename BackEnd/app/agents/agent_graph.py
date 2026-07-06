@@ -39,60 +39,8 @@ _SWITCH_MARGIN = 0.15
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
-# 파일 제안 관련 긍정 표현 키워드
-# ⚠️ 단어 단위 매칭을 하므로 부분 문자열에는 걸리지 않음
-POSITIVE_KEYWORDS = {
-    # 기본 긍정
-    "응", "네", "예", "응응", "네네", "웅", "웅웅", "넵", "넹", "ㅇㅇ",
-    # 파일 요청
-    "줘", "줘요", "줘봐", "내놔", "주세요", "보내줘", "보내줘요", "보내주세요", "부탁해", "부탁해요",
-    # 긍정 동의
-    "좋아", "좋아요", "알겠어", "알겠습니다", "그래", "그래요", "그럼", "그럼요",
-    "당연", "물론", "당근", "맞아", "맞아요",
-    # 영어/인터넷
-    "오케", "오케이", "ok", "OK", "Ok", "ㅇㅋ",
-    # 필요 표현
-    "원해요", "필요해요", "필요합니다", "필요해", "원해",
-}
-
-# 파일 거절 키워드
-NEGATIVE_KEYWORDS = {
-    # 명확한 부정
-    "아니", "아니요", "아니다", "아니에요", "아닙니다",
-    "no", "No", "NO", "ㄴㄴ",
-    # 거절 표현
-    "됐어", "됐습니다", "안해도돼", "안할래",
-    "싫어", "싫어요", "싫습니다", "별로", "별로야",
-    "괜찮아", "괜찮아요", "괜찮습니다",
-    "필요없어", "필요없어요", "필요없습니다",
-    "안받을게", "안받아도돼", "그만", "그만해요", "패스",
-}
-
-QUESTION_KEYWORDS = ["어떻게", "언제", "뭐야", "뭔데", "왜", "어디", "?", "？", "알려", "설명", "궁금", "뭐가", "뭐레", "가능해", "어떤"]
-
-
 def _is_campus_question(q: str) -> bool:
     return bool(_BUILDING_CODE_RE.search(q))
-
-
-def _is_confirmation(text: str) -> bool:
-    """단어 단위 매칭으로 긍정 표현 확인.
-    '하고' 안의 '고'처럼 부분 문자열로는 걸리지 않는다.
-    """
-    # 질문 표현이 있으면 새 질문으로 판단
-    if any(kw in text for kw in QUESTION_KEYWORDS):
-        return False
-    # 공백 기준 단어 분리 후 정확히 일치하는 키워드만 체크
-    tokens = set(text.split())
-    return bool(tokens & POSITIVE_KEYWORDS)
-
-
-def _is_rejection(text: str) -> bool:
-    """단어 단위 매칭으로 거절 표현 확인."""
-    tokens = set(text.split())
-    return bool(tokens & NEGATIVE_KEYWORDS)
-
-
 
 
 def _filter_files_by_question(files: list[str], question: str) -> list[str]:
@@ -201,29 +149,24 @@ async def _log(db: AsyncSession, student_id: int | None, intent: str) -> None:
 async def _pre_check(state: AgentState) -> dict:
     """파일 확인 응답 및 멀티턴 컨텍스트 처리
 
-    pending_file 구조:
-      단일 파일 (구버전 호환): { topic, filename }
-      다중 파일 (신버전):     { topic, files: [str, ...] }
-
-    다중 파일은 프론트 버튼으로 직접 다운로드하므로
-    텍스트 '응' 응답은 파일이 정확히 1개일 때만 처리한다.
+    file_confirm: 프론트 예/아니오 버튼에서 전달된 명시적 값
+      True  → 파일 전송 (또는 파일 선택 버튼 표시)
+      False → 거절 메시지
+      None  → 파일 응답이 아님, 일반 질문으로 처리
     """
     pf = state.get("pending_file")
+    file_confirm = state.get("file_confirm")  # bool | None
 
     # pending_context(팀원 멀티턴)가 활성 중이면 파일 체크를 건너뜀
-    # → 팀원 로직이 우선순위를 가짐
-    if pf and not state.get("pending_context"):
-        q = state["question"]
+    if pf and file_confirm is not None and not state.get("pending_context"):
 
-        # 1순위: 거절 표현 체크 → 바로 종료
-        if _is_rejection(q):
+        if file_confirm is False:  # 아니오 버튼
             return {
                 "answer": "알겠습니다! 다른 궁금하신 점이 있으시면 언제든지 질문해 주세요. 😊",
                 "done": True,
             }
 
-        # 2순위: 긍정 표현 체크
-        if _is_confirmation(q):
+        if file_confirm is True:  # 예 버튼
             # 단일 파일: 기존 키(filename) 또는 files 리스트 1개짜리
             filename = pf.get("filename") or (
                 pf["files"][0] if pf.get("files") and len(pf["files"]) == 1 else None
@@ -242,7 +185,7 @@ async def _pre_check(state: AgentState) -> dict:
                     "topic": pf["topic"],
                     "done": True,
                 }
-            # 파일이 2개 이상 → 버튼 선택 화면으로 전환
+            # 파일이 2개 이상 → 파일 선택 버튼 표시
             if pf.get("files") and len(pf["files"]) > 1:
                 return {
                     "answer": "어떤 파일이 필요하신가요? 아래에서 골라주세요!",
@@ -516,6 +459,7 @@ class AgentGraph:
         pending_file: dict | None = None,
         pending_context: dict | None = None,
         prev_context: dict | None = None,
+        file_confirm: bool | None = None,
     ) -> AgentResult:
         initial: AgentState = {
             "question": question,
@@ -524,6 +468,7 @@ class AgentGraph:
             "pending_file": pending_file,
             "pending_context": pending_context,
             "prev_context": prev_context,
+            "file_confirm": file_confirm,
             "intent": None,
             "confidence": 0.0,
             "answer": None,
