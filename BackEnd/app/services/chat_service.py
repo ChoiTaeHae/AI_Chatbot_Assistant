@@ -52,6 +52,9 @@ class ChatService:
             pending_context=request.pending_context,
         )
 
+        # RAG 경로에서 질문이 재작성됐으면 원본 질문(user_msg) 행에 기록 (파인튜닝 데이터용)
+        user_msg.rewritten_query = getattr(result, "rewritten_query", None)
+
         asst_msg = ChatMessage(
             session_id=session.id,
             student_id=current_user.id,

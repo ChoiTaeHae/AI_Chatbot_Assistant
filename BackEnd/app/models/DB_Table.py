@@ -204,6 +204,7 @@ class ChatMessage(Base):
     topic       = Column(String(50), nullable=True)
     source      = Column(String(255), nullable=True)
     source_file = Column(String(255), nullable=True)
+    rewritten_query = Column(Text, nullable=True)      # user 메시지의 검색용 재작성 질문 (파인튜닝 데이터용, assistant면 null)
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
