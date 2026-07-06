@@ -33,8 +33,36 @@ _HIGH_CONFIDENCE = 0.60
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
-POSITIVE_KEYWORDS = ["응", "네", "예", "ㅇㅇ", "보내줘", "보내", "좋아", "알겠어", "그래", "응응", "넹", "넵", "주세요"]
-QUESTION_KEYWORDS = ["어떻게", "언제", "뭐야", "뭔데", "왜", "어디", "?", "？", "알려", "설명"]
+# 파일 제안 관련 긍정 표현 키워드
+# ⚠️ 단어 단위 매칭을 하므로 부분 문자열에는 걸리지 않음
+POSITIVE_KEYWORDS = {
+    # 기본 긍정
+    "응", "네", "예", "응응", "네네", "웅", "웅웅", "넵", "넹", "ㅇㅇ",
+    # 파일 요청
+    "줘", "줘요", "줘봐", "내놔", "주세요", "보내줘", "보내줘요", "보내주세요", "부탁해", "부탁해요",
+    # 긍정 동의
+    "좋아", "좋아요", "알겠어", "알겠습니다", "그래", "그래요", "그럼", "그럼요",
+    "당연", "물론", "당근", "맞아", "맞아요",
+    # 영어/인터넷
+    "오케", "오케이", "ok", "OK", "Ok", "ㅇㅋ",
+    # 필요 표현
+    "원해요", "필요해요", "필요합니다", "필요해", "원해",
+}
+
+# 파일 거절 키워드
+NEGATIVE_KEYWORDS = {
+    # 명확한 부정
+    "아니", "아니요", "아니다", "아니에요", "아닙니다",
+    "no", "No", "NO", "ㄴㄴ",
+    # 거절 표현
+    "됐어", "됐습니다", "안해도돼", "안할래",
+    "싫어", "싫어요", "싫습니다", "별로", "별로야",
+    "괜찮아", "괜찮아요", "괜찮습니다",
+    "필요없어", "필요없어요", "필요없습니다",
+    "안받을게", "안받아도돼", "그만", "그만해요", "패스",
+}
+
+QUESTION_KEYWORDS = ["어떻게", "언제", "뭐야", "뭔데", "왜", "어디", "?", "？", "알려", "설명", "궁금", "뭐가", "뭐레", "가능해", "어떤"]
 
 
 def _is_campus_question(q: str) -> bool:
@@ -42,21 +70,76 @@ def _is_campus_question(q: str) -> bool:
 
 
 def _is_confirmation(text: str) -> bool:
+    """단어 단위 매칭으로 긍정 표현 확인.
+    '하고' 안의 '고'처럼 부분 문자열로는 걸리지 않는다.
+    """
+    # 질문 표현이 있으면 새 질문으로 판단
     if any(kw in text for kw in QUESTION_KEYWORDS):
         return False
-    return any(kw in text for kw in POSITIVE_KEYWORDS)
+    # 공백 기준 단어 분리 후 정확히 일치하는 키워드만 체크
+    tokens = set(text.split())
+    return bool(tokens & POSITIVE_KEYWORDS)
 
 
-def _with_file_offer(updates: dict, topic: str) -> dict:
+def _is_rejection(text: str) -> bool:
+    """단어 단위 매칭으로 거절 표현 확인."""
+    tokens = set(text.split())
+    return bool(tokens & NEGATIVE_KEYWORDS)
+
+
+
+
+def _filter_files_by_question(files: list[str], question: str) -> list[str]:
+    """
+    질문에 등장하는 파일명 핵심 키워드를 기준으로 관련 파일만 필터링.
+
+    예: 질문 "자퇴하려면" → "자퇴" 유일 파일만 반환 (휴학/복학 제외)
+    매칭 파일 없으면 전체 반환 (폴백).
+    """
+    if not question or len(files) <= 1:
+        return files
+
+    q_flat = question.replace(" ", "").replace("_", "")
+    matched = []
+
+    for f in files:
+        stem = Path(f).stem.replace(" ", "").replace("_", "")
+        found = False
+        # 파일명의 부분 문자열을 긴 것부터 체크 (2자 이상)
+        for length in range(len(stem), 1, -1):
+            for start in range(len(stem) - length + 1):
+                chunk = stem[start:start + length]
+                if chunk in q_flat:
+                    found = True
+                    break
+            if found:
+                break
+        if found:
+            matched.append(f)
+
+    # 매칭 파일 있으면 필터링된 목록, 없으면 전체 반환
+    return matched if matched else files
+
+
+def _with_file_offer(updates: dict, topic: str, question: str = "") -> dict:
     files = AVAILABLE_FILES.get(topic, [])
     if not files:
         return updates
-    filename = files[0]
-    stem = Path(filename).stem
+
+    # 질문 기반 관련 파일만 필터링
+    files = _filter_files_by_question(files, question)
+
+    if len(files) == 1:
+        stem = Path(files[0]).stem
+        offer_text = f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?"
+    else:
+        offer_text = f"\n\n관련 파일이 {len(files)}개 있어요. 드릴까요?"
+
     return {
         **updates,
-        "answer": updates["answer"] + f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?",
-        "file_offer": {"topic": topic, "filename": filename},
+        "answer": updates["answer"] + offer_text,
+        # show_buttons=False: 첫 응답에는 버튼 숨김, '응' 입력 후에 True로 전환
+        "file_offer": {"topic": topic, "files": files, "show_buttons": False},
     }
 
 
@@ -90,22 +173,56 @@ async def _log(db: AsyncSession, student_id: int | None, intent: str) -> None:
 # ── 노드 함수들 ────────────────────────────────────────────────────
 
 async def _pre_check(state: AgentState) -> dict:
-    """파일 확인 응답 및 멀티턴 컨텍스트 처리"""
-    if state.get("pending_file") and _is_confirmation(state["question"]):
-        pf = state["pending_file"]
-        stem = Path(pf["filename"]).stem
-        return {
-            "answer": f"네, {stem}을 보내드릴게요!",
-            "file_download": {
-                "topic": pf["topic"],
-                "filename": pf["filename"],
-                "url": f"/api/files/{pf['topic']}/{pf['filename']}",
-            },
-            "source": "file_download",
-            "source_file": pf["filename"],
-            "topic": pf["topic"],
-            "done": True,
-        }
+    """파일 확인 응답 및 멀티턴 컨텍스트 처리
+
+    pending_file 구조:
+      단일 파일 (구버전 호환): { topic, filename }
+      다중 파일 (신버전):     { topic, files: [str, ...] }
+
+    다중 파일은 프론트 버튼으로 직접 다운로드하므로
+    텍스트 '응' 응답은 파일이 정확히 1개일 때만 처리한다.
+    """
+    pf = state.get("pending_file")
+
+    # pending_context(팀원 멀티턴)가 활성 중이면 파일 체크를 건너뜀
+    # → 팀원 로직이 우선순위를 가짐
+    if pf and not state.get("pending_context"):
+        q = state["question"]
+
+        # 1순위: 거절 표현 체크 → 바로 종료
+        if _is_rejection(q):
+            return {
+                "answer": "알겠습니다! 다른 궁금하신 점이 있으시면 언제든지 질문해 주세요. 😊",
+                "done": True,
+            }
+
+        # 2순위: 긍정 표현 체크
+        if _is_confirmation(q):
+            # 단일 파일: 기존 키(filename) 또는 files 리스트 1개짜리
+            filename = pf.get("filename") or (
+                pf["files"][0] if pf.get("files") and len(pf["files"]) == 1 else None
+            )
+            if filename:
+                stem = Path(filename).stem
+                return {
+                    "answer": f"네, {stem} 보내드릴게요!",
+                    "file_download": {
+                        "topic": pf["topic"],
+                        "filename": filename,
+                        "url": f"/api/files/{pf['topic']}/{filename}",
+                    },
+                    "source": "file_download",
+                    "source_file": filename,
+                    "topic": pf["topic"],
+                    "done": True,
+                }
+            # 파일이 2개 이상 → 버튼 선택 화면으로 전환
+            if pf.get("files") and len(pf["files"]) > 1:
+                return {
+                    "answer": "어떤 파일이 필요하신가요? 아래에서 골라주세요!",
+                    "file_offer": {"topic": pf["topic"], "files": pf["files"], "show_buttons": True},
+                    "done": True,
+                }
 
     # 진행 중인 멀티턴 → context type을 intent로 세팅해서 해당 핸들러로 직행
     if state.get("pending_context"):
@@ -161,7 +278,7 @@ async def _handle_graduation(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "graduation",
-    }, "graduation")
+    }, "graduation", state["question"])
 
 
 async def _handle_scholarship(state: AgentState) -> dict:
@@ -173,13 +290,13 @@ async def _handle_scholarship(state: AgentState) -> dict:
         pending_context=state.get("pending_context"),
     )
     answer = _append_contact_info(answer, metadata)
-    return {
+    return _with_file_offer({
         "answer": answer,
         "next_pending_context": next_ctx,
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "scholarship",
-    }
+    }, metadata.get("topic") or "scholarship", state["question"])
 
 
 async def _handle_rag_general(state: AgentState) -> dict:
@@ -195,7 +312,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or topic,
-    }, topic)
+    }, topic, state["question"])
 
 
 async def _handle_general(state: AgentState) -> dict:
