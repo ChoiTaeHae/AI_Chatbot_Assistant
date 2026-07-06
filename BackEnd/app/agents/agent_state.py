@@ -24,4 +24,5 @@ class AgentState(TypedDict):
     source: str | None
     source_file: str | None
     topic: str | None
+    rewritten_query: str | None  # RAG 경로에서 생성된 검색용 재작성 질문 (파인튜닝 로깅용)
     done: bool               # pre_check에서 이미 처리 완료된 경우
