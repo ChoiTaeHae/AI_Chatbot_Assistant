@@ -317,21 +317,11 @@ async def _embedding_classify(state: AgentState) -> dict:
 
 
 
-_KEYWORD_TOPIC_MAP: list[tuple[list[str], str]] = [
-    (["공결", "출석인정", "출석 인정"], "absence"),
-]
-
-
 async def _keyword_classify(state: AgentState) -> dict:
-    """건물 코드 정규식 기반 campus 분류, 명확한 키워드 → topic 직행 (0ms)"""
-    q = state["question"]
-    if _is_campus_question(q):
+    """건물 코드 정규식 기반 campus 분류 (0ms)"""
+    if _is_campus_question(state["question"]):
         print("[Graph] 키워드 분류 → campus")
         return {"intent": "campus"}
-    for keywords, topic in _KEYWORD_TOPIC_MAP:
-        if any(kw in q for kw in keywords):
-            print(f"[Graph] 키워드 분류 → {topic} ({[kw for kw in keywords if kw in q]})")
-            return {"intent": "rag", "topic": topic}
     return {"intent": None}
 
 
@@ -442,12 +432,7 @@ def _route_pre_check(state: AgentState) -> str:
 
 
 def _route_keyword(state: AgentState) -> str:
-    intent = state.get("intent")
-    if intent == "campus":
-        return "campus"
-    if intent == "rag":
-        return "rag"
-    return "embed"
+    return "campus" if state.get("intent") == "campus" else "embed"
 
 
 def _route_embedding(state: AgentState) -> str:
@@ -479,7 +464,6 @@ def _build_graph():
     g.add_conditional_edges("pre_check", _route_pre_check, _HANDLER_MAP)
     g.add_conditional_edges("keyword_classify", _route_keyword, {
         "campus": "handle_campus",
-        "rag":    "handle_rag_general",
         "embed":  "embedding_classify",
     })
     g.add_conditional_edges("embedding_classify", _route_embedding, {
