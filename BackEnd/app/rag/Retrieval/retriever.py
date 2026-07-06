@@ -6,7 +6,7 @@ from app.rag.Retrieval.qdrant_store import (
 from app.rag.Retrieval.Reranker import BgeReranker
 
 # reranker score 임계값 - ko-reranker exp_normalize 방식 (합=1, 30개 평균≈0.033)
-SCORE_THRESHOLD = 0.05
+SCORE_THRESHOLD = 0.08
 # 최대 반환 청크 수 - LLM 컨텍스트 초과 방지
 MAX_CHUNKS = 10
 
@@ -147,7 +147,7 @@ class Retriever:
         
         # 임계값 이상인 게 하나도 없으면 상위 3개 강제 반환
         # (청크가 짧아 리랭커 점수가 낮게 나오는 경우 커버리지 확보)
-        MIN_FALLBACK = 3
+        MIN_FALLBACK = 7
         if len(filtered_results) < MIN_FALLBACK and reranked_results:
             fallback = reranked_results[:MIN_FALLBACK]
             added = [r for r in fallback if r not in filtered_results]

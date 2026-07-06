@@ -105,6 +105,7 @@ def _search_rag(question: str, topic: str | None) -> tuple[str, dict]:
 async def answer_rag_general_question_with_metadata(
     question: str,
     topic: str | None = None,
+    context_question: str | None = None,
 ) -> tuple[str, dict]:
     """RAG 검색 후 LLM 답변 생성.
 
@@ -132,22 +133,48 @@ async def answer_rag_general_question_with_metadata(
     # 파인튜닝 데이터용: 실제로 재작성된 경우에만 기록 (원본과 같으면 no-op이므로 None)
     metadata["rewritten_query"] = search_query if search_query != question else None
 
+    # 검색 결과가 없으면 LLM 호출 스킵 — 근거 없는 답변(환각) 생성 방지
+    if not context:
+        print("[RAG_GENERAL] ⚠️ 검색 결과 0건 → LLM 호출 스킵, 안내 응답 반환")
+        return (
+            "죄송해요, 해당 내용에 대한 자료를 찾지 못했어요. "
+            "조금 더 구체적으로 질문해 주시거나, "
+            "학교 공식 홈페이지(wsu.ac.kr) 또는 담당 부서에 문의해 주세요.",
+            metadata,
+        )
+
+    # LLM에는 이전 대화 맥락(이전 주제 힌트)이 포함된 질문 전달
+    llm_question = context_question if context_question is not None else question
+
     print("[RAG_GENERAL] RAG 검색 완료, LLM 호출")
 
-    is_club = "동아리" in question and effective_topic == "student_support"
+    is_club = "동아리" in llm_question and effective_topic == "student_support"
     _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
-    is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
+    is_club_list = is_club and any(kw in llm_question for kw in _LIST_KEYWORDS)
     print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, topic={effective_topic}")
 
     if is_club_list:
         prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
         answer = await llm_service.answer(prompt, max_tokens=2048)
     elif is_club:
-        prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=question)
+        prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
         answer = await llm_service.answer(prompt, max_tokens=1024)
     else:
-        prompt = RAG_GENERAL_PROMPT.format(context=context, question=question)
+        prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
         answer = await llm_service.answer(prompt)
+
+    # 모델이 프롬프트 레이블을 이어서 출력하는 경우 가장 앞에 나온 위치에서 잘라내기
+    _STOP_MARKERS = ["[참고 문서]", "[사용자 질문]", "[답변]", "[이전 질문]", "[이전 답변]"]
+    earliest_pos = len(answer)
+    earliest_marker = None
+    for marker in _STOP_MARKERS:
+        pos = answer.find(marker)
+        if pos != -1 and pos < earliest_pos:
+            earliest_pos = pos
+            earliest_marker = marker
+    if earliest_marker:
+        answer = answer[:earliest_pos].strip()
+        print(f"[RAG_GENERAL] 프롬프트 누출 감지 → '{earliest_marker}' 앞에서 잘라냄")
 
     return answer, metadata
 
