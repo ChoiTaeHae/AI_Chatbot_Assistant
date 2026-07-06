@@ -381,10 +381,15 @@ async def _handle_rag_general(state: AgentState) -> dict:
     prev_prefix = _build_prev_prefix(state)
     enriched_question = prev_prefix + state["question"] if prev_prefix else None
 
+    # prev_prefix가 있다 = topic 유지된 후속 질문 → rewrite에도 이전 질문 맥락 전달
+    prev = state.get("prev_context")
+    prev_question = prev.get("prev_question") if (prev_prefix and prev) else None
+
     answer, metadata = await answer_rag_general_question_with_metadata(
         state["question"],          # 검색/rewrite용 원본 질문
         topic=topic,
         context_question=enriched_question,  # LLM 맥락용 (이전 주제 힌트 포함)
+        prev_question=prev_question,         # 후속 질문이면 rewrite에 맥락 통합
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
