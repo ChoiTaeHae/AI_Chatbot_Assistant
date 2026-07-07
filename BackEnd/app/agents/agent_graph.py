@@ -25,11 +25,17 @@ from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata
 from app.services.school.scholarship import answer_scholarship_question
+from app.services.rag_service import rag_service
 from app.services.file_service import AVAILABLE_FILES
 
 _campus_service = CampusService()
 
 _HIGH_CONFIDENCE = 0.60
+# topic 전환 조건: 새 topic 점수가 이전 topic 점수보다 이 값 이상 높아야 전환
+# (절대 임계값 대신 상대 비교 — 애매한 후속 질문은 유지, 명확한 주제 전환은 허용)
+# 실측(26.07.03): 잘못된 전환(애매한 후속 질문)은 차이 0.037~0.106, 진짜 주제 전환은 0.182+
+# → 그 사이인 0.15로 설정. 정상 전환이 막히는 로그가 보이면 하향 검토
+_SWITCH_MARGIN = 0.15
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
@@ -89,6 +95,26 @@ def _with_file_offer(updates: dict, topic: str, question: str = "") -> dict:
         # show_buttons=False: 첫 응답에는 버튼 숨김, '응' 입력 후에 True로 전환
         "file_offer": {"topic": topic, "files": files, "show_buttons": False},
     }
+
+
+def _build_prev_prefix(state: AgentState) -> str:
+    """이전 대화가 있으면 프롬프트 앞에 붙일 맥락 문자열 생성.
+    topic이 바뀌었으면 이전 맥락을 전달하지 않음 (LLM이 이전 topic 질문으로 혼동).
+
+    [이전 질문]+[이전 답변] → LLM이 이전 답변 반복
+    [이전 질문]만 → LLM이 이전 질문에 답하려 함
+    "이전 주제:" 형식 → 맥락 힌트만 부여, LLM이 답변 대상으로 인식 안 함"""
+    prev = state.get("prev_context")
+    if not prev:
+        return ""
+    prev_topic = prev.get("prev_topic")
+    current_topic = state.get("topic")
+    if prev_topic and current_topic and prev_topic != current_topic:
+        return ""
+    pq = prev.get("prev_question", "")
+    if not pq:
+        return ""
+    return f"이전 주제: {pq}\n\n"
 
 
 def _append_contact_info(answer: str, metadata: dict) -> str:
@@ -176,13 +202,57 @@ async def _pre_check(state: AgentState) -> dict:
 
 
 async def _embedding_classify(state: AgentState) -> dict:
-    """임베딩 유사도 기반 분류 — (topic_name, handler_type, score) 반환"""
+    """임베딩 유사도 기반 분류 — (topic_name, handler_type, score, all_scores) 사용"""
     loop = asyncio.get_event_loop()
     try:
-        topic_name, handler_type, score = await loop.run_in_executor(
+        topic_name, handler_type, score, all_scores = await loop.run_in_executor(
             None, topic_router.route_with_score, state["question"]
         )
         print(f"[Graph] 임베딩 분류 → topic={topic_name} handler={handler_type} ({score:.3f})")
+
+        prev = state.get("prev_context")
+        prev_topic = prev.get("prev_topic") if prev else None
+
+        # 신뢰도 낮으면 이전 topic으로 fallback
+        if score < _HIGH_CONFIDENCE and prev_topic:
+            prev_info = topic_router._proto_vecs.get(prev_topic, {})
+            prev_handler = prev_info.get("handler_type", "rag")
+            print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용")
+            return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+
+        # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환
+        # (절대 점수 기준은 애매한 후속 질문과 명확한 주제 전환을 구분 못 함)
+        prev_score = all_scores.get(prev_topic) if prev_topic else None
+        if prev_topic and topic_name != prev_topic and prev_score is not None:
+            if score - prev_score < _SWITCH_MARGIN:
+                prev_info = topic_router._proto_vecs.get(prev_topic, {})
+                prev_handler = prev_info.get("handler_type", "rag")
+                print(
+                    f"[Graph] topic 전환 우세 미달 (새 {topic_name}={score:.3f} vs "
+                    f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} < {_SWITCH_MARGIN})"
+                    f" → 이전 topic 유지"
+                )
+                return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+            print(
+                f"[Graph] topic 전환 승인 (새 {topic_name}={score:.3f} vs "
+                f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} ≥ {_SWITCH_MARGIN})"
+            )
+
+        # 새 topic에 문서가 하나도 없으면 전환 취소 → 이전 topic 유지
+        # (빈 topic 전환 → 검색 0건 → 환각 답변으로 이어지는 함정 방지)
+        if prev_topic and topic_name != prev_topic:
+            try:
+                doc_count = await loop.run_in_executor(
+                    None, rag_service.vector_store.count_by_topic, topic_name
+                )
+                if doc_count == 0:
+                    prev_info = topic_router._proto_vecs.get(prev_topic, {})
+                    prev_handler = prev_info.get("handler_type", "rag")
+                    print(f"[Graph] '{topic_name}' 문서 0개 → 전환 취소, 이전 topic '{prev_topic}' 유지")
+                    return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+            except Exception as e:
+                print(f"[Graph] topic 문서 수 확인 실패 (전환 진행): {e}")
+
         return {"intent": handler_type, "topic": topic_name, "confidence": score}
     except Exception as e:
         print(f"[Graph] 임베딩 분류 실패: {e}")
@@ -212,8 +282,10 @@ async def _handle_campus(state: AgentState) -> dict:
 
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
     answer, metadata = await graduation_service.answer_graduation_with_metadata(
-        question=state["question"], student_id=state["student_id"], db=state["db"]
+        question=enriched_question, student_id=state["student_id"], db=state["db"]
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
@@ -226,8 +298,10 @@ async def _handle_graduation(state: AgentState) -> dict:
 
 async def _handle_scholarship(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "scholarship")
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
     answer, next_ctx, metadata = await answer_scholarship_question(
-        state["question"],
+        enriched_question,
         student_id=state["student_id"],
         db=state["db"],
         pending_context=state.get("pending_context"),
@@ -246,8 +320,22 @@ async def _handle_rag_general(state: AgentState) -> dict:
     """RAG 검색 핸들러 — state["topic"]을 Qdrant 필터로 사용"""
     topic = state.get("topic") or "rag_general"
     await _log(state["db"], state["student_id"], topic)
+
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else None
+
+    # prev_prefix가 있다 = topic 유지된 후속 질문 → rewrite에도 이전 질문 맥락 전달
+    prev = state.get("prev_context")
+    # 지금: topic 유지된 후속일 때만 이전 질문 전달
+    prev_question = prev.get("prev_question") if (prev_prefix and prev) else None
+    # A 전환: 이전 대화만 있으면 항상 전달
+    #prev_question = prev.get("prev_question") if prev else None
+
     answer, metadata = await answer_rag_general_question_with_metadata(
-        state["question"], topic=topic
+        state["question"],          # 검색/rewrite용 원본 질문
+        topic=topic,
+        context_question=enriched_question,  # LLM 맥락용 (이전 주제 힌트 포함)
+        prev_question=prev_question,         # 후속 질문이면 rewrite에 맥락 통합
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
@@ -261,7 +349,9 @@ async def _handle_rag_general(state: AgentState) -> dict:
 
 async def _handle_general(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "general")
-    prompt = GENERAL_HANDLER_PROMPT.format(question=state["question"])
+    prev_prefix = _build_prev_prefix(state)
+    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
+    prompt = GENERAL_HANDLER_PROMPT.format(question=enriched_question)
     answer = await llm_service.answer(prompt)
     return {
         "answer": answer,
@@ -371,6 +461,7 @@ class AgentGraph:
         db: AsyncSession,
         pending_file: dict | None = None,
         pending_context: dict | None = None,
+        prev_context: dict | None = None,
         file_confirm: bool | None = None,
     ) -> AgentResult:
         initial: AgentState = {
@@ -379,6 +470,7 @@ class AgentGraph:
             "db": db,
             "pending_file": pending_file,
             "pending_context": pending_context,
+            "prev_context": prev_context,
             "file_confirm": file_confirm,
             "intent": None,
             "confidence": 0.0,

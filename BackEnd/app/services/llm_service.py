@@ -31,7 +31,7 @@ class LlmService:
         self.model = Llama(
             model_path=settings.MODEL_PATH,
             n_gpu_layers=25,
-            n_ctx=3072,
+            n_ctx=4096,
             n_batch=128,
             verbose=False,
         )
