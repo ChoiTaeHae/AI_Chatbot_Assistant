@@ -1,10 +1,8 @@
 import numpy as np
 
 
-def _exp_normalize(x: np.ndarray) -> np.ndarray:
-    b = x.max()
-    y = np.exp(x - b)
-    return y / y.sum()
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1 / (1 + np.exp(-x))
 
 
 class BgeReranker:
@@ -52,7 +50,7 @@ class BgeReranker:
                 max_length=512,
             )
             logits = self._model(**inputs, return_dict=True).logits.view(-1).float()
-            scores = _exp_normalize(logits.numpy())
+            scores = _sigmoid(logits.numpy())
 
         print("[Reranker] rerank 완료")
         return scores.tolist()

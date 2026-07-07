@@ -251,15 +251,38 @@ def _trim_before_article_body(lines: list[str]) -> list[str]:
 
 
 def _parse_table_with_rowspan(table_tag: Tag) -> list[str]:
-    """rowspan이 있는 동아리 표를 동아리별 텍스트 블록으로 변환"""
+    """rowspan이 있는 표를 블록으로 변환 (헤더 동적 추출)"""
     items = []
+    
+    headers = ["항목1", "항목2", "항목3", "항목4"]
+    # 헤더 찾기 시도
+    thead = table_tag.find("thead")
+    if thead:
+        ths = thead.find_all("th")
+        if ths:
+            headers = [th.get_text(" ", strip=True) for th in ths]
+    else:
+        first_tr = table_tag.find("tr")
+        if first_tr:
+            ths = first_tr.find_all("th")
+            if ths:
+                headers = [th.get_text(" ", strip=True) for ths]
+                
+    # 안전장치로 길이를 4개로 맞춤
+    while len(headers) < 4:
+        headers.append(f"추가항목{len(headers)+1}")
+
     current_category = ""
     category_remaining = 0   # 현재 분야가 몇 행 더 이어지는지
 
     tbody = table_tag.find("tbody") or table_tag
     for row in tbody.find_all("tr"):
-        cells = row.find_all("td")
+        cells = row.find_all(["td", "th"])
         if not cells:
+            continue
+            
+        # 모든 셀이 th인 헤더 행은 건너뜀
+        if all(c.name == "th" for c in cells):
             continue
 
         # rowspan 셀(분야)이 있는 행 — 첫 번째 td에 rowspan 속성
@@ -294,10 +317,10 @@ def _parse_table_with_rowspan(table_tag: Tag) -> list[str]:
         date     = date_cell.get_text(" ", strip=True)     if date_cell     else ""
 
         # 이름이 없는 행은 건너뜀 (thead 잔재 등)
-        if not name:
+        if not name or name == headers[1]:
             continue
 
-        item = f"분야: {current_category}\n동아리명: {name}\n주요활동: {activity}\n설립일: {date}"
+        item = f"{headers[0]}: {current_category}\n{headers[1]}: {name}\n{headers[2]}: {activity}\n{headers[3]}: {date}"
         items.append(item)
 
     return items
