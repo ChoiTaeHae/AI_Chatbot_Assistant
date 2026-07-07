@@ -1,12 +1,17 @@
 """
-파일 서비스 — 다운로드용 파일 관리 비즈니스 로직
+파일 서비스 — 다운로드용 파일 관리 비즈니스 로직 (DB 저장)
 
-documents/{topic}/ 폴더에 파일을 저장·삭제·조회한다.
+document_file 테이블에 파일 바이트를 저장·삭제·조회한다.
+공유 DB에 저장하므로 한 명이 업로드하면 전원이 공유한다.
 RAG(Qdrant) 와는 무관하며, 학생에게 제공할 양식/자료를 관리한다.
 """
 from pathlib import Path
 
-DOCUMENTS_BASE = Path("documents")
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.core.Database import AsyncSessionLocal
+from app.models.DB_Table import DocumentFile
 
 ALLOWED_EXTENSIONS = {
     ".pdf", ".docx", ".pptx", ".xlsx", ".hwp", ".hwpx",
@@ -23,8 +28,6 @@ def refresh_topic_cache(labels: dict[str, str]) -> None:
     global _topic_labels, _valid_topics
     _topic_labels = dict(labels)
     _valid_topics = set(labels.keys())
-    for topic in _valid_topics:
-        (DOCUMENTS_BASE / topic).mkdir(parents=True, exist_ok=True)
 
 
 def is_valid_topic(topic: str) -> bool:
@@ -34,25 +37,33 @@ def is_valid_topic(topic: str) -> bool:
 # ── 전역 파일 캐시 ────────────────────────────────────────────
 # 서버 시작 시 + 관리자 업로드/삭제 시 갱신.
 # school_agent 에서 O(1) 로 "이 topic 에 파일 있냐" 확인에 사용.
+# ⚠️ 다른 모듈이 `from ... import AVAILABLE_FILES`로 참조하므로, 재갱신 시
+#    새 dict를 대입하지 말고 clear()+update()로 "같은 객체"를 유지해야 한다.
 AVAILABLE_FILES: dict[str, list[str]] = {}
 
 
-def refresh_available_files() -> None:
-    """documents/ 폴더를 스캔해서 AVAILABLE_FILES 업데이트"""
-    global AVAILABLE_FILES
-    for topic in _valid_topics:
-        folder = DOCUMENTS_BASE / topic
-        folder.mkdir(parents=True, exist_ok=True)
-        AVAILABLE_FILES[topic] = [
-            f.name for f in sorted(folder.iterdir())
-            if f.is_file() and not f.name.startswith((".", "_"))
-        ]
+async def refresh_available_files() -> None:
+    """document_file 테이블을 스캔해서 AVAILABLE_FILES 업데이트"""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(DocumentFile.topic, DocumentFile.filename).order_by(DocumentFile.filename)
+        )
+        rows = result.all()
+
+    new_files: dict[str, list[str]] = {topic: [] for topic in _valid_topics}
+    for topic, filename in rows:
+        new_files.setdefault(topic, []).append(filename)
+
+    # 같은 dict 객체를 유지 (import한 참조가 계속 유효하도록)
+    AVAILABLE_FILES.clear()
+    AVAILABLE_FILES.update(new_files)
+
     total = sum(len(v) for v in AVAILABLE_FILES.values())
     print(f"[FileService] 파일 캐시 갱신 완료 — 총 {total}개")
 
 
 class FileService:
-    """다운로드 파일 관리 서비스"""
+    """다운로드 파일 관리 서비스 (DB 저장)"""
 
     # ── 유효성 검사 ────────────────────────────────────────
     def validate_topic(self, topic: str) -> None:
@@ -70,42 +81,51 @@ class FileService:
             raise ValueError("유효하지 않은 파일명")
         return name
 
-    # ── 파일 경로 ──────────────────────────────────────────
-    def _topic_dir(self, topic: str) -> Path:
-        folder = DOCUMENTS_BASE / topic
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder
-
-    def _file_path(self, topic: str, filename: str) -> Path:
-        return self._topic_dir(topic) / self.safe_filename(filename)
-
     # ── 비즈니스 로직 ──────────────────────────────────────
-    def list_files(self) -> dict:
-        result: dict[str, list[dict]] = {}
-        for topic in _valid_topics:
-            folder = self._topic_dir(topic)
-            files = [
-                {
-                    "name": f.name,
-                    "size": f.stat().st_size,
-                    "topic": topic,
-                    "label": _topic_labels[topic],
-                }
-                for f in sorted(folder.iterdir())
-                if f.is_file() and not f.name.startswith((".", "_"))
-            ]
-            result[topic] = files
-        return {"files": result, "labels": _topic_labels}
+    async def list_files(self) -> dict:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(DocumentFile.topic, DocumentFile.filename, DocumentFile.size)
+                .order_by(DocumentFile.filename)
+            )
+            rows = result.all()
 
-    def save_file(self, topic: str, filename: str, content: bytes) -> dict:
+        files: dict[str, list[dict]] = {topic: [] for topic in _valid_topics}
+        for topic, filename, size in rows:
+            files.setdefault(topic, []).append({
+                "name": filename,
+                "size": size,
+                "topic": topic,
+                "label": _topic_labels.get(topic, topic),
+            })
+        return {"files": files, "labels": _topic_labels}
+
+    async def save_file(self, topic: str, filename: str, content: bytes, content_type: str | None = None) -> dict:
         self.validate_topic(topic)
         self.validate_extension(filename)
         clean_name = self.safe_filename(filename)
 
-        dest = self._file_path(topic, clean_name)
-        dest.write_bytes(content)
+        # PostgreSQL upsert — (topic, filename) 충돌 시 원자적으로 교체.
+        # check-then-act 경쟁(동시에 같은 파일 업로드 시 IntegrityError)을 방지한다.
+        stmt = pg_insert(DocumentFile).values(
+            topic=topic,
+            filename=clean_name,
+            content=content,
+            content_type=content_type,
+            size=len(content),
+        ).on_conflict_do_update(
+            index_elements=[DocumentFile.topic, DocumentFile.filename],
+            set_={
+                "content": content,
+                "content_type": content_type,
+                "size": len(content),
+            },
+        )
+        async with AsyncSessionLocal() as session:
+            await session.execute(stmt)
+            await session.commit()
 
-        refresh_available_files()   # 캐시 갱신
+        await refresh_available_files()   # 캐시 갱신
 
         return {
             "success": True,
@@ -115,31 +135,46 @@ class FileService:
             "message": f"'{clean_name}' 업로드 완료",
         }
 
-    def delete_file(self, topic: str, filename: str) -> dict:
+    async def delete_file(self, topic: str, filename: str) -> dict:
         self.validate_topic(topic)
-        path = self._file_path(topic, filename)
+        clean_name = self.safe_filename(filename)
 
-        if not path.exists():
-            raise FileNotFoundError(f"파일을 찾을 수 없습니다: {filename}")
+        async with AsyncSessionLocal() as session:
+            existing = await session.scalar(
+                select(DocumentFile).where(
+                    DocumentFile.topic == topic,
+                    DocumentFile.filename == clean_name,
+                )
+            )
+            if not existing:
+                raise FileNotFoundError(f"파일을 찾을 수 없습니다: {filename}")
+            await session.delete(existing)
+            await session.commit()
 
-        path.unlink()
-        refresh_available_files()   # 캐시 갱신
+        await refresh_available_files()   # 캐시 갱신
 
         return {
             "success": True,
             "topic": topic,
-            "filename": filename,
-            "message": f"'{filename}' 삭제 완료",
+            "filename": clean_name,
+            "message": f"'{clean_name}' 삭제 완료",
         }
 
-    def get_file_path(self, topic: str, filename: str) -> Path:
+    async def get_file(self, topic: str, filename: str) -> tuple[bytes, str]:
+        """파일 바이트와 파일명을 반환. (다운로드용)"""
         self.validate_topic(topic)
-        path = self._file_path(topic, filename)
+        clean_name = self.safe_filename(filename)
 
-        if not path.exists():
+        async with AsyncSessionLocal() as session:
+            row = await session.scalar(
+                select(DocumentFile).where(
+                    DocumentFile.topic == topic,
+                    DocumentFile.filename == clean_name,
+                )
+            )
+        if not row:
             raise FileNotFoundError(f"파일을 찾을 수 없습니다: {filename}")
-
-        return path
+        return row.content, clean_name
 
 
 # 싱글톤 인스턴스

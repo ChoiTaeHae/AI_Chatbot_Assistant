@@ -30,9 +30,11 @@ class LlmService:
         print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.model = Llama(
             model_path=settings.MODEL_PATH,
+
             n_gpu_layers=25,
             n_ctx=4096,
             n_batch=128,
+
             verbose=False,
         )
         print("모델 로딩 완료! (llama-cpp-python, GPU 15레이어)")

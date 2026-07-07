@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime, Boolean, Text, Index
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime, Boolean, Text, Index, LargeBinary, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -306,4 +306,25 @@ class RetrievalLog(Base):
 
     __table_args__ = (
         Index("ix_retrieval_log_message_id", "message_id"),
+    )
+
+# ==========================================
+# 22. 다운로드 파일 테이블 (document_file)
+# ==========================================
+class DocumentFile(Base):
+    __tablename__ = "document_file"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    topic        = Column(String(50), nullable=False)      # 소속 topic
+    filename     = Column(String(255), nullable=False)     # 파일명
+    content      = Column(LargeBinary, nullable=False)     # 파일 바이트 (bytea)
+    content_type = Column(String(100), nullable=True)      # MIME 타입
+    size         = Column(Integer, nullable=False)         # 바이트 크기
+    description  = Column(String(200), nullable=True)      # (예정) 파일 선택 매칭용
+    keywords     = Column(Text, nullable=True)             # (예정) 파일 선택 매칭용
+    uploaded_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_document_file_topic", "topic"),
+        UniqueConstraint("topic", "filename", name="uq_document_file_topic_filename"),
     )
