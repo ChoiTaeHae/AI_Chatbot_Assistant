@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
     # FileService topic 캐시 초기화 → 파일 캐시는 topic 로드 후 갱신
     from app.services.file_service import refresh_topic_cache
     refresh_topic_cache({t["name"]: t["label"] for t in topic_data})
-    refresh_available_files()
+    await refresh_available_files()
 
     # topic 프로토타입 벡터 사전 계산
     try:

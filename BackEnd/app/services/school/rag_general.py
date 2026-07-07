@@ -162,9 +162,11 @@ async def answer_rag_general_question_with_metadata(
 
     print("[RAG_GENERAL] RAG 검색 완료, LLM 호출")
 
-    is_club = "동아리" in llm_question and effective_topic == "student_support"
+    # 클럽 판정은 "현재 질문" 기준 — llm_question은 이전 주제 프리픽스를 포함하므로
+    # 이전 질문에 "동아리"가 있었다고 현재 질문이 클럽 질문이 되는 오탐을 방지한다.
+    is_club = "동아리" in question and effective_topic == "student_support"
     _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
-    is_club_list = is_club and any(kw in llm_question for kw in _LIST_KEYWORDS)
+    is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
     print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, topic={effective_topic}")
 
     if is_club_list:
