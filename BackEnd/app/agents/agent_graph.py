@@ -37,6 +37,10 @@ _HIGH_CONFIDENCE = 0.60
 # → 그 사이인 0.15로 설정. 정상 전환이 막히는 로그가 보이면 하향 검토
 _SWITCH_MARGIN = 0.15
 
+# prev_topic이 RAG 토픽(_proto_vecs)이 아니라 핸들러명으로 저장되는 경우
+# (graduation/campus/general/scholarship 핸들러의 topic은 DB RAG 토픽이 아님)
+_NON_RAG_HANDLERS = {"campus", "graduation", "scholarship", "general"}
+
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
 def _is_campus_question(q: str) -> bool:
@@ -178,6 +182,24 @@ async def _pre_check(state: AgentState) -> dict:
     return {"done": False}
 
 
+def _resolve_prev_route(prev_topic: str | None) -> tuple[str | None, str | None]:
+    """이전 topic으로부터 (handler_intent, topic_filter)를 결정한다.
+
+    - prev_topic이 RAG 토픽(_proto_vecs에 존재) → 그 핸들러 + 토픽 필터
+    - prev_topic이 핸들러명(graduation/campus/general/scholarship) → 그 핸들러로 직행
+      (RAG 토픽 필터가 아니므로 rag 핸들러로 잘못 보내 검색 0건 나는 것을 방지)
+    - 그 외(알 수 없음) → (None, None): 스티키니스 미적용
+    """
+    if not prev_topic:
+        return None, None
+    proto = topic_router._proto_vecs.get(prev_topic) if topic_router._proto_vecs else None
+    if proto:
+        return proto.get("handler_type", "rag"), prev_topic
+    if prev_topic in _NON_RAG_HANDLERS:
+        return prev_topic, prev_topic
+    return None, None
+
+
 async def _embedding_classify(state: AgentState) -> dict:
     """임베딩 유사도 기반 분류 — (topic_name, handler_type, score, all_scores) 사용"""
     loop = asyncio.get_event_loop()
@@ -192,24 +214,28 @@ async def _embedding_classify(state: AgentState) -> dict:
 
         # 신뢰도 낮으면 이전 topic으로 fallback
         if score < _HIGH_CONFIDENCE and prev_topic:
-            prev_info = topic_router._proto_vecs.get(prev_topic, {})
-            prev_handler = prev_info.get("handler_type", "rag")
-            print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용")
-            return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+            prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
+            if prev_handler:
+                print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용 (handler={prev_handler})")
+                return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
+            # prev_topic을 해석 못 하면 스티키니스 미적용 → 현재 분류로 진행
 
         # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환
         # (절대 점수 기준은 애매한 후속 질문과 명확한 주제 전환을 구분 못 함)
         prev_score = all_scores.get(prev_topic) if prev_topic else None
         if prev_topic and topic_name != prev_topic and prev_score is not None:
             if score - prev_score < _SWITCH_MARGIN:
-                prev_info = topic_router._proto_vecs.get(prev_topic, {})
-                prev_handler = prev_info.get("handler_type", "rag")
+                prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
                 print(
                     f"[Graph] topic 전환 우세 미달 (새 {topic_name}={score:.3f} vs "
                     f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} < {_SWITCH_MARGIN})"
                     f" → 이전 topic 유지"
                 )
-                return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+                return {
+                    "intent": prev_handler or handler_type,
+                    "topic": prev_route_topic or topic_name,
+                    "confidence": score,
+                }
             print(
                 f"[Graph] topic 전환 승인 (새 {topic_name}={score:.3f} vs "
                 f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} ≥ {_SWITCH_MARGIN})"
@@ -223,10 +249,10 @@ async def _embedding_classify(state: AgentState) -> dict:
                     None, rag_service.vector_store.count_by_topic, topic_name
                 )
                 if doc_count == 0:
-                    prev_info = topic_router._proto_vecs.get(prev_topic, {})
-                    prev_handler = prev_info.get("handler_type", "rag")
-                    print(f"[Graph] '{topic_name}' 문서 0개 → 전환 취소, 이전 topic '{prev_topic}' 유지")
-                    return {"intent": prev_handler, "topic": prev_topic, "confidence": score}
+                    prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
+                    if prev_handler:
+                        print(f"[Graph] '{topic_name}' 문서 0개 → 전환 취소, 이전 topic '{prev_topic}' 유지 (handler={prev_handler})")
+                        return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
             except Exception as e:
                 print(f"[Graph] topic 문서 수 확인 실패 (전환 진행): {e}")
 
