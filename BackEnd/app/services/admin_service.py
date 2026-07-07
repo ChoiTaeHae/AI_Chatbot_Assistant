@@ -619,7 +619,7 @@ class AdminService:
                 f"topic '{name}'에 RAG 문서 {chunk_count}개가 등록되어 있습니다. "
                 f"문서를 먼저 삭제한 후 topic을 삭제하세요."
             )
-        file_count = len(file_service.list_files()["files"].get(name, []))
+        file_count = len((await file_service.list_files())["files"].get(name, []))
         if file_count > 0:
             raise ValueError(
                 f"topic '{name}'에 다운로드 파일 {file_count}개가 있습니다. "
