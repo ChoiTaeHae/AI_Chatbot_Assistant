@@ -145,11 +145,14 @@ class Retriever:
         # 3. SCORE_THRESHOLD로 필터링 (관련 있는 청크만 살리기)
         filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
         
-        # 임계값 이상인 게 하나도 없으면 상위 3개 강제 반환
-        # (청크가 짧아 리랭커 점수가 낮게 나오는 경우 커버리지 확보)
+        # 임계값 통과가 적으면 상위 청크로 보강 (커버리지 확보 — 기한 등 흩어진 정보 누락 방지)
+        # 단, FALLBACK_MIN_SCORE 미만은 보강 대상 제외 — 점수가 상위에 몰린 확신 검색에서
+        # 무관한 조각(0.00x)이 컨텍스트를 낭비하는 것 방지. 전부 미달이면 빈 컨텍스트로
+        # 반환되어 rag_general의 "자료 못 찾음" 가드로 빠진다.
         MIN_FALLBACK = 7
+        FALLBACK_MIN_SCORE = 0.01
         if len(filtered_results) < MIN_FALLBACK and reranked_results:
-            fallback = reranked_results[:MIN_FALLBACK]
+            fallback = [r for r in reranked_results[:MIN_FALLBACK] if r.score >= FALLBACK_MIN_SCORE]
             added = [r for r in fallback if r not in filtered_results]
             filtered_results = filtered_results + added
             print(f"[Retriever] 임계값 통과 {len(filtered_results) - len(added)}개 → 상위 {MIN_FALLBACK}개로 보강 (top score={reranked_results[0].score:.3f})")
