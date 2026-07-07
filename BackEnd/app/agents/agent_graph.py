@@ -326,7 +326,10 @@ async def _handle_rag_general(state: AgentState) -> dict:
 
     # prev_prefix가 있다 = topic 유지된 후속 질문 → rewrite에도 이전 질문 맥락 전달
     prev = state.get("prev_context")
+    # 지금: topic 유지된 후속일 때만 이전 질문 전달
     prev_question = prev.get("prev_question") if (prev_prefix and prev) else None
+    # A 전환: 이전 대화만 있으면 항상 전달
+    #prev_question = prev.get("prev_question") if prev else None
 
     answer, metadata = await answer_rag_general_question_with_metadata(
         state["question"],          # 검색/rewrite용 원본 질문
