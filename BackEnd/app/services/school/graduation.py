@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -151,10 +151,25 @@ class GraduationService:
         t1 = time.time()
         rag_context, metadata = await self._search_rag(question)
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
-        prompt = self._build_rag_prompt(question, rag_context)
+
+        from app.services.file_service import AVAILABLE_FILES
+        from pathlib import Path
+        files = AVAILABLE_FILES.get("graduation", [])
+        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+
+        prompt = self._build_rag_prompt(question, rag_context, files_list)
         t2 = time.time()
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
+
+        import re
+        match = re.search(r'<FILES>(.*?)</FILES>', result)
+        if match:
+            files_str = match.group(1)
+            metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
+            result = result[:match.start()] + result[match.end():]
+            result = result.strip()
+
         return result, metadata
 
     # =============================================
@@ -168,8 +183,24 @@ class GraduationService:
         )
         rag_context, metadata = rag_data
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
-        prompt = self._build_combined_prompt(question, db_context, rag_context)
-        return await llm_service.answer(prompt, max_tokens=1024), metadata
+
+        from app.services.file_service import AVAILABLE_FILES
+        from pathlib import Path
+        files = AVAILABLE_FILES.get("graduation", [])
+        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+
+        prompt = self._build_combined_prompt(question, db_context, rag_context, files_list)
+        result = await llm_service.answer(prompt, max_tokens=1024)
+
+        import re
+        match = re.search(r'<FILES>(.*?)</FILES>', result)
+        if match:
+            files_str = match.group(1)
+            metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
+            result = result[:match.start()] + result[match.end():]
+            result = result.strip()
+
+        return result, metadata
 
     async def _search_rag(self, question: str) -> tuple[str, dict]:
         """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
@@ -355,11 +386,11 @@ class GraduationService:
     def _build_db_prompt(self, question: str, context: str) -> str:
         return GRADUATION_DB_PROMPT.format(context=context, question=question)
 
-    def _build_rag_prompt(self, question: str, rag_context: str) -> str:
-        return GRADUATION_RAG_PROMPT.format(rag_context=rag_context, question=question)
+    def _build_rag_prompt(self, question: str, rag_context: str, files_list: str = "없음") -> str:
+        return GRADUATION_RAG_PROMPT.format(rag_context=rag_context, question=question, files_list=files_list)
 
-    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str) -> str:
-        return GRADUATION_COMBINED_PROMPT.format(db_context=db_context, rag_context=rag_context, question=question)
+    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str, files_list: str = "없음") -> str:
+        return GRADUATION_COMBINED_PROMPT.format(db_context=db_context, rag_context=rag_context, question=question, files_list=files_list)
 
 
 # 싱글톤 인스턴스

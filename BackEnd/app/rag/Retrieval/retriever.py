@@ -94,6 +94,7 @@ class Retriever:
         limit: int | None = None,
         source: str | None = None,
         topic: str | None = None,
+        original_question: str | None = None,
     ) -> list[SearchResult]:
 
         question = question.strip()
@@ -115,9 +116,12 @@ class Retriever:
 
         # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가하되, 문맥 유지용 헤더 추가)
         # BGE reranker는 순수 (질문, 본문) 쌍으로 학습됨 — 메타데이터 헤더 없이 본문만 전달
+        # 질문은 키워드 위주의 search_query 대신, 원래의 구어체 질문(original_question)을 사용하여
+        # QA 쌍의 자연어 문맥을 살려 리랭커의 평가 점수를 극대화한다.
         rerank_texts = [result.text for result in results]
+        rerank_q = original_question if original_question else question
 
-        scores = self.reranker.rerank(question, rerank_texts)
+        scores = self.reranker.rerank(rerank_q, rerank_texts)
 
         # 리랭커 점수가 반영된 새로운 결과 리스트 생성
         reranked_results = [
@@ -146,7 +150,6 @@ class Retriever:
         filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
         
         # 임계값 통과가 적으면 상위 청크로 보강 (커버리지 확보 — 기한 등 흩어진 정보 누락 방지)
-        # 단, FALLBACK_MIN_SCORE 미만은 보강 대상 제외 — 점수가 상위에 몰린 확신 검색에서
         # 무관한 조각(0.00x)이 컨텍스트를 낭비하는 것 방지. 전부 미달이면 빈 컨텍스트로
         # 반환되어 rag_general의 "자료 못 찾음" 가드로 빠진다.
         MIN_FALLBACK = 7

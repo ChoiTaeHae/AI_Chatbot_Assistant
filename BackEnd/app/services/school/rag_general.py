@@ -68,7 +68,7 @@ async def _rewrite_query(question: str, prev_question: str | None = None) -> str
     return rewritten
 
 
-def _search_rag(question: str, topic: str | None) -> tuple[str, dict]:
+def _search_rag(search_query: str, original_question: str, topic: str | None) -> tuple[str, dict]:
     """Qdrant 검색. topic이 None이면 전체 검색."""
     try:
         print(
@@ -77,8 +77,9 @@ def _search_rag(question: str, topic: str | None) -> tuple[str, dict]:
         )
 
         context, results = rag_service.search_context_with_results(
-            question,
+            question=search_query,
             topic=topic,
+            original_question=original_question,
         )
 
         metadata = rag_service.primary_metadata(
@@ -141,6 +142,7 @@ async def answer_rag_general_question_with_metadata(
         None,
         _search_rag,
         search_query,
+        question,
         effective_topic,
     )
 
@@ -174,11 +176,15 @@ async def answer_rag_general_question_with_metadata(
         prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
         answer = await llm_service.answer(prompt, max_tokens=1024)
     else:
-        prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
+        from app.services.file_service import AVAILABLE_FILES
+        from pathlib import Path
+        files = AVAILABLE_FILES.get(effective_topic, [])
+        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+        prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
         answer = await llm_service.answer(prompt)
 
     # 모델이 프롬프트 레이블을 이어서 출력하는 경우 가장 앞에 나온 위치에서 잘라내기
-    _STOP_MARKERS = ["[참고 문서]", "[사용자 질문]", "[답변]", "[이전 질문]", "[이전 답변]"]
+    _STOP_MARKERS = ["[참고 문서]", "[사용자 질문]", "[답변]", "[이전 질문]", "[이전 답변]", "[다운로드 가능 파일 목록]"]
     earliest_pos = len(answer)
     earliest_marker = None
     for marker in _STOP_MARKERS:
@@ -189,6 +195,15 @@ async def answer_rag_general_question_with_metadata(
     if earliest_marker:
         answer = answer[:earliest_pos].strip()
         print(f"[RAG_GENERAL] 프롬프트 누출 감지 → '{earliest_marker}' 앞에서 잘라냄")
+
+    # 파일 제안 추출
+    import re
+    match = re.search(r'<FILES>(.*?)</FILES>', answer)
+    if match:
+        files_str = match.group(1)
+        metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
+        answer = answer[:match.start()] + answer[match.end():]
+        answer = answer.strip()
 
     return answer, metadata
 

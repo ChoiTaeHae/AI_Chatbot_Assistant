@@ -162,12 +162,14 @@ class RagService:
         limit: int | None = None,
         source: str | None = None,
         topic: str | None = None,
+        original_question: str | None = None,
     ) -> tuple[str, list[SearchResult]]:
-        results = self.search(
+        results = self.retriever.search(
             question=question,
             limit=limit,
             source=source,
             topic=topic,
+            original_question=original_question,
         )
         context = "\n\n".join(
             f"[source={self.format_source(result)}, score={result.score:.3f}]\n{result.text}"
