@@ -14,14 +14,14 @@ const LANGUAGES = [
 ]
 
 const T = {
-  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', logout: '로그아웃' },
-  en: { title: 'AI Assistant',   admin: 'Admin Page',    logout: 'Logout'    },
-  zh: { title: 'AI助手',          admin: '管理员页面',      logout: '退出登录'   },
+  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황' },
+  en: { title: 'AI Assistant',   admin: 'Admin Page',    logout: 'Logout',   grad: '🎓 My Graduation Status' },
+  zh: { title: 'AI助手',          admin: '管理员页面',      logout: '退出登录',  grad: '🎓 我的毕业进度' },
 }
 
 export default function ChatPage() {
   const [lang, setLang] = useState('ko')
-  const { messages, isLoading, send, confirmFile, reset, clearPendingFile, pendingFile } = useChat(lang)
+  const { messages, isLoading, send, confirmFile, checkGraduation, reset, clearPendingFile, pendingFile } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const profileRef = useRef(null)
   const { user, clearUser } = useAuth()
@@ -46,8 +46,8 @@ export default function ChatPage() {
 
   return ( 
     // 배경을 흰색으로, 중앙 정렬 컨테이너를 조금 더 넓게 설정
-    <main className="flex min-h-screen bg-[#e8eaed] items-center justify-center py-8 px-6">
-      <div className="flex flex-col w-full max-w-[600px] h-[calc(100vh-64px)] bg-white rounded-2xl shadow-2xl overflow-hidden ">
+    <main className="flex min-h-[100dvh] bg-[#e8eaed] items-center justify-center py-4 px-2 sm:py-8 sm:px-6">
+      <div className="flex flex-col w-full max-w-3xl h-[calc(100dvh-2rem)] sm:h-[calc(100vh-4rem)] bg-white rounded-2xl shadow-2xl overflow-hidden">
 
         {/* 헤더 */}
         <header className="shrink-0 bg-[#005956] flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>
@@ -127,13 +127,14 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 flex flex-col min-h-0">
-          <ChatWindow 
-            messages={messages} 
-            isLoading={isLoading} 
-            lang={lang} 
-            onClearPendingFile={clearPendingFile} 
+          <ChatWindow
+            messages={messages}
+            isLoading={isLoading}
+            lang={lang}
+            onClearPendingFile={clearPendingFile}
             pendingFile={pendingFile}
             onConfirmFile={confirmFile}
+            onCheckGraduation={checkGraduation}
           />
           <ChatInput onSend={send} disabled={isLoading} lang={lang} />
         </div>      

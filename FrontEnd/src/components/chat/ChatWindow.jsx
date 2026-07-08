@@ -4,12 +4,12 @@ import LoadingDots from '../common/LoadingDots'
 import MascotAvatar from '../common/MascotAvatar'
 
 const T = {
-  ko: { greeting: '안녕하세요! 무엇을 도와드릴까요? 👋', subtitle: '학사 관련 질문을 입력하면 AI가 답변해드립니다.' },
-  en: { greeting: 'Hello! How can I help you? 👋',       subtitle: 'Ask any academic questions and the AI will answer.' },
-  zh: { greeting: '你好！有什么可以帮您？👋',                subtitle: '请输入与学业相관的问题，AI将为您解答。' },
+  ko: { greeting: '안녕하세요! 무엇을 도와드릴까요? 👋', subtitle: '학사 관련 질문을 입력하면 AI가 답변해드립니다.', grad: '🎓 내 졸업 현황' },
+  en: { greeting: 'Hello! How can I help you? 👋',       subtitle: 'Ask any academic questions and the AI will answer.', grad: '🎓 My Graduation Status' },
+  zh: { greeting: '你好！有什么可以帮您？👋',                subtitle: '请输入与学业相관的问题，AI将为您解答。', grad: '🎓 我的毕业进度' },
 }
 
-export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile }) {
+export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, onCheckGraduation }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -18,16 +18,30 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
 
   return (
     <section className="flex-1 overflow-y-auto bg-[#fdfdfd] flex flex-col items-center">
-      <div className="w-full max-w-2xl" style={{ padding: '40px 32px' }}>
+      <div className="w-full max-w-3xl" style={{ padding: '48px 20px 32px' }}>
 
-        {/* 웰컴 헤더 (말풍선 밖으로 뺌) */}
-        <div className="mb-12 mt-4 px-4">
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            {T[lang].greeting}
-          </h2>
-          <p className="mt-3 text-base text-slate-500">
-            {T[lang].subtitle}
-          </p>
+        {/* 웰컴 메시지 (챗봇 말풍선 형태) + 내 졸업 현황 버튼 */}
+        <div className="flex items-start gap-4" style={{ marginBottom: '24px', paddingLeft: '8px' }}>
+          <MascotAvatar className="h-12 w-12 shrink-0 object-contain" style={{ marginTop: '4px' }} />
+          <div style={{ flex: 1, maxWidth: '80%' }}>
+            <div
+              className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white text-slate-800 shadow-sm"
+              style={{ padding: '16px 20px', fontSize: '15px', lineHeight: '1.7' }}
+            >
+              <p className="font-bold text-slate-800">{T[lang].greeting}</p>
+              <p className="text-sm text-slate-500" style={{ marginTop: '8px' }}>{T[lang].subtitle}</p>
+
+              {/* 내 졸업 현황 버튼 */}
+              <button
+                onClick={onCheckGraduation}
+                disabled={isLoading}
+                className="text-xs font-semibold text-[#005956] border border-[#005956]/30 rounded-full hover:bg-[#005956]/5 transition disabled:opacity-50"
+                style={{ padding: '8px 16px', marginTop: '24px' }}
+              >
+                {T[lang].grad}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* 메시지 목록 */}
