@@ -46,8 +46,8 @@ export default function ChatPage() {
 
   return ( 
     // 배경을 흰색으로, 중앙 정렬 컨테이너를 조금 더 넓게 설정
-    <main className="flex min-h-screen bg-[#e8eaed] items-center justify-center py-8 px-6">
-      <div className="flex flex-col w-full max-w-[600px] h-[calc(100vh-64px)] bg-white rounded-2xl shadow-2xl overflow-hidden ">
+    <main className="flex min-h-[100dvh] bg-[#e8eaed] items-center justify-center py-4 px-2 sm:py-8 sm:px-6">
+      <div className="flex flex-col w-full max-w-3xl h-[calc(100dvh-2rem)] sm:h-[calc(100vh-4rem)] bg-white rounded-2xl shadow-2xl overflow-hidden">
 
         {/* 헤더 */}
         <header className="shrink-0 bg-[#005956] flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>
@@ -134,20 +134,8 @@ export default function ChatPage() {
             onClearPendingFile={clearPendingFile}
             pendingFile={pendingFile}
             onConfirmFile={confirmFile}
+            onCheckGraduation={checkGraduation}
           />
-
-          {/* 퀵액션: 내 졸업 현황 (개인 이수현황을 명시적으로 조회) */}
-          <div className="shrink-0 flex gap-2 px-4 pt-2">
-            <button
-              onClick={checkGraduation}
-              disabled={isLoading}
-              className="text-xs font-semibold text-[#005956] border border-[#005956]/30 rounded-full hover:bg-[#005956]/5 transition disabled:opacity-50"
-              style={{ padding: '6px 12px' }}
-            >
-              {T[lang].grad}
-            </button>
-          </div>
-
           <ChatInput onSend={send} disabled={isLoading} lang={lang} />
         </div>      
       </div>
