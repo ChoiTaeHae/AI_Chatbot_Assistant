@@ -73,7 +73,7 @@ def smart_split(             # 실제 진입점
         if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
             raw_chunks = split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
         elif embed_fn is not None:
-            raw_chunks = semantic_split(text, embed_fn, chunk_size=500, min_length=min_length)  # 시맨틱 청킹
+            raw_chunks = semantic_split(text, embed_fn, chunk_size=chunk_size, min_length=min_length)  # 시맨틱 청킹
         else:
             raw_chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
 

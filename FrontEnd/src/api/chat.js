@@ -15,6 +15,15 @@ export async function sendMessage(question, session_id = null, pendingFile = nul
   return res.json()
 }
 
+export async function getGraduationStatus() {
+  const res = await authFetch(`${BASE}/graduation/status`, { method: 'GET' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '졸업 현황을 불러오지 못했습니다.')
+  }
+  return res.json()  // { answer }
+}
+
 export async function sendFeedback(message_id, is_helpful, rating = null, comment = null) {
   const res = await authFetch(`${BASE}/chat/feedback`, {
     method: 'POST',

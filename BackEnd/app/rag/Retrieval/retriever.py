@@ -5,10 +5,10 @@ from app.rag.Retrieval.qdrant_store import (
 )
 from app.rag.Retrieval.Reranker import BgeReranker
 
-# reranker score 임계값 - ko-reranker exp_normalize 방식 (합=1, 30개 평균≈0.033)
-SCORE_THRESHOLD = 0.08
+# reranker score 임계값 - Sigmoid 적용, 절대평가 0~1 (0.4 이상을 유의미한 문서로 판단)
+SCORE_THRESHOLD = 0.4
 # 최대 반환 청크 수 - LLM 컨텍스트 초과 방지
-MAX_CHUNKS = 10
+MAX_CHUNKS = 5
 
 # 같은 source URL의 청크를 합칠 때 최대 글자 수
 # (너무 길면 LLM 컨텍스트 초과 에러 발생 및 리랭커 점수 폭락 → 2000자로 제한)
@@ -94,6 +94,7 @@ class Retriever:
         limit: int | None = None,
         source: str | None = None,
         topic: str | None = None,
+        original_question: str | None = None,
     ) -> list[SearchResult]:
 
         question = question.strip()
@@ -115,9 +116,12 @@ class Retriever:
 
         # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가하되, 문맥 유지용 헤더 추가)
         # BGE reranker는 순수 (질문, 본문) 쌍으로 학습됨 — 메타데이터 헤더 없이 본문만 전달
+        # 질문은 키워드 위주의 search_query 대신, 원래의 구어체 질문(original_question)을 사용하여
+        # QA 쌍의 자연어 문맥을 살려 리랭커의 평가 점수를 극대화한다.
         rerank_texts = [result.text for result in results]
+        rerank_q = original_question if original_question else question
 
-        scores = self.reranker.rerank(question, rerank_texts)
+        scores = self.reranker.rerank(rerank_q, rerank_texts)
 
         # 리랭커 점수가 반영된 새로운 결과 리스트 생성
         reranked_results = [
@@ -146,11 +150,10 @@ class Retriever:
         filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
         
         # 임계값 통과가 적으면 상위 청크로 보강 (커버리지 확보 — 기한 등 흩어진 정보 누락 방지)
-        # 단, FALLBACK_MIN_SCORE 미만은 보강 대상 제외 — 점수가 상위에 몰린 확신 검색에서
         # 무관한 조각(0.00x)이 컨텍스트를 낭비하는 것 방지. 전부 미달이면 빈 컨텍스트로
         # 반환되어 rag_general의 "자료 못 찾음" 가드로 빠진다.
-        MIN_FALLBACK = 7
-        FALLBACK_MIN_SCORE = 0.01
+        MIN_FALLBACK = 5
+        FALLBACK_MIN_SCORE = 0.15
         if len(filtered_results) < MIN_FALLBACK and reranked_results:
             fallback = [r for r in reranked_results[:MIN_FALLBACK] if r.score >= FALLBACK_MIN_SCORE]
             added = [r for r in fallback if r not in filtered_results]

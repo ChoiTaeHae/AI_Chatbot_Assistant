@@ -47,57 +47,34 @@ def _is_campus_question(q: str) -> bool:
     return bool(_BUILDING_CODE_RE.search(q))
 
 
-def _filter_files_by_question(files: list[str], question: str) -> list[str]:
-    """
-    질문에 등장하는 파일명 핵심 키워드를 기준으로 관련 파일만 필터링.
-
-    예: 질문 "자퇴하려면" → "자퇴" 유일 파일만 반환 (휴학/복학 제외)
-    매칭 파일 없으면 전체 반환 (폴백).
-    """
-    if not question or len(files) <= 1:
-        return files
-
-    q_flat = question.replace(" ", "").replace("_", "")
-    matched = []
-
-    for f in files:
-        stem = Path(f).stem.replace(" ", "").replace("_", "")
-        found = False
-        # 파일명의 부분 문자열을 긴 것부터 체크 (2자 이상)
-        for length in range(len(stem), 1, -1):
-            for start in range(len(stem) - length + 1):
-                chunk = stem[start:start + length]
-                if chunk in q_flat:
-                    found = True
-                    break
-            if found:
-                break
-        if found:
-            matched.append(f)
-
-    # 매칭 파일 있으면 필터링된 목록, 없으면 전체 반환
-    return matched if matched else files
-
-
 def _with_file_offer(updates: dict, topic: str, question: str = "") -> dict:
-    files = AVAILABLE_FILES.get(topic, [])
-    if not files:
+    files_to_offer = updates.pop("files_to_offer", [])
+    if not files_to_offer:
         return updates
 
-    # 질문 기반 관련 파일만 필터링
-    files = _filter_files_by_question(files, question)
+    # 실제 AVAILABLE_FILES에 있는 파일과 매칭 (확장자 포함된 원본 파일명 찾기)
+    actual_files = AVAILABLE_FILES.get(topic, [])
+    matched_actual_files = []
+    for target in files_to_offer:
+        for actual in actual_files:
+            if target == Path(actual).stem:
+                matched_actual_files.append(actual)
+                break
 
-    if len(files) == 1:
-        stem = Path(files[0]).stem
+    if not matched_actual_files:
+        return updates
+
+    if len(matched_actual_files) == 1:
+        stem = Path(matched_actual_files[0]).stem
         offer_text = f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?"
     else:
-        offer_text = f"\n\n관련 파일이 {len(files)}개 있어요. 드릴까요?"
+        offer_text = f"\n\n관련 파일이 {len(matched_actual_files)}개 있어요. 드릴까요?"
 
     return {
         **updates,
         "answer": updates["answer"] + offer_text,
         # show_buttons=False: 첫 응답에는 버튼 숨김, '응' 입력 후에 True로 전환
-        "file_offer": {"topic": topic, "files": files, "show_buttons": False},
+        "file_offer": {"topic": topic, "files": matched_actual_files, "show_buttons": False},
     }
 
 
@@ -240,17 +217,32 @@ async def _embedding_classify(state: AgentState) -> dict:
         if prev_topic == "general":
             prev_topic = None
 
-        # 신뢰도 낮으면 이전 topic으로 fallback
+        # 신뢰도 낮으면 이전 topic으로 fallback.
+        # 단, 새 topic이 이전 topic보다 _SWITCH_MARGIN 이상 우세하면(명확한 새 질문)
+        # 저신뢰여도 전환한다 — "공결신청하고싶어"가 이전 graduation에 갇히는 것을 방지.
         if score < _HIGH_CONFIDENCE and prev_topic:
-            prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
-            if prev_handler:
-                print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용 (handler={prev_handler})")
-                return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
-            # prev_topic을 해석 못 하면 스티키니스 미적용 → 현재 분류로 진행
+            prev_cmp_score = all_scores.get(prev_topic) or 0.0
+            if score - prev_cmp_score < _SWITCH_MARGIN:
+                prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
+                if prev_handler:
+                    print(
+                        f"[Graph] 임베딩 신뢰도 낮음 & 이전 대비 우세 미달 "
+                        f"(새 {topic_name}={score:.3f} vs 이전 {prev_topic}={prev_cmp_score:.3f}) "
+                        f"→ 이전 topic 사용 (handler={prev_handler})"
+                    )
+                    return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
+            # 새 topic이 이전보다 확실히 우세하거나 prev_topic 해석 불가 → 현재 분류로 진행
 
-        # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환
-        # (절대 점수 기준은 애매한 후속 질문과 명확한 주제 전환을 구분 못 함)
+        # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환.
+        # 단, 새 분류가 확신(>= _HIGH_CONFIDENCE)이면 스티키니스를 적용하지 않고 전환한다
+        # ("공결신청하고싶어"가 absence=0.728로 확실한데 graduation에 갇히는 것을 방지).
         prev_score = all_scores.get(prev_topic) if prev_topic else None
+        # main은 "확신도 높으면 margin 스킵"으로 바꿨으나, 실측 4개 케이스 중 절반(신청 기간은
+        # 언제야/기간은 얼마나 돼 — 원문에 진짜 주제어가 없는 애매한 후속 질문)을 틀리게 만듦.
+        # margin 항상 확인이 반대로 절반(공결신청하고싶어/운동장 대여 — 명백한 새 주제 전환)을
+        # 틀리지만, 그 실패는 "이전 topic에 갇힘"에 그치는 반면 main 방식의 실패는 엉뚱한 topic
+        # 검색(환각에 더 가까움)이라 피해가 커서 임시로 이쪽을 선택함. 근본 해결은 2차 라우팅
+        # (rewrite 결과로 재분류) — plan 파일에 설계 저장돼 있음, 리랭커 작업 끝나면 진행 예정.
         if prev_topic and topic_name != prev_topic and prev_score is not None:
             # 잡담(general)은 RAG topic과 달리 "이어지는 대화"가 아니라 매번 독립적으로
             # 판단해야 함 — 자체 확신도만 높으면(1등 + 고신뢰) margin 비교 없이 즉시 전환
@@ -350,6 +342,7 @@ async def _handle_scholarship(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "scholarship",
+        "files_to_offer": metadata.get("files_to_offer", []),
     }, metadata.get("topic") or "scholarship", state["question"])
 
 
@@ -381,6 +374,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or topic,
         "rewritten_query": metadata.get("rewritten_query"),
+        "files_to_offer": metadata.get("files_to_offer", []),
     }, topic, state["question"])
 
 

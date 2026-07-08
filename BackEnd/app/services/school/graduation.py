@@ -1,6 +1,6 @@
-﻿import asyncio
-import re
+﻿
 
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, distinct
@@ -108,23 +108,25 @@ class GraduationService:
     # =============================================
 
     async def answer_graduation_with_metadata(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
-        """Agent가 호출하는 메인 함수 - 질문 유형에 따라 DB/RAG/둘 다 경로 선택"""
-        question_type = await self._classify_question(question)
-        print(f"[Graduation] 질문 유형: {question_type}")
+        """Agent가 호출하는 메인 함수.
 
-        if question_type == "personal":
-            answer = await self._answer_from_db(question, student_id, db)
-            return answer, {"source": "database", "source_file": None, "topic": "graduation"}
-
-        elif question_type == "document":
-            return await self._answer_from_rag(question)
-
-        else:  # both
-            return await self._answer_from_db_and_rag(question, student_id, db)
+        채팅의 졸업 질문은 항상 **규정 문서(RAG)**로만 답한다.
+        개인 이수현황(부족 학점)은 명시적 액션(GET /api/graduation/status)으로 분리했다.
+        → 다른 학과 요건을 물었을 때 로그인 학생 본인의 개인현황이 섞여 나오는 환각을 방지.
+        (student_id·db는 호출부 호환/로깅용으로 유지)
+        """
+        return await self._answer_from_rag(question)
 
     async def answer_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
         answer, _ = await self.answer_graduation_with_metadata(question, student_id, db)
         return answer
+
+    async def get_status_answer(self, student_id: int, db: AsyncSession) -> str:
+        """명시적 '내 졸업 현황' 조회 — 버튼/메뉴에서 호출. 로그인 학생 본인 학과 기준.
+
+        채팅 분류기를 거치지 않으므로 다른 학과 질문과 섞이지 않는다.
+        """
+        return await self._answer_from_db("내 졸업 요건 충족 현황을 알려줘", student_id, db)
 
     async def _classify_question(self, question: str) -> str:
         """임베딩 유사도로 질문 유형 분류 (personal / document / both)"""
@@ -152,10 +154,25 @@ class GraduationService:
         t1 = time.time()
         rag_context, metadata = await self._search_rag(question)
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
-        prompt = self._build_rag_prompt(question, rag_context)
+
+        from app.services.file_service import AVAILABLE_FILES
+        from pathlib import Path
+        files = AVAILABLE_FILES.get("graduation", [])
+        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+
+        prompt = self._build_rag_prompt(question, rag_context, files_list)
         t2 = time.time()
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
+
+        import re
+        match = re.search(r'<FILES>(.*?)</FILES>', result)
+        if match:
+            files_str = match.group(1)
+            metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
+            result = result[:match.start()] + result[match.end():]
+            result = result.strip()
+
         return result, metadata
 
     # =============================================
@@ -169,18 +186,39 @@ class GraduationService:
         )
         rag_context, metadata = rag_data
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
-        prompt = self._build_combined_prompt(question, db_context, rag_context)
-        return await llm_service.answer(prompt, max_tokens=1024), metadata
+
+        from app.services.file_service import AVAILABLE_FILES
+        from pathlib import Path
+        files = AVAILABLE_FILES.get("graduation", [])
+        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+
+        prompt = self._build_combined_prompt(question, db_context, rag_context, files_list)
+        result = await llm_service.answer(prompt, max_tokens=1024)
+
+        import re
+        match = re.search(r'<FILES>(.*?)</FILES>', result)
+        if match:
+            files_str = match.group(1)
+            metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
+            result = result[:match.start()] + result[match.end():]
+            result = result.strip()
+
+        return result, metadata
 
     async def _search_rag(self, question: str) -> tuple[str, dict]:
         """RAG 검색 (별도 스레드 실행 - LLM과 충돌 방지)"""
         loop = asyncio.get_event_loop()
         context, results = await loop.run_in_executor(
             None,
-            lambda: rag_service.search_context_with_results(question, topic="graduation"),
+            lambda: rag_service.search_context_with_results(
+                question, topic="graduation", original_question=question
+            ),
         )
         if context:
-            return context[:500], rag_service.primary_metadata(results, topic="graduation")
+            # 컨텍스트를 과도하게(500자) 자르면 얇은 근거로 LLM이 빈자리를 창작(fabrication)한다.
+            # (예: "호텔경영학과 졸업요건" → 없는 학점·TOEIC 숫자 지어냄)
+            # 리트리버가 이미 MAX_CHUNKS/MAX_MERGED_LENGTH로 상한을 두므로 넉넉히 사용한다.
+            return context[:2000], rag_service.primary_metadata(results, topic="graduation")
         return (
             "관련 공식 문서를 찾지 못했습니다.",
             {"source": None, "source_file": None, "topic": "graduation"},
@@ -356,11 +394,11 @@ class GraduationService:
     def _build_db_prompt(self, question: str, context: str) -> str:
         return GRADUATION_DB_PROMPT.format(context=context, question=question)
 
-    def _build_rag_prompt(self, question: str, rag_context: str) -> str:
-        return GRADUATION_RAG_PROMPT.format(rag_context=rag_context, question=question)
+    def _build_rag_prompt(self, question: str, rag_context: str, files_list: str = "없음") -> str:
+        return GRADUATION_RAG_PROMPT.format(rag_context=rag_context, question=question, files_list=files_list)
 
-    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str) -> str:
-        return GRADUATION_COMBINED_PROMPT.format(db_context=db_context, rag_context=rag_context, question=question)
+    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str, files_list: str = "없음") -> str:
+        return GRADUATION_COMBINED_PROMPT.format(db_context=db_context, rag_context=rag_context, question=question, files_list=files_list)
 
 
 # 싱글톤 인스턴스
