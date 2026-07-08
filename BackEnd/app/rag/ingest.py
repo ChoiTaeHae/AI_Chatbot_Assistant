@@ -4,7 +4,7 @@ from pathlib import Path
 from app.services.rag_service import RagService
 
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx", ".hwp"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx"}
 
 
 def ingest_file(

@@ -153,7 +153,9 @@ class Retriever:
         # 무관한 조각(0.00x)이 컨텍스트를 낭비하는 것 방지. 전부 미달이면 빈 컨텍스트로
         # 반환되어 rag_general의 "자료 못 찾음" 가드로 빠진다.
         MIN_FALLBACK = 5
+
         FALLBACK_MIN_SCORE = 0.15
+
         if len(filtered_results) < MIN_FALLBACK and reranked_results:
             fallback = [r for r in reranked_results[:MIN_FALLBACK] if r.score >= FALLBACK_MIN_SCORE]
             added = [r for r in fallback if r not in filtered_results]

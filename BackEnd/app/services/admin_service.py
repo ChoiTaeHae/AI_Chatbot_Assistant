@@ -47,7 +47,7 @@ from app.services.file_service import is_valid_topic as _is_valid_topic, refresh
 _ingest_executor = ThreadPoolExecutor(max_workers=1)
 
 SUPPORTED_EXTENSIONS = {
-    ".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx", ".hwp",  # 문서 (.hwp는 pyhwp 필요)
+    ".pdf", ".docx", ".pptx", ".txt", ".md", ".hwpx",  # 문서
     ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif",  # 이미지 (OCR 처리)
 }
 VALID_ROLES         = {"student", "admin"}
