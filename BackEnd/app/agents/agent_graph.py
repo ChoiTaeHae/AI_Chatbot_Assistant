@@ -234,6 +234,11 @@ async def _embedding_classify(state: AgentState) -> dict:
 
         prev = state.get("prev_context")
         prev_topic = prev.get("prev_topic") if prev else None
+        # 잡담(general)은 stickiness 앵커가 되지 않음 — 잡담 한마디로 진행 중이던
+        # RAG 맥락이 끊기고 근거 없는 general 답변에 갇히는 것을 방지 (2차 방어선,
+        # 1차는 chat_service의 prev_context 구성 단계에서 잡담을 건너뛰는 것)
+        if prev_topic == "general":
+            prev_topic = None
 
         # 신뢰도 낮으면 이전 topic으로 fallback
         if score < _HIGH_CONFIDENCE and prev_topic:
@@ -247,7 +252,11 @@ async def _embedding_classify(state: AgentState) -> dict:
         # (절대 점수 기준은 애매한 후속 질문과 명확한 주제 전환을 구분 못 함)
         prev_score = all_scores.get(prev_topic) if prev_topic else None
         if prev_topic and topic_name != prev_topic and prev_score is not None:
-            if score - prev_score < _SWITCH_MARGIN:
+            # 잡담(general)은 RAG topic과 달리 "이어지는 대화"가 아니라 매번 독립적으로
+            # 판단해야 함 — 자체 확신도만 높으면(1등 + 고신뢰) margin 비교 없이 즉시 전환
+            if topic_name == "general" and score >= _HIGH_CONFIDENCE:
+                print(f"[Graph] 잡담 감지 → 즉시 전환 (general={score:.3f} ≥ {_HIGH_CONFIDENCE})")
+            elif score - prev_score < _SWITCH_MARGIN:
                 prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
                 print(
                     f"[Graph] topic 전환 우세 미달 (새 {topic_name}={score:.3f} vs "
@@ -266,7 +275,9 @@ async def _embedding_classify(state: AgentState) -> dict:
 
         # 새 topic에 문서가 하나도 없으면 전환 취소 → 이전 topic 유지
         # (빈 topic 전환 → 검색 0건 → 환각 답변으로 이어지는 함정 방지)
-        if prev_topic and topic_name != prev_topic:
+        # RAG 핸들러로의 전환만 검사 — graduation/campus/scholarship/general(chitchat 포함)은
+        # Qdrant 문서가 아닌 DB 조회/코드 파싱/전용 로직으로 답하므로 문서 개수가 무의미함
+        if prev_topic and topic_name != prev_topic and handler_type == "rag":
             try:
                 doc_count = await loop.run_in_executor(
                     None, rag_service.vector_store.count_by_topic, topic_name
@@ -374,11 +385,18 @@ async def _handle_rag_general(state: AgentState) -> dict:
 
 
 async def _handle_general(state: AgentState) -> dict:
+    """잡담 응대 핸들러. 현재 topic이 항상 "general"이고 chat_service가 이전 대화에서
+    general 턴은 건너뛰므로 prev_topic이 "general"과 같아질 일이 없다 —
+    즉 _build_prev_prefix는 이 핸들러에서 항상 빈 문자열을 반환해 사용하지 않는다."""
     await _log(state["db"], state["student_id"], "general")
-    prev_prefix = _build_prev_prefix(state)
-    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
-    prompt = GENERAL_HANDLER_PROMPT.format(question=enriched_question)
+    prompt = GENERAL_HANDLER_PROMPT.format(question=state["question"])
+    # 잡담은 다양성보다 "매번 일관되게 유도"가 목표이므로 기본값(0.3) 사용
     answer = await llm_service.answer(prompt)
+    # few-shot 형식("질문:.../답:...")을 모델이 그대로 따라 출력하는 경우 방지
+    if "답:" in answer:
+        answer = answer.split("답:")[-1].strip()
+    if answer.startswith("질문:"):
+        answer = answer.split("\n", 1)[-1].strip()
     return {
         "answer": answer,
         "source": "llm",
