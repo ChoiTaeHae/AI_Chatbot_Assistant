@@ -47,57 +47,34 @@ def _is_campus_question(q: str) -> bool:
     return bool(_BUILDING_CODE_RE.search(q))
 
 
-def _filter_files_by_question(files: list[str], question: str) -> list[str]:
-    """
-    질문에 등장하는 파일명 핵심 키워드를 기준으로 관련 파일만 필터링.
-
-    예: 질문 "자퇴하려면" → "자퇴" 유일 파일만 반환 (휴학/복학 제외)
-    매칭 파일 없으면 전체 반환 (폴백).
-    """
-    if not question or len(files) <= 1:
-        return files
-
-    q_flat = question.replace(" ", "").replace("_", "")
-    matched = []
-
-    for f in files:
-        stem = Path(f).stem.replace(" ", "").replace("_", "")
-        found = False
-        # 파일명의 부분 문자열을 긴 것부터 체크 (2자 이상)
-        for length in range(len(stem), 1, -1):
-            for start in range(len(stem) - length + 1):
-                chunk = stem[start:start + length]
-                if chunk in q_flat:
-                    found = True
-                    break
-            if found:
-                break
-        if found:
-            matched.append(f)
-
-    # 매칭 파일 있으면 필터링된 목록, 없으면 전체 반환
-    return matched if matched else files
-
-
 def _with_file_offer(updates: dict, topic: str, question: str = "") -> dict:
-    files = AVAILABLE_FILES.get(topic, [])
-    if not files:
+    files_to_offer = updates.pop("files_to_offer", [])
+    if not files_to_offer:
         return updates
 
-    # 질문 기반 관련 파일만 필터링
-    files = _filter_files_by_question(files, question)
+    # 실제 AVAILABLE_FILES에 있는 파일과 매칭 (확장자 포함된 원본 파일명 찾기)
+    actual_files = AVAILABLE_FILES.get(topic, [])
+    matched_actual_files = []
+    for target in files_to_offer:
+        for actual in actual_files:
+            if target == Path(actual).stem:
+                matched_actual_files.append(actual)
+                break
 
-    if len(files) == 1:
-        stem = Path(files[0]).stem
+    if not matched_actual_files:
+        return updates
+
+    if len(matched_actual_files) == 1:
+        stem = Path(matched_actual_files[0]).stem
         offer_text = f"\n\n혹시 **{stem}** 파일이 필요하시면 보내드릴까요?"
     else:
-        offer_text = f"\n\n관련 파일이 {len(files)}개 있어요. 드릴까요?"
+        offer_text = f"\n\n관련 파일이 {len(matched_actual_files)}개 있어요. 드릴까요?"
 
     return {
         **updates,
         "answer": updates["answer"] + offer_text,
         # show_buttons=False: 첫 응답에는 버튼 숨김, '응' 입력 후에 True로 전환
-        "file_offer": {"topic": topic, "files": files, "show_buttons": False},
+        "file_offer": {"topic": topic, "files": matched_actual_files, "show_buttons": False},
     }
 
 
@@ -339,6 +316,7 @@ async def _handle_scholarship(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "scholarship",
+        "files_to_offer": metadata.get("files_to_offer", []),
     }, metadata.get("topic") or "scholarship", state["question"])
 
 
@@ -370,6 +348,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or topic,
         "rewritten_query": metadata.get("rewritten_query"),
+        "files_to_offer": metadata.get("files_to_offer", []),
     }, topic, state["question"])
 
 
