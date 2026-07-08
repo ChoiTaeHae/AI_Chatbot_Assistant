@@ -14,14 +14,14 @@ const LANGUAGES = [
 ]
 
 const T = {
-  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', logout: '로그아웃' },
-  en: { title: 'AI Assistant',   admin: 'Admin Page',    logout: 'Logout'    },
-  zh: { title: 'AI助手',          admin: '管理员页面',      logout: '退出登录'   },
+  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황' },
+  en: { title: 'AI Assistant',   admin: 'Admin Page',    logout: 'Logout',   grad: '🎓 My Graduation Status' },
+  zh: { title: 'AI助手',          admin: '管理员页面',      logout: '退出登录',  grad: '🎓 我的毕业进度' },
 }
 
 export default function ChatPage() {
   const [lang, setLang] = useState('ko')
-  const { messages, isLoading, send, confirmFile, reset, clearPendingFile, pendingFile } = useChat(lang)
+  const { messages, isLoading, send, confirmFile, checkGraduation, reset, clearPendingFile, pendingFile } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const profileRef = useRef(null)
   const { user, clearUser } = useAuth()
@@ -127,14 +127,27 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 flex flex-col min-h-0">
-          <ChatWindow 
-            messages={messages} 
-            isLoading={isLoading} 
-            lang={lang} 
-            onClearPendingFile={clearPendingFile} 
+          <ChatWindow
+            messages={messages}
+            isLoading={isLoading}
+            lang={lang}
+            onClearPendingFile={clearPendingFile}
             pendingFile={pendingFile}
             onConfirmFile={confirmFile}
           />
+
+          {/* 퀵액션: 내 졸업 현황 (개인 이수현황을 명시적으로 조회) */}
+          <div className="shrink-0 flex gap-2 px-4 pt-2">
+            <button
+              onClick={checkGraduation}
+              disabled={isLoading}
+              className="text-xs font-semibold text-[#005956] border border-[#005956]/30 rounded-full hover:bg-[#005956]/5 transition disabled:opacity-50"
+              style={{ padding: '6px 12px' }}
+            >
+              {T[lang].grad}
+            </button>
+          </div>
+
           <ChatInput onSend={send} disabled={isLoading} lang={lang} />
         </div>      
       </div>

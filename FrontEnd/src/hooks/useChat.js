@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { sendMessage } from '../api/chat'
+import { sendMessage, getGraduationStatus } from '../api/chat'
 
 function getTime() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -124,6 +124,31 @@ export function useChat(lang = 'ko') {
     }
   }, [sessionId, pendingContext, lang])
 
+  /** '내 졸업 현황 보기' 버튼 — 개인 이수현황을 명시적으로 조회 (채팅 분류기 미경유) */
+  const checkGraduation = useCallback(async () => {
+    const userMsg = { id: Date.now(), role: 'user', content: '내 졸업 현황 보기', time: getTime() }
+    setMessages((prev) => [...prev, userMsg])
+    setIsLoading(true)
+    try {
+      const data = await getGraduationStatus()
+      setMessages((prev) => [...prev, {
+        id: Date.now() + 1,
+        role: 'ai',
+        content: data.answer,
+        time: getTime(),
+      }])
+    } catch (err) {
+      setMessages((prev) => [...prev, {
+        id: Date.now() + 1,
+        role: 'ai',
+        content: `${ERR[lang]}: ${err.message}`,
+        time: getTime(),
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [lang])
+
   function clearPendingFile() {
     setPendingFile(null)
   }
@@ -135,5 +160,5 @@ export function useChat(lang = 'ko') {
     setPendingContext(null)
   }
 
-  return { messages, isLoading, sessionId, send, confirmFile, reset, clearPendingFile, pendingFile }
+  return { messages, isLoading, sessionId, send, confirmFile, checkGraduation, reset, clearPendingFile, pendingFile }
 }

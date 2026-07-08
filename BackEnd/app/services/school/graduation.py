@@ -1,5 +1,4 @@
 ﻿import asyncio
-import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -108,23 +107,25 @@ class GraduationService:
     # =============================================
 
     async def answer_graduation_with_metadata(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
-        """Agent가 호출하는 메인 함수 - 질문 유형에 따라 DB/RAG/둘 다 경로 선택"""
-        question_type = await self._classify_question(question)
-        print(f"[Graduation] 질문 유형: {question_type}")
+        """Agent가 호출하는 메인 함수.
 
-        if question_type == "personal":
-            answer = await self._answer_from_db(question, student_id, db)
-            return answer, {"source": "database", "source_file": None, "topic": "graduation"}
-
-        elif question_type == "document":
-            return await self._answer_from_rag(question)
-
-        else:  # both
-            return await self._answer_from_db_and_rag(question, student_id, db)
+        채팅의 졸업 질문은 항상 **규정 문서(RAG)**로만 답한다.
+        개인 이수현황(부족 학점)은 명시적 액션(GET /api/graduation/status)으로 분리했다.
+        → 다른 학과 요건을 물었을 때 로그인 학생 본인의 개인현황이 섞여 나오는 환각을 방지.
+        (student_id·db는 호출부 호환/로깅용으로 유지)
+        """
+        return await self._answer_from_rag(question)
 
     async def answer_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
         answer, _ = await self.answer_graduation_with_metadata(question, student_id, db)
         return answer
+
+    async def get_status_answer(self, student_id: int, db: AsyncSession) -> str:
+        """명시적 '내 졸업 현황' 조회 — 버튼/메뉴에서 호출. 로그인 학생 본인 학과 기준.
+
+        채팅 분류기를 거치지 않으므로 다른 학과 질문과 섞이지 않는다.
+        """
+        return await self._answer_from_db("내 졸업 요건 충족 현황을 알려줘", student_id, db)
 
     async def _classify_question(self, question: str) -> str:
         """임베딩 유사도로 질문 유형 분류 (personal / document / both)"""
