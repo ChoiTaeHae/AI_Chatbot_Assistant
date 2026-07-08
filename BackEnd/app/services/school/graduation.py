@@ -210,10 +210,15 @@ class GraduationService:
         loop = asyncio.get_event_loop()
         context, results = await loop.run_in_executor(
             None,
-            lambda: rag_service.search_context_with_results(question, topic="graduation"),
+            lambda: rag_service.search_context_with_results(
+                question, topic="graduation", original_question=question
+            ),
         )
         if context:
-            return context[:500], rag_service.primary_metadata(results, topic="graduation")
+            # 컨텍스트를 과도하게(500자) 자르면 얇은 근거로 LLM이 빈자리를 창작(fabrication)한다.
+            # (예: "호텔경영학과 졸업요건" → 없는 학점·TOEIC 숫자 지어냄)
+            # 리트리버가 이미 MAX_CHUNKS/MAX_MERGED_LENGTH로 상한을 두므로 넉넉히 사용한다.
+            return context[:2000], rag_service.primary_metadata(results, topic="graduation")
         return (
             "관련 공식 문서를 찾지 못했습니다.",
             {"source": None, "source_file": None, "topic": "graduation"},

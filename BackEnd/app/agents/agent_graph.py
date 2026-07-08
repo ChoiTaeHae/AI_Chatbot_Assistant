@@ -212,18 +212,27 @@ async def _embedding_classify(state: AgentState) -> dict:
         prev = state.get("prev_context")
         prev_topic = prev.get("prev_topic") if prev else None
 
-        # 신뢰도 낮으면 이전 topic으로 fallback
+        # 신뢰도 낮으면 이전 topic으로 fallback.
+        # 단, 새 topic이 이전 topic보다 _SWITCH_MARGIN 이상 우세하면(명확한 새 질문)
+        # 저신뢰여도 전환한다 — "공결신청하고싶어"가 이전 graduation에 갇히는 것을 방지.
         if score < _HIGH_CONFIDENCE and prev_topic:
-            prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
-            if prev_handler:
-                print(f"[Graph] 임베딩 신뢰도 낮음 → 이전 topic '{prev_topic}' 사용 (handler={prev_handler})")
-                return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
-            # prev_topic을 해석 못 하면 스티키니스 미적용 → 현재 분류로 진행
+            prev_cmp_score = all_scores.get(prev_topic) or 0.0
+            if score - prev_cmp_score < _SWITCH_MARGIN:
+                prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
+                if prev_handler:
+                    print(
+                        f"[Graph] 임베딩 신뢰도 낮음 & 이전 대비 우세 미달 "
+                        f"(새 {topic_name}={score:.3f} vs 이전 {prev_topic}={prev_cmp_score:.3f}) "
+                        f"→ 이전 topic 사용 (handler={prev_handler})"
+                    )
+                    return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
+            # 새 topic이 이전보다 확실히 우세하거나 prev_topic 해석 불가 → 현재 분류로 진행
 
-        # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환
-        # (절대 점수 기준은 애매한 후속 질문과 명확한 주제 전환을 구분 못 함)
+        # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환.
+        # 단, 새 분류가 확신(>= _HIGH_CONFIDENCE)이면 스티키니스를 적용하지 않고 전환한다
+        # ("공결신청하고싶어"가 absence=0.728로 확실한데 graduation에 갇히는 것을 방지).
         prev_score = all_scores.get(prev_topic) if prev_topic else None
-        if prev_topic and topic_name != prev_topic and prev_score is not None:
+        if score < _HIGH_CONFIDENCE and prev_topic and topic_name != prev_topic and prev_score is not None:
             if score - prev_score < _SWITCH_MARGIN:
                 prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
                 print(
