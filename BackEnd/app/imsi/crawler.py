@@ -266,7 +266,7 @@ def _parse_table_with_rowspan(table_tag: Tag) -> list[str]:
         if first_tr:
             ths = first_tr.find_all("th")
             if ths:
-                headers = [th.get_text(" ", strip=True) for ths]
+                headers = [th.get_text(" ", strip=True) for th in ths]
                 
     # 안전장치로 길이를 4개로 맞춤
     while len(headers) < 4:
