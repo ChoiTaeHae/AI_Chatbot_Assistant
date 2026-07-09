@@ -42,23 +42,30 @@ class ChatService:
         await db.flush()
 
         # 이전 대화 1세트 조회 (멀티턴 맥락 유지용)
+        # 잡담(topic=general)은 건너뛰고 그 이전의 진짜 주제를 찾는다 — "안녕" 한마디로
+        # 진행 중이던 RAG 대화 맥락(예: 휴학)이 끊기는 것을 방지 (잡담을 "투명하게" 취급)
         MAX_PREV_LENGTH = 200
+        MAX_LOOKBACK = 20
         prev_context = None
-        prev_msgs = (await db.execute(
+        recent_msgs = (await db.execute(
             select(ChatMessage)
             .where(ChatMessage.session_id == session.id, ChatMessage.id != user_msg.id)
             .order_by(ChatMessage.id.desc())
-            .limit(2)
+            .limit(MAX_LOOKBACK)
         )).scalars().all()
-        if len(prev_msgs) >= 2:
-            prev_answer = next((m for m in prev_msgs if m.role == "assistant"), None)
-            prev_question = next((m for m in prev_msgs if m.role == "user"), None)
-            if prev_question and prev_answer:
-                prev_context = {
-                    "prev_question": prev_question.content[:MAX_PREV_LENGTH],
-                    "prev_answer": prev_answer.content[:MAX_PREV_LENGTH],
-                    "prev_topic": prev_answer.topic,
-                }
+        for i, msg in enumerate(recent_msgs):
+            if msg.role == "assistant" and msg.topic and msg.topic != "general":
+                prev_answer = msg
+                prev_question = next(
+                    (m for m in recent_msgs[i + 1:] if m.role == "user"), None
+                )
+                if prev_question:
+                    prev_context = {
+                        "prev_question": prev_question.content[:MAX_PREV_LENGTH],
+                        "prev_answer": prev_answer.content[:MAX_PREV_LENGTH],
+                        "prev_topic": prev_answer.topic,
+                    }
+                break
 
         # 순환 import 방지를 위해 런타임에 가져온다.
         from app.agents.agent_graph import agent_graph

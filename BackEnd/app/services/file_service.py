@@ -14,7 +14,7 @@ from app.core.Database import AsyncSessionLocal
 from app.models.DB_Table import DocumentFile
 
 ALLOWED_EXTENSIONS = {
-    ".pdf", ".docx", ".pptx", ".xlsx", ".hwp", ".hwpx",
+    ".pdf", ".docx", ".pptx", ".xlsx", ".hwpx",
     ".txt", ".md", ".jpg", ".jpeg", ".png",
 }
 

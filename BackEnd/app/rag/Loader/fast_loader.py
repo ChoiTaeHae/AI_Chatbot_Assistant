@@ -27,8 +27,6 @@ class FastLoader:
             return self._load_pptx(path)
         elif suffix == ".hwpx":             #HWPX (한글 XML 포맷)
             return self._load_hwpx(path)
-        elif suffix == ".hwp":              #HWP (한글 바이너리 포맷, pyhwp 필요)
-            return self._load_hwp(path)
         else:
             raise ValueError(f"지원하지 않는 파일 형식입니다: {suffix}")
 
