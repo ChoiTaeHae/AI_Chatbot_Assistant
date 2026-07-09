@@ -237,18 +237,8 @@ async def _embedding_classify(state: AgentState) -> dict:
         # 단, 새 분류가 확신(>= _HIGH_CONFIDENCE)이면 스티키니스를 적용하지 않고 전환한다
         # ("공결신청하고싶어"가 absence=0.728로 확실한데 graduation에 갇히는 것을 방지).
         prev_score = all_scores.get(prev_topic) if prev_topic else None
-        # main은 "확신도 높으면 margin 스킵"으로 바꿨으나, 실측 4개 케이스 중 절반(신청 기간은
-        # 언제야/기간은 얼마나 돼 — 원문에 진짜 주제어가 없는 애매한 후속 질문)을 틀리게 만듦.
-        # margin 항상 확인이 반대로 절반(공결신청하고싶어/운동장 대여 — 명백한 새 주제 전환)을
-        # 틀리지만, 그 실패는 "이전 topic에 갇힘"에 그치는 반면 main 방식의 실패는 엉뚱한 topic
-        # 검색(환각에 더 가까움)이라 피해가 커서 임시로 이쪽을 선택함. 근본 해결은 2차 라우팅
-        # (rewrite 결과로 재분류) — plan 파일에 설계 저장돼 있음, 리랭커 작업 끝나면 진행 예정.
-        if prev_topic and topic_name != prev_topic and prev_score is not None:
-            # 잡담(general)은 RAG topic과 달리 "이어지는 대화"가 아니라 매번 독립적으로
-            # 판단해야 함 — 자체 확신도만 높으면(1등 + 고신뢰) margin 비교 없이 즉시 전환
-            if topic_name == "general" and score >= _HIGH_CONFIDENCE:
-                print(f"[Graph] 잡담 감지 → 즉시 전환 (general={score:.3f} ≥ {_HIGH_CONFIDENCE})")
-            elif score - prev_score < _SWITCH_MARGIN:
+        if score < _HIGH_CONFIDENCE and prev_topic and topic_name != prev_topic and prev_score is not None:
+            if score - prev_score < _SWITCH_MARGIN:
                 prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
                 print(
                     f"[Graph] topic 전환 우세 미달 (새 {topic_name}={score:.3f} vs "
