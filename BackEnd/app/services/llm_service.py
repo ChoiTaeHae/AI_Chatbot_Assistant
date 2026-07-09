@@ -23,6 +23,16 @@ class LlmService:
         self.model: Llama | None = None
 
     def load_model(self):
+        # Gemini API 모드: 로컬 GGUF를 로딩하지 않고 API만 구성 (GPU VRAM 절약)
+        if settings.LLM_PROVIDER == "gemini":
+            if not settings.GEMINI_API_KEY:
+                print("[LLM] ⚠️ LLM_PROVIDER=gemini인데 GEMINI_API_KEY가 비어있습니다. .env를 확인하세요.")
+                return
+            import google.generativeai as genai
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            print(f"[LLM] Gemini API 모드 — 모델: {settings.GEMINI_MODEL} (로컬 GGUF 로딩 스킵)")
+            return
+
         if settings.DEV_MODE:
             print("DEV_MODE: LLM 로딩 스킵")
             return
@@ -68,7 +78,39 @@ class LlmService:
             print(f"[LLM] 추론 오류: {type(e).__name__}: {e}")
             raise
 
+    async def _generate_gemini(self, question: str, max_tokens: int = 512, system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str:
+        """Gemini API로 답변 생성 (비동기)."""
+        if settings.DEV_MODE:
+            return f"[DEV_MODE] 질문 수신: {question}"
+
+        import google.generativeai as genai
+
+        t0 = time.time()
+        print("[LLM] Gemini 추론 시작")
+        try:
+            model = genai.GenerativeModel(
+                model_name=settings.GEMINI_MODEL,
+                system_instruction=system_prompt,
+            )
+            resp = await model.generate_content_async(
+                question,
+                generation_config={
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens,
+                    "top_p": 0.9,
+                },
+            )
+            result = resp.text
+            print(f"[LLM] Gemini 생성 완료 | 생성: {time.time()-t0:.1f}s")
+            return result
+        except Exception as e:
+            print(f"[LLM] Gemini 추론 오류: {type(e).__name__}: {e}")
+            raise
+
     async def answer(self, question: str, max_tokens: int = 512, system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str: #답변 최대 토큰수 지정
+        # provider 스위치 — .env의 LLM_PROVIDER로 로컬/Gemini 전환
+        if settings.LLM_PROVIDER == "gemini":
+            return await self._generate_gemini(question, max_tokens, system_prompt, temperature)
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(_executor, self._generate, question, max_tokens, system_prompt, temperature)
 

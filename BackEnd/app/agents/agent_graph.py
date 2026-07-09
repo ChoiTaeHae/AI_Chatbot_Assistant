@@ -203,9 +203,11 @@ def _resolve_prev_route(prev_topic: str | None) -> tuple[str | None, str | None]
 # 흔한 인사/호응 잡담 fast-path (임베딩 없이 0비용). 완전할 필요 없음 —
 # 놓친 개방형 잡담은 아래 임베딩 게이트가 잡는다. $ 앵커로 실제 질문 오탐 방지.
 _CHITCHAT_RE = re.compile(
-    r'^\s*(ㅋ+|ㅎ+|안녕(하세요)?|반가워요?|고마워요?|고맙습니다|감사(합니다|해요|해|드려요)?|ㄳ|ㄱㅅ|땡큐|thanks?|thank you|'
+    r'^\s*((오+|와+|우와+|아+|어+|헐+|음+|흠+|이야)\s+)?'   # 선택적 감탄사 prefix ("오 ", "와 ")
+    r'(ㅋ+|ㅎ+|안녕(하세요)?|반가워요?|고마워요?|고맙습니다|감사(합니다|해요|해|드려요)?|ㄳ|ㄱㅅ|땡큐|thanks?|thank you|'
     r'넵|네+|응+|ㅇㅇ|ㅇㅋ|오케이?|오키|알겠(습니다|어요|어)?|알았어요?|굿|좋아요?|좋네요?|good|great|ok(ay)?|'
-    r'와+|우와+|대박|신기(하다|하네요?|해요)?|헐|음+|흠+|짱|멋지다|멋있어요?)'
+    r'와+|우와+|대박(이다|이네|이야)?|신기(하다|하네요?|해요|해|하군)?|헐|음+|흠+|짱|멋지다|멋있어요?|재밌|재미있|웃기|쩐다|쩔어|놀랍|'
+    r'그렇구나|그렇군요?|그렇네요?|그렇다|그렇답니다|그런거구나|그런거네요?|그러네요?|아하+|오호+|이해했어요?|이해돼요?|이해됐어요?)'
     r'\s*[.!~?ㅋㅎ]*\s*$',
     re.IGNORECASE,
 )
@@ -217,32 +219,21 @@ async def _chitchat_gate(state: AgentState) -> dict:
     잡담은 지식 질문이 아니라 rewrite/검색 파이프라인에 들어가면 안 된다.
     후속 잡담("감사합니다")이 rewrite를 타면 이전 topic으로 재작성돼 오라우팅되므로,
     rewrite 이전에 걸러 잡담 핸들러로 직행시킨다.
-      - 1차 질문(맥락 없음): 기존 흐름이 잡담을 처리하므로 게이트 skip → 이중 분류 방지.
-      - 후속질문: 정규식 fast-path → 임베딩 게이트 순으로 감지.
+      - 1차 질문(맥락 없음): 기존 흐름이 잡담을 처리하므로 게이트 skip.
+      - 후속질문: 정규식 fast-path로만 감지.
+
+    ※ 임베딩 게이트는 제거함 — "조건이 어떻게되니?" 같은 애매한 학사 파편을 general로
+      오분류해 rewrite 기회를 뺏는 문제가 있었다. 정규식이 놓친 후속은 rewrite로 넘겨
+      이전 질문과 합쳐 토픽 질문으로 만든 뒤 2차 라우팅에 맡긴다.
     """
     prev = state.get("prev_context")
     if not (prev and prev.get("prev_question")):
         return {}   # 1차 질문 → 게이트 skip
 
-    q = state["question"]
-    if _CHITCHAT_RE.match(q):
-        print(f"[Graph] 잡담 정규식 매치 → 잡담 핸들러 직행: '{q}'")
+    # 정규식 fast-path만 사용 ($ 앵커라 학사 파편 오탐 없음, 흔한 인사/호응만 잡음)
+    if _CHITCHAT_RE.match(state["question"]):
+        print(f"[Graph] 잡담 정규식 매치 → 잡담 핸들러 직행: '{state['question']}'")
         return {"intent": "general", "topic": "general", "confidence": 1.0}
-
-    loop = asyncio.get_event_loop()
-    try:
-        _, handler, score, _ = await loop.run_in_executor(
-            None, topic_router.route_with_score, q
-        )
-    except Exception as e:
-        print(f"[Graph] 잡담 게이트 분류 실패(계속 진행): {e}")
-        return {}
-    # 확신도 문턱: general이 1등이어도 "확실히 잡담"(>= _HIGH_CONFIDENCE)일 때만 잡담 처리.
-    # 애매한 학사 파편("그건 언제야?")이 소거법으로 general 1등이 돼 잡담으로 새는 것을 방지 —
-    # 낮은 확신이면 게이트를 통과시켜 rewrite→2차 라우팅으로 살린다.
-    if handler == "general" and score >= _HIGH_CONFIDENCE:
-        print(f"[Graph] 잡담 감지(임베딩) → 잡담 핸들러 직행: '{q}' (general={score:.3f})")
-        return {"intent": "general", "topic": "general", "confidence": score}
     return {}
 
 
@@ -451,8 +442,9 @@ async def _handle_rag_general(state: AgentState) -> dict:
 # 이 핸들러는 이미 잡담으로 라우팅된 뒤라 학사 질문이 여기 올 일이 없어 start 매칭이 안전하다.
 _GREETING_RE = re.compile(r'^\s*(안녕|반가|반갑|하이|방가|hi|hello|헬로)', re.IGNORECASE)
 _ACK_RE = re.compile(
-    r'^\s*(감사|고마|고맙|ㄳ|ㄱㅅ|땡큐|thank|넵|네|응|ㅇㅇ|ㅇㅋ|오케|오키|알겠|알았|굿|좋아|좋네|good|great|ok|'
-    r'ㅋ|ㅎ|와|우와|대박|신기|헐|음|흠|짱|멋지|멋있)',
+    r'^\s*(오+|와+|우와+|아+|어+|헐+)?\s*'   # 선택적 감탄사 prefix ("오 신기하다")
+    r'(감사|고마|고맙|ㄳ|ㄱㅅ|땡큐|thank|넵|네|응|ㅇㅇ|ㅇㅋ|오케|오키|알겠|알았|굿|좋아|좋네|good|great|ok|'
+    r'ㅋ|ㅎ|와|우와|대박|신기|헐|음|흠|짱|멋지|멋있|재밌|재미있|웃기|쩐|쩔|놀랍)',
     re.IGNORECASE,
 )
 _GREETING_REPLY = "안녕하세요! 저는 우송대학교 학사 질문을 도와드리는 챗봇이에요. 궁금한 점 편하게 물어봐 주세요!"
