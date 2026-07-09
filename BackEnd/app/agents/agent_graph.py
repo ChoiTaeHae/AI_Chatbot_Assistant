@@ -417,6 +417,11 @@ def _route_keyword(state: AgentState) -> str:
 def _route_embedding(state: AgentState) -> str:
     score = state.get("confidence", 0.0)
     handler = state.get("intent")
+    # general(잡담)이 1등이면 확신도와 무관하게 잡담 핸들러로 보낸다.
+    # general은 검색할 문서가 없어 저신뢰 RAG 폴백으로 보내면 무조건 0건으로 실패한다
+    # ("네" 같은 짧은 응답이 general 1등인데 확신도 0.58로 아래 게이트에 걸려 RAG로 빠지던 버그).
+    if handler == "general":
+        return "general"
     if score >= _HIGH_CONFIDENCE and handler:
         return handler
     # 신뢰도 낮으면 LLM 분류 없이 topic 필터 없는 전체 RAG 검색
