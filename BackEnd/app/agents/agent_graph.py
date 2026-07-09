@@ -200,6 +200,52 @@ def _resolve_prev_route(prev_topic: str | None) -> tuple[str | None, str | None]
     return None, None
 
 
+# 흔한 인사/호응 잡담 fast-path (임베딩 없이 0비용). 완전할 필요 없음 —
+# 놓친 개방형 잡담은 아래 임베딩 게이트가 잡는다. $ 앵커로 실제 질문 오탐 방지.
+_CHITCHAT_RE = re.compile(
+    r'^\s*(ㅋ+|ㅎ+|안녕(하세요)?|반가워요?|고마워요?|고맙습니다|감사(합니다|해요|해|드려요)?|ㄳ|ㄱㅅ|땡큐|thanks?|thank you|'
+    r'넵|네+|응+|ㅇㅇ|ㅇㅋ|오케이?|오키|알겠(습니다|어요|어)?|알았어요?|굿|좋아요?|좋네요?|good|great|ok(ay)?|'
+    r'와+|우와+|대박|신기(하다|하네요?|해요)?|헐|음+|흠+|짱|멋지다|멋있어요?)'
+    r'\s*[.!~?ㅋㅎ]*\s*$',
+    re.IGNORECASE,
+)
+
+
+async def _chitchat_gate(state: AgentState) -> dict:
+    """rewrite 앞 잡담 감지 게이트 (후속질문 전용).
+
+    잡담은 지식 질문이 아니라 rewrite/검색 파이프라인에 들어가면 안 된다.
+    후속 잡담("감사합니다")이 rewrite를 타면 이전 topic으로 재작성돼 오라우팅되므로,
+    rewrite 이전에 걸러 잡담 핸들러로 직행시킨다.
+      - 1차 질문(맥락 없음): 기존 흐름이 잡담을 처리하므로 게이트 skip → 이중 분류 방지.
+      - 후속질문: 정규식 fast-path → 임베딩 게이트 순으로 감지.
+    """
+    prev = state.get("prev_context")
+    if not (prev and prev.get("prev_question")):
+        return {}   # 1차 질문 → 게이트 skip
+
+    q = state["question"]
+    if _CHITCHAT_RE.match(q):
+        print(f"[Graph] 잡담 정규식 매치 → 잡담 핸들러 직행: '{q}'")
+        return {"intent": "general", "topic": "general", "confidence": 1.0}
+
+    loop = asyncio.get_event_loop()
+    try:
+        _, handler, score, _ = await loop.run_in_executor(
+            None, topic_router.route_with_score, q
+        )
+    except Exception as e:
+        print(f"[Graph] 잡담 게이트 분류 실패(계속 진행): {e}")
+        return {}
+    # 확신도 문턱: general이 1등이어도 "확실히 잡담"(>= _HIGH_CONFIDENCE)일 때만 잡담 처리.
+    # 애매한 학사 파편("그건 언제야?")이 소거법으로 general 1등이 돼 잡담으로 새는 것을 방지 —
+    # 낮은 확신이면 게이트를 통과시켜 rewrite→2차 라우팅으로 살린다.
+    if handler == "general" and score >= _HIGH_CONFIDENCE:
+        print(f"[Graph] 잡담 감지(임베딩) → 잡담 핸들러 직행: '{q}' (general={score:.3f})")
+        return {"intent": "general", "topic": "general", "confidence": score}
+    return {}
+
+
 async def _rewrite(state: AgentState) -> dict:
     """후속질문(이전 맥락 존재)일 때만 질문을 rewrite해서 search_query로 저장.
 
@@ -399,22 +445,41 @@ async def _handle_rag_general(state: AgentState) -> dict:
     }, topic, state["question"])
 
 
+# 잡담 응답은 다양성이 아니라 "매번 일관되게 학사로 유도"가 목표라 8B에 맡기지 않고
+# 규칙으로 인사/호응/그외를 분류해 고정(canned) 문구로 답한다.
+# (8B가 few-shot 예시를 잘못 베껴 "ㄳ"에 인사로 답하던 문제 제거 + LLM 호출 절약)
+# 이 핸들러는 이미 잡담으로 라우팅된 뒤라 학사 질문이 여기 올 일이 없어 start 매칭이 안전하다.
+_GREETING_RE = re.compile(r'^\s*(안녕|반가|반갑|하이|방가|hi|hello|헬로)', re.IGNORECASE)
+_ACK_RE = re.compile(
+    r'^\s*(감사|고마|고맙|ㄳ|ㄱㅅ|땡큐|thank|넵|네|응|ㅇㅇ|ㅇㅋ|오케|오키|알겠|알았|굿|좋아|좋네|good|great|ok|'
+    r'ㅋ|ㅎ|와|우와|대박|신기|헐|음|흠|짱|멋지|멋있)',
+    re.IGNORECASE,
+)
+_GREETING_REPLY = "안녕하세요! 저는 우송대학교 학사 질문을 도와드리는 챗봇이에요. 궁금한 점 편하게 물어봐 주세요!"
+_ACK_REPLY = "네! 다른 학사 관련 궁금한 점 있으면 편하게 물어봐 주세요."
+_OFFTOPIC_REPLY = (
+    "죄송하지만 그 질문에는 답해드리기 어려워요. 저는 우송대학교 학사 질문"
+    "(수강신청·졸업·장학금 등)을 전문으로 돕는 챗봇이에요. 학사 관련 궁금한 점을 편하게 물어봐 주세요!"
+)
+
+
 async def _handle_general(state: AgentState) -> dict:
-    """잡담 응대 핸들러. 현재 topic이 항상 "general"이고 chat_service가 이전 대화에서
-    general 턴은 건너뛰므로 prev_topic이 "general"과 같아질 일이 없다 —
-    즉 _build_prev_prefix는 이 핸들러에서 항상 빈 문자열을 반환해 사용하지 않는다."""
+    """잡담 응대 핸들러 — 인사/호응/그외를 규칙으로 분류해 고정(canned) 응답.
+
+    잡담은 이미 게이트/라우팅에서 걸러져 여기로 온다. 응답은 8B에 맡기지 않고 고정 문구로
+    내보내 일관성을 보장하고, few-shot 오복사("ㄳ"→인사) 문제를 제거한다.
+    """
     await _log(state["db"], state["student_id"], "general")
-    prompt = GENERAL_HANDLER_PROMPT.format(question=state["question"])
-    # 잡담은 다양성보다 "매번 일관되게 유도"가 목표이므로 기본값(0.3) 사용
-    answer = await llm_service.answer(prompt)
-    # few-shot 형식("질문:.../답:...")을 모델이 그대로 따라 출력하는 경우 방지
-    if "답:" in answer:
-        answer = answer.split("답:")[-1].strip()
-    if answer.startswith("질문:"):
-        answer = answer.split("\n", 1)[-1].strip()
+    q = state["question"].strip()
+    if _GREETING_RE.match(q):
+        answer = _GREETING_REPLY
+    elif _ACK_RE.match(q):
+        answer = _ACK_REPLY
+    else:
+        answer = _OFFTOPIC_REPLY
     return {
         "answer": answer,
-        "source": "llm",
+        "source": "chitchat",
         "source_file": None,
         "topic": "general",
     }
@@ -445,6 +510,11 @@ def _route_keyword(state: AgentState) -> str:
     return "campus" if state.get("intent") == "campus" else "embed"
 
 
+def _route_chitchat_gate(state: AgentState) -> str:
+    """잡담 게이트가 잡담으로 판정하면 잡담 핸들러 직행, 아니면 rewrite로 진행."""
+    return "general" if state.get("intent") == "general" else "continue"
+
+
 def _route_embedding(state: AgentState) -> str:
     score = state.get("confidence", 0.0)
     handler = state.get("intent")
@@ -467,6 +537,7 @@ def _build_graph():
 
     g.add_node("pre_check",         _pre_check)
     g.add_node("keyword_classify",  _keyword_classify)
+    g.add_node("chitchat_gate",     _chitchat_gate)
     g.add_node("rewrite",           _rewrite)
     g.add_node("embedding_classify", _embedding_classify)
     g.add_node("handle_campus",     _handle_campus)
@@ -480,7 +551,11 @@ def _build_graph():
     g.add_conditional_edges("pre_check", _route_pre_check, _HANDLER_MAP)
     g.add_conditional_edges("keyword_classify", _route_keyword, {
         "campus": "handle_campus",
-        "embed":  "rewrite",
+        "embed":  "chitchat_gate",
+    })
+    g.add_conditional_edges("chitchat_gate", _route_chitchat_gate, {
+        "general":  "handle_general",
+        "continue": "rewrite",
     })
     g.add_edge("rewrite", "embedding_classify")
     g.add_conditional_edges("embedding_classify", _route_embedding, {
