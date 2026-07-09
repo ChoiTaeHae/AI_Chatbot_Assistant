@@ -22,11 +22,6 @@ class Settings(BaseSettings):
     MODEL_PATH: str = "./llm/bllossom-8b-Q8_0.gguf"
     DEVICE: str = "cuda"
 
-    # LLM Provider 스위치: "local"(llama-cpp 자체 호스팅) | "gemini"(Google API)
-    LLM_PROVIDER: str = "local"
-    GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.0-flash"
-
     # Embedding
     EMBEDDING_MODEL: str = "BAAI/bge-m3"
     EMBEDDING_DEVICE: str = "cuda"

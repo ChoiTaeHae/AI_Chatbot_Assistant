@@ -40,9 +40,6 @@ RUN CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=86" \
     FORCE_CMAKE=1 \
     pip install --no-cache-dir llama-cpp-python==0.3.29
 
-# Gemini API SDK (LLM_PROVIDER=gemini 용)
-RUN pip install --no-cache-dir google-generativeai
-
 # 앱 코드 복사
 COPY . .
 

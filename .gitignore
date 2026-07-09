@@ -173,3 +173,7 @@ Desktop.ini
 *.ntvs*
 *.njsproj
 *.sln
+
+# ===== Google Cloud 서비스 계정 키 (Vertex AI 인증 - 절대 커밋 금지) =====
+gcp-sa.json
+**/gcp-sa.json
