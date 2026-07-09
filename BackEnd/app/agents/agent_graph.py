@@ -211,6 +211,11 @@ async def _embedding_classify(state: AgentState) -> dict:
 
         prev = state.get("prev_context")
         prev_topic = prev.get("prev_topic") if prev else None
+        # 잡담(general)은 stickiness 앵커가 되지 않음 — 잡담 한마디로 진행 중이던
+        # RAG 맥락이 끊기고 근거 없는 general 답변에 갇히는 것을 방지 (2차 방어선,
+        # 1차는 chat_service의 prev_context 구성 단계에서 잡담을 건너뛰는 것)
+        if prev_topic == "general":
+            prev_topic = None
 
         # 신뢰도 낮으면 이전 topic으로 fallback.
         # 단, 새 topic이 이전 topic보다 _SWITCH_MARGIN 이상 우세하면(명확한 새 질문)
@@ -252,7 +257,9 @@ async def _embedding_classify(state: AgentState) -> dict:
 
         # 새 topic에 문서가 하나도 없으면 전환 취소 → 이전 topic 유지
         # (빈 topic 전환 → 검색 0건 → 환각 답변으로 이어지는 함정 방지)
-        if prev_topic and topic_name != prev_topic:
+        # RAG 핸들러로의 전환만 검사 — graduation/campus/scholarship/general(chitchat 포함)은
+        # Qdrant 문서가 아닌 DB 조회/코드 파싱/전용 로직으로 답하므로 문서 개수가 무의미함
+        if prev_topic and topic_name != prev_topic and handler_type == "rag":
             try:
                 doc_count = await loop.run_in_executor(
                     None, rag_service.vector_store.count_by_topic, topic_name
@@ -362,11 +369,18 @@ async def _handle_rag_general(state: AgentState) -> dict:
 
 
 async def _handle_general(state: AgentState) -> dict:
+    """잡담 응대 핸들러. 현재 topic이 항상 "general"이고 chat_service가 이전 대화에서
+    general 턴은 건너뛰므로 prev_topic이 "general"과 같아질 일이 없다 —
+    즉 _build_prev_prefix는 이 핸들러에서 항상 빈 문자열을 반환해 사용하지 않는다."""
     await _log(state["db"], state["student_id"], "general")
-    prev_prefix = _build_prev_prefix(state)
-    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
-    prompt = GENERAL_HANDLER_PROMPT.format(question=enriched_question)
+    prompt = GENERAL_HANDLER_PROMPT.format(question=state["question"])
+    # 잡담은 다양성보다 "매번 일관되게 유도"가 목표이므로 기본값(0.3) 사용
     answer = await llm_service.answer(prompt)
+    # few-shot 형식("질문:.../답:...")을 모델이 그대로 따라 출력하는 경우 방지
+    if "답:" in answer:
+        answer = answer.split("답:")[-1].strip()
+    if answer.startswith("질문:"):
+        answer = answer.split("\n", 1)[-1].strip()
     return {
         "answer": answer,
         "source": "llm",
@@ -403,6 +417,11 @@ def _route_keyword(state: AgentState) -> str:
 def _route_embedding(state: AgentState) -> str:
     score = state.get("confidence", 0.0)
     handler = state.get("intent")
+    # general(잡담)이 1등이면 확신도와 무관하게 잡담 핸들러로 보낸다.
+    # general은 검색할 문서가 없어 저신뢰 RAG 폴백으로 보내면 무조건 0건으로 실패한다
+    # ("네" 같은 짧은 응답이 general 1등인데 확신도 0.58로 아래 게이트에 걸려 RAG로 빠지던 버그).
+    if handler == "general":
+        return "general"
     if score >= _HIGH_CONFIDENCE and handler:
         return handler
     # 신뢰도 낮으면 LLM 분류 없이 topic 필터 없는 전체 RAG 검색
