@@ -119,6 +119,7 @@ async def answer_rag_general_question_with_metadata(
     topic: str | None = None,
     context_question: str | None = None,
     prev_question: str | None = None,
+    search_query: str | None = None,
 ) -> tuple[str, dict]:
     """RAG 검색 후 LLM 답변 생성.
 
@@ -133,16 +134,22 @@ async def answer_rag_general_question_with_metadata(
         print("[RAG_GENERAL] ⚠️  TopicRouter 분류 실패 — topic=None, 전체 검색. 해당 질문의 분류 문장을 추가하세요.")
         print(f"[RAG_GENERAL] ⚠️  미분류 질문: {question}")
 
-    # 구어체 질문을 공식 용어로 재작성 후 검색 (리랭커 점수 향상)
-    # 후속 질문이면 이전 질문 맥락을 통합해 재작성 (LLM 호출 수는 동일하게 1회)
-    search_query = await _rewrite_query(question, prev_question=prev_question)
+    # search_query가 주어지면(agent_graph의 rewrite 노드가 후속질문을 이미 재작성) 재사용,
+    # 없으면(1차 질문) 여기서 구어체→키워드 재작성. (이중 rewrite / 이중 LLM 호출 방지)
+    hoisted = search_query is not None
+    if not hoisted:
+        search_query = await _rewrite_query(question, prev_question=prev_question)
+
+    # 리랭킹 질문: 후속질문 원본은 맥락 없는 파편("기간은?")이라 리랭커 점수가 폭락한다.
+    # → 후속(hoisted)은 재작성 쿼리("휴학 기간")로 리랭킹하고, 1차 질문은 기존대로 구어체 원본으로.
+    rerank_question = search_query if hoisted else question
 
     loop = asyncio.get_event_loop()
     context, metadata = await loop.run_in_executor(
         None,
         _search_rag,
         search_query,
-        question,
+        rerank_question,
         effective_topic,
     )
 

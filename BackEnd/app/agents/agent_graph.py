@@ -23,7 +23,7 @@ from app.services.llm_service import llm_service
 from app.prompts import GENERAL_HANDLER_PROMPT
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
-from app.services.school.rag_general import answer_rag_general_question_with_metadata
+from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query
 from app.services.school.scholarship import answer_scholarship_question
 from app.services.rag_service import rag_service
 from app.services.file_service import AVAILABLE_FILES
@@ -200,12 +200,42 @@ def _resolve_prev_route(prev_topic: str | None) -> tuple[str | None, str | None]
     return None, None
 
 
+async def _rewrite(state: AgentState) -> dict:
+    """후속질문(이전 맥락 존재)일 때만 질문을 rewrite해서 search_query로 저장.
+
+    A 설계: rewrite 결과로 2차 라우팅(embedding_classify)과 검색을 모두 수행한다.
+      - 후속이면 rewrite가 이전 주제를 보충("기간은?"→"휴학 기간")하거나,
+        새 주제면 이전을 버리고 현재 질문만 남긴다(프롬프트 규칙).
+      - 1차 질문(맥락 없음)은 여기서 건너뛰고 rag_general 내부 rewrite에 맡긴다.
+    """
+    prev = state.get("prev_context")
+    prev_question = prev.get("prev_question") if prev else None
+    if not prev_question:
+        return {}
+    try:
+        rewritten = await _rewrite_query(state["question"], prev_question=prev_question)
+    except Exception as e:
+        print(f"[Graph] 후속질문 rewrite 실패(원본으로 진행): {e}")
+        return {}
+    print(f"[Graph] 후속질문 rewrite: '{state['question']}' → '{rewritten}' (이전: '{prev_question}')")
+    # DB 로깅(파인튜닝 데이터)용: 어느 핸들러로 라우팅되든 여기서 rewritten_query를 기록한다.
+    # (실제로 재작성된 경우만 — 드리프트 폴백으로 원본과 같으면 None)
+    return {
+        "search_query": rewritten,
+        "rewritten_query": rewritten if rewritten != state["question"] else None,
+    }
+
+
 async def _embedding_classify(state: AgentState) -> dict:
-    """임베딩 유사도 기반 분류 — (topic_name, handler_type, score, all_scores) 사용"""
+    """임베딩 유사도 기반 분류 — (topic_name, handler_type, score, all_scores) 사용.
+
+    후속질문이면 search_query(rewrite 결과)로 라우팅한다(2차 라우팅). 1차 질문은 원본으로.
+    """
     loop = asyncio.get_event_loop()
+    route_query = state.get("search_query") or state["question"]
     try:
         topic_name, handler_type, score, all_scores = await loop.run_in_executor(
-            None, topic_router.route_with_score, state["question"]
+            None, topic_router.route_with_score, route_query
         )
         print(f"[Graph] 임베딩 분류 → topic={topic_name} handler={handler_type} ({score:.3f})")
 
@@ -349,6 +379,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         topic=topic,
         context_question=enriched_question,  # LLM 맥락용 (이전 주제 힌트 포함)
         prev_question=prev_question,         # 후속 질문이면 rewrite에 맥락 통합
+        search_query=state.get("search_query"),  # rewrite 노드가 이미 재작성했으면 재사용(이중 rewrite 방지)
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
@@ -417,6 +448,7 @@ def _build_graph():
 
     g.add_node("pre_check",         _pre_check)
     g.add_node("keyword_classify",  _keyword_classify)
+    g.add_node("rewrite",           _rewrite)
     g.add_node("embedding_classify", _embedding_classify)
     g.add_node("handle_campus",     _handle_campus)
     g.add_node("handle_graduation", _handle_graduation)
@@ -429,8 +461,9 @@ def _build_graph():
     g.add_conditional_edges("pre_check", _route_pre_check, _HANDLER_MAP)
     g.add_conditional_edges("keyword_classify", _route_keyword, {
         "campus": "handle_campus",
-        "embed":  "embedding_classify",
+        "embed":  "rewrite",
     })
+    g.add_edge("rewrite", "embedding_classify")
     g.add_conditional_edges("embedding_classify", _route_embedding, {
         "campus":      "handle_campus",
         "graduation":  "handle_graduation",
@@ -488,6 +521,7 @@ class AgentGraph:
             "file_confirm": file_confirm,
             "intent": None,
             "confidence": 0.0,
+            "search_query": None,
             "answer": None,
             "file_offer": None,
             "file_download": None,
