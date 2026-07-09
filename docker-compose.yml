@@ -3,6 +3,10 @@ services:
     build: ./BackEnd
     ports:
       - "8000:8000"
+    # 컨테이너 DNS 고정 — huggingface.co 등 외부 호스트 이름 해석 실패(Failed to resolve) 방지
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     env_file:
       - ./BackEnd/.env
     volumes:
