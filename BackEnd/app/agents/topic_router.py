@@ -11,19 +11,17 @@ from app.rag.Embedding import BaaiEmbedding
 
 SIMILARITY_THRESHOLD = 0.40
 
+# topic 점수 = 그 topic 대표문장 중 질문과 가장 가까운 상위 K개의 평균 유사도.
+# 평균 프로토타입(문장들을 벡터 1개로 뭉갬)은 "휴학 기간" 같은 짧은 질문에서 일반
+# 기능어("기간")가 지배해 distinctive 단어("휴학")가 희석 → 엉뚱한 topic(schedule)으로
+# 새는 문제가 있었다. 개별 문장 최대 유사도로 비교하면 leave 풀의 "휴학 기간이 얼마나
+# 되나요?" 문장 하나가 살아나 정확히 매칭된다. 순수 max는 outlier 문장 1개에 과민하므로
+# top-K 평균으로 완충한다(kNN k=K와 동일 원리).
+_TOP_K = 3
+
 
 def _dot(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
-
-
-def _average_vectors(vectors: list[list[float]]) -> list[float]:
-    n = len(vectors)
-    dim = len(vectors[0])
-    avg = [sum(vectors[i][j] for i in range(n)) / n for j in range(dim)]
-    norm = sum(x * x for x in avg) ** 0.5
-    if norm > 0:
-        avg = [x / norm for x in avg]
-    return avg
 
 
 class TopicRouter:
@@ -39,11 +37,13 @@ class TopicRouter:
         return self._embedding
 
     def warmup(self, topic_data: list[dict]) -> None:
-        """서버 시작 시 topic 대표벡터 사전 계산.
+        """서버 시작 시 topic별 대표문장 벡터 사전 계산.
 
         topic_data: DB에서 로드한 활성 topic 목록
           [{"name": str, "handler_type": str, "sentences": list[str]}, ...]
         문장이 없는 topic(general 등)은 벡터 생성을 건너뛴다.
+        평균을 내지 않고 문장별 벡터를 그대로 보관한다(route_with_score에서 top-K 최대
+        유사도로 비교하기 위해).
         """
         active = [t for t in topic_data if t.get("sentences")]
         if not active:
@@ -65,7 +65,7 @@ class TopicRouter:
         for t, (start, end) in zip(active, ranges):
             self._proto_vecs[t["name"]] = {
                 "handler_type": t["handler_type"],
-                "vec": _average_vectors(all_vectors[start:end]),
+                "vecs": all_vectors[start:end],   # 개별 문장 벡터 전체 보관 (평균 안 함)
             }
 
         print(f"[TopicRouter] {len(self._proto_vecs)}개 topic, 총 {len(all_sentences)}개 문장 임베딩 완료")
@@ -92,7 +92,13 @@ class TopicRouter:
         all_scores: dict[str, float] = {}
 
         for name, info in self._proto_vecs.items():
-            score = _dot(q_vec, info["vec"])
+            vecs = info["vecs"]
+            if not vecs:
+                continue
+            # 개별 문장 유사도 중 상위 K개 평균 (평균 프로토타입 대신)
+            sims = sorted((_dot(q_vec, v) for v in vecs), reverse=True)
+            k = min(_TOP_K, len(sims))
+            score = sum(sims[:k]) / k
             all_scores[name] = score
             if score > best_score:
                 best_score = score
