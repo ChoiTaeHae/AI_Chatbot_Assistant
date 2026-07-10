@@ -65,17 +65,27 @@ def smart_split(             # 실제 진입점
     
     if "---ITEM---" in text:
         raw_chunks = split_by_separator(text, min_length=min_length)
+    elif _has_markdown_table(text):
+        # 마크다운 표가 있으면: 표 블록은 행(예: 과) 단위로, 나머지는 일반 청킹
+        # → 표의 각 행이 자기 키(과명)를 달고 독립 청크가 됨 (여러 과 뭉침/과명 누락 방지)
+        raw_chunks = []
+        last_dept_chunk = None   # 직전 표 '과' 청크 — 페이지/블록 경계 넘는 연속 행 병합용
+        for is_table, block in _find_table_blocks(text):
+            if is_table:
+                block_chunks = split_by_table(
+                    block, chunk_size=chunk_size, min_length=min_length,
+                    carry_chunk=last_dept_chunk,
+                )
+                raw_chunks.extend(block_chunks)
+                # 이번 블록의 마지막 '과' 청크를 다음 블록 병합 대상으로 갱신
+                for c in reversed(block_chunks):
+                    if c.get("article"):
+                        last_dept_chunk = c
+                        break
+            else:
+                raw_chunks.extend(_chunk_generic(block, chunk_size, overlap, min_length, embed_fn))
     else:
-        articles = ARTICLE_DETECT_PATTERN.findall(text)    # 정규식에 맞는 것 전부 찾음
-        total_lines = max(len(text.splitlines()), 1)       # 줄 단위 분리
-
-        # 조문 비율 체크
-        if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
-            raw_chunks = split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
-        elif embed_fn is not None:
-            raw_chunks = semantic_split(text, embed_fn, chunk_size=chunk_size, min_length=min_length)  # 시맨틱 청킹
-        else:
-            raw_chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
+        raw_chunks = _chunk_generic(text, chunk_size, overlap, min_length, embed_fn)
 
     # 최종 반환 시 make_chunk를 통과시키며 순차적으로 chunk_id 부여
     return [
@@ -87,6 +97,160 @@ def smart_split(             # 실제 진입점
         )
         for i, c in enumerate(raw_chunks)
     ]
+
+def _chunk_generic(text: str, chunk_size: int, overlap: int, min_length: int, embed_fn) -> list[dict]:
+    """표가 아닌 일반 텍스트 청킹 — 조문/시맨틱/문단 중 자동 선택 (smart_split의 기존 로직)."""
+    articles = ARTICLE_DETECT_PATTERN.findall(text)    # 정규식에 맞는 것 전부 찾음
+    total_lines = max(len(text.splitlines()), 1)       # 줄 단위 분리
+
+    # 조문 비율 체크
+    if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
+        return split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
+    elif embed_fn is not None:
+        return semantic_split(text, embed_fn, chunk_size=chunk_size, min_length=min_length)  # 시맨틱 청킹
+    else:
+        return split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
+
+
+# region 마크다운 표 청킹
+def _is_table_row(line: str) -> bool:
+    """| ... | ... | 형태의 표 행인지 판단 (파이프 2개 이상)."""
+    line = line.strip()
+    return line.startswith("|") and line.count("|") >= 2
+
+
+def _is_sep_line(line: str) -> bool:
+    """마크다운 표 구분선(|---|---|)인지 판단."""
+    line = line.strip()
+    return bool(re.match(r"^\|?[\s\-:|]+\|?$", line)) and "-" in line
+
+
+def _has_markdown_table(text: str) -> bool:
+    """표 행이 2개 이상 연속되거나 구분선이 있으면 마크다운 표로 간주.
+    (구분선이 없는 추출물도 표로 인식하도록 완화)"""
+    lines = text.split("\n")
+    consec = 0
+    for l in lines:
+        if _is_table_row(l):
+            consec += 1
+            if consec >= 2:
+                return True
+        elif _is_sep_line(l):
+            return True
+        else:
+            consec = 0
+    return False
+
+
+def _find_table_blocks(text: str) -> list[tuple[bool, str]]:
+    """텍스트를 (is_table, block) 세그먼트로 분할.
+
+    표 행/구분선이 연속되면 표 블록으로 묶되, 표 행 사이의 빈 줄은 표에 포함시킨다
+    (pdfplumber가 페이지별로 표를 뽑아 \\n\\n 로 이어붙은 경우에도 한 표로 처리 →
+    페이지를 넘어간 연속 행이 같은 블록에서 직전 과로 병합되도록)."""
+    lines = text.split("\n")
+    n = len(lines)
+    segments: list[tuple[bool, str]] = []
+    i = 0
+    while i < n:
+        if _is_table_row(lines[i]) or _is_sep_line(lines[i]):
+            start = i
+            i += 1
+            while i < n:
+                if _is_table_row(lines[i]) or _is_sep_line(lines[i]):
+                    i += 1
+                elif not lines[i].strip():
+                    # 빈 줄: 이후에 표 행이 더 있으면 표에 포함, 아니면 표 종료
+                    j = i
+                    while j < n and not lines[j].strip():
+                        j += 1
+                    if j < n and (_is_table_row(lines[j]) or _is_sep_line(lines[j])):
+                        i = j
+                    else:
+                        break
+                else:
+                    break
+            segments.append((True, "\n".join(lines[start:i])))
+        else:
+            start = i
+            while i < n and not (_is_table_row(lines[i]) or _is_sep_line(lines[i])):
+                i += 1
+            block = "\n".join(lines[start:i])
+            if block.strip():
+                segments.append((False, block))
+    return segments
+
+
+def split_by_table(
+    table_text: str,
+    chunk_size: int = 1200,
+    min_length: int = 50,
+    carry_chunk: dict | None = None,
+) -> list[dict]:
+    """마크다운 표를 '행(예: 과)' 단위로 청킹.
+
+    - 첫 셀(과명)이 있으면 → 새 과 청크 시작, article = 과명.
+    - 첫 셀이 비면(| | 내용 |, 즉 '|||' 패턴) → 페이지를 넘어온 연속 행으로 보고
+      직전 과 청크에 이어붙임 (과명 누락/분리 방지).
+    - 블록 첫 행이 빈 과명이면 carry_chunk(직전 블록의 과 청크)에 병합 —
+      페이지 경계에 비표 텍스트가 껴서 표 블록이 쪼개진 경우 대비.
+    - 구분선(|---|)은 무시. 한 과가 chunk_size를 넘으면 길이 분할.
+    """
+    rows = [
+        l.strip()
+        for l in table_text.split("\n")
+        if l.strip() and not _is_sep_line(l)
+    ]
+    if not rows:
+        return [{"chapter": None, "article": None, "text": table_text.strip()}]
+
+    chunks: list[dict] = []
+    cur_key: str | None = None
+    cur_text: str | None = None
+    carry = carry_chunk   # 블록 첫 행 연속 시 병합할 직전 블록의 과 청크
+
+    def _flush() -> None:
+        nonlocal cur_key, cur_text
+        if cur_text is None:
+            return
+        if len(cur_text) >= min_length:
+            if len(cur_text) <= chunk_size:
+                chunks.append({"chapter": None, "article": cur_key, "text": cur_text})
+            else:
+                # 한 과의 내용이 너무 길면 길이 분할 (각 조각에 과명 접두로 문맥 유지)
+                prefix = f"| {cur_key} | " if cur_key else ""
+                budget = max(chunk_size - len(prefix), 200)
+                for k, part in enumerate(split_by_length(cur_text, chunk_size=budget, overlap=0)):
+                    text = part if (k == 0 or not cur_key or part.startswith(prefix)) else f"{prefix}{part}"
+                    chunks.append({"chapter": None, "article": cur_key, "text": text})
+        cur_key, cur_text = None, None
+
+    for row in rows:
+        cells = [c.strip() for c in row.strip().strip("|").split("|")]
+        key = cells[0] if cells else ""
+        if key:
+            # 새 과 시작 — carry 종료
+            _flush()
+            carry = None
+            cur_key = key
+            cur_text = row
+        else:
+            # 과명 빈 셀 = 페이지 넘어온 연속 행
+            cont = " ".join(c for c in cells if c).strip()
+            if cur_text is not None:
+                if cont:
+                    cur_text = f"{cur_text} {cont}"
+            elif carry is not None:
+                # 블록 첫 행 연속 → 직전 블록의 과 청크에 물리 병합 (고아 방지)
+                if cont:
+                    carry["text"] = f"{carry['text']} {cont}"
+            else:
+                # 앞 과가 전혀 없으면 독립 청크(article 없음)
+                cur_text = row
+    _flush()
+    return chunks
+# endregion
+
 
 # 조문 단위 문서
 def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, overlap: int = 150) -> list[dict]:

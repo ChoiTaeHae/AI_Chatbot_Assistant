@@ -122,7 +122,14 @@ class RagService:
         embeddings = self.embedding.embed_texts(embedding_texts)
         print("[RAG] embedding 완료")
 
-        # 4. Qdrant 벡터 DB에 저장
+        # 4. 같은 source의 기존 청크 제거 (재인제스트 멱등성 보장)
+        # - upsert는 인덱스 단위 덮어쓰기라, 새 청크 수가 줄면 옛 상위 인덱스가 잔존함
+        # - 새 청크가 준비된 이후 시점에 삭제해 추출/청킹 실패 시 데이터 손실 방지
+        deleted = self.vector_store.delete_by_source(source_name)
+        if deleted:
+            print(f"[RAG] 기존 청크 {deleted}개 삭제 후 재인제스트: {source_name}")
+
+        # 5. Qdrant 벡터 DB에 저장
         print("[RAG] qdrant 저장 시작")
         self.vector_store.upsert_chunks(
             chunks=chunk_texts,
