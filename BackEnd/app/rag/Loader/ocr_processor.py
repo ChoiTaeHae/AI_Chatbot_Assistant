@@ -8,7 +8,7 @@ OcrProcessor — Surya OCR 기반 통합 처리기
 사용법:
     from app.rag.Loader.ocr_processor import OcrProcessor
     processor = OcrProcessor()
-    
+
     # 이미지 파일
     text = processor.process_image("path/to/image.png")
 
@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 # PDF를 이미지로 변환할 때 해상도
 PDF_DPI = 150
 # 텍스트 레이어가 있는 PDF의 최소 텍스트 길이 (이 미만이면 스캔본으로 판단)
-# Fix: 100 → 500. 100자는 표지·목차 수준이라 텍스트 PDF를 스캔본으로 오탐할 수 있음
 MIN_TEXT_FOR_NATIVE = 500
 
 
@@ -47,9 +46,9 @@ class OcrProcessor:
     """
 
     def __init__(self) -> None:
-        self._rec = None        # Surya RecognitionPredictor (지연 로딩)
-        self._foundation = None # Surya FoundationPredictor (지연 로딩)
-        self._det = None        # Surya DetectionPredictor (지연 로딩)
+        self._rec = None
+        self._foundation = None
+        self._det = None
 
     # =========================================================
     # 내부 모델 로더 (처음 사용할 때만 로드)
@@ -76,7 +75,7 @@ class OcrProcessor:
             images,
             task_names=["ocr_with_boxes"] * len(images),
             det_predictor=det,
-            math_mode=True
+            math_mode=True,
         )
         return results
 
@@ -160,7 +159,8 @@ class OcrProcessor:
 
         logger.info(
             "[OcrProcessor] PDF 처리 시작: %s (%d페이지, %s)",
-            path.name, len(doc),
+            path.name,
+            len(doc),
             "스캔본→전체OCR" if is_scanned else "텍스트PDF→이미지블록보완",
         )
 
@@ -183,7 +183,9 @@ class OcrProcessor:
             merged = self._merge_pdf_texts(docling_text, ocr_text)
             logger.info(
                 "[OcrProcessor] PDF 병합 완료: Docling %d자 + OCR %d자 → %d자",
-                len(docling_text), len(ocr_text), len(merged),
+                len(docling_text),
+                len(ocr_text),
+                len(merged),
             )
             return merged
 
@@ -194,11 +196,6 @@ class OcrProcessor:
     def load_text_with_ocr(self, file_path: str | Path) -> str:
         """
         파일 확장자에 따라 자동으로 처리 방식을 선택합니다.
-
-        지원 확장자:
-            - .pdf  → Docling 우선, 스캔본은 Surya OCR 전체 처리
-            - .png / .jpg 등 이미지 → Surya OCR 직접 처리
-            - .docx / .pptx → DoclingLoader 위임
         """
         path = Path(file_path)
         suffix = path.suffix.lower()
@@ -221,9 +218,6 @@ class OcrProcessor:
     def _ocr_full_page(self, page) -> str:
         """페이지 전체를 이미지로 렌더링 후 Surya OCR (스캔본용)"""
         import fitz
-        # Fix: colorspace=fitz.csRGB 로 강제 지정
-        # 기존 코드는 mat.n==4 이면 RGBA 로 가정했으나, CMYK 도 채널이 4개라 오해석 발생
-        # fitz 에게 처음부터 RGB 로 변환된 픽셀을 달라고 요청하면 채널 혼동 자체가 없어짐
         mat = page.get_pixmap(dpi=PDF_DPI, colorspace=fitz.csRGB)
         img = Image.frombytes("RGB", (mat.width, mat.height), mat.samples)
         results = self._run_ocr([img])
@@ -240,10 +234,8 @@ class OcrProcessor:
         ]
 
         for bbox in image_rects:
-            # Fix: _ocr_full_page 와 동일한 이유로 csRGB 강제 적용
             clip = page.get_pixmap(dpi=PDF_DPI, clip=bbox, colorspace=fitz.csRGB)
             img = Image.frombytes("RGB", (clip.width, clip.height), clip.samples)
-
             results = self._run_ocr([img])
             text = self._extract_text_from_result(results[0])
             if text:
@@ -302,11 +294,101 @@ class OcrProcessor:
     # Surya 결과 파싱 헬퍼
     # =========================================================
 
+    @staticmethod
+    def _get_centers(line) -> tuple[float, float]:
+        """polygon에서 x, y 중심좌표 반환"""
+        poly = line.polygon
+        x_center = sum(p[0] for p in poly) / len(poly)
+        y_center = sum(p[1] for p in poly) / len(poly)
+        return x_center, y_center
+
     def _extract_text_from_result(self, page_result) -> str:
         """
-        Surya 0.17.1 OCRResult에서 텍스트 추출.
+        Surya OCRResult에서 텍스트 추출.
+        - polygon 좌표 기준으로 행 재정렬
+        - 다중 컬럼 비율이 30% 이상이면 표로 판단 → 컬럼 분리 후 문맥 복원
+        - 일반 문서면 행 순서대로 단순 병합
         """
         if not page_result or not getattr(page_result, "text_lines", None):
             return ""
 
-        return "\n".join([line.text for line in page_result.text_lines if getattr(line, "text", "")])
+        lines = [
+            line for line in page_result.text_lines
+            if getattr(line, "text", "").strip()
+        ]
+        if not lines:
+            return ""
+
+        # 행 높이 평균으로 같은 행 판단 기준(tolerance) 계산
+        heights = [
+            max(p[1] for p in l.polygon) - min(p[1] for p in l.polygon)
+            for l in lines
+        ]
+        avg_height = sum(heights) / len(heights) if heights else 20
+        tolerance = avg_height * 0.6
+
+        # y좌표 기준으로 행 그룹핑
+        rows: list[list] = []
+        for line in lines:
+            _, y_center = self._get_centers(line)
+            placed = False
+            for row in rows:
+                row_y = sum(self._get_centers(l)[1] for l in row) / len(row)
+                if abs(y_center - row_y) <= tolerance:
+                    row.append(line)
+                    placed = True
+                    break
+            if not placed:
+                rows.append([line])
+
+        # 위→아래 순서로 행 정렬
+        rows.sort(key=lambda row: sum(self._get_centers(l)[1] for l in row) / len(row))
+
+        # 한 행에 텍스트가 2개 이상인 행이 30% 이상이면 표로 판단
+        multi_col_rows = sum(1 for row in rows if len(row) >= 2)
+        is_table = (multi_col_rows / len(rows)) >= 0.3 if rows else False
+        logger.info("[OcrProcessor] 표 감지: is_table=%s, multi_col=%d/%d", is_table, multi_col_rows, len(rows))
+
+        if not is_table:
+            # 일반 문서: x순서대로 정렬 후 한 줄로 병합
+            result_lines = []
+            for row in rows:
+                row.sort(key=lambda l: self._get_centers(l)[0])
+                result_lines.append(" ".join(l.text for l in row))
+            return "\n".join(result_lines)
+
+        # 표 문서: x좌표 gap이 가장 큰 지점을 컬럼 경계로 자동 탐지
+        all_x = sorted(set(round(self._get_centers(l)[0]) for l in lines))
+        col_split = all_x[len(all_x) // 2]  # 기본값: 중앙
+        max_gap = 0
+        for i in range(1, len(all_x)):
+            gap = all_x[i] - all_x[i - 1]
+            if gap > max_gap:
+                max_gap = gap
+                col_split = (all_x[i] + all_x[i - 1]) / 2
+
+        logger.debug("[OcrProcessor] 표 감지 → col_split=%.0f", col_split)
+
+        result_lines = []
+        prev_left = ""
+        for row in rows:
+            row.sort(key=lambda l: self._get_centers(l)[0])
+            left_texts = [l.text for l in row if self._get_centers(l)[0] <= col_split]
+            right_texts = [l.text for l in row if self._get_centers(l)[0] > col_split]
+            left = " ".join(left_texts).strip()
+            right = " ".join(right_texts).strip()
+
+            # 왼쪽 컬럼이 비면 병합 셀 → 이전 값 유지
+            if not left:
+                left = prev_left
+            else:
+                prev_left = left
+
+            if left and right:
+                result_lines.append(f"{left}: {right}")
+            elif right:
+                result_lines.append(right)
+            elif left:
+                result_lines.append(left)
+
+        return "\n".join(result_lines)

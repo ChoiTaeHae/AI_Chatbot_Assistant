@@ -1,5 +1,3 @@
-﻿
-
 import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -140,7 +138,11 @@ class GraduationService:
     async def _answer_from_db(self, question: str, student_id: int, db: AsyncSession) -> str:
         report = await self._check_graduation_status(db, student_id)
         if "error" in report:
-            return report["error"]
+            # DB 현황 조회가 불가능한 경우(예: 타 학과 질문, 정보 없음 등) 문서(RAG) 검색으로 폴백
+            print(f"[Graduation] DB 조회 에러: {report['error']} -> RAG 검색으로 폴백합니다.")
+            answer, _ = await self._answer_from_rag(question)
+            return answer
+            
         context = self._build_db_context(report)
         prompt = self._build_db_prompt(question, context)
         return await llm_service.answer(prompt, max_tokens=1024)

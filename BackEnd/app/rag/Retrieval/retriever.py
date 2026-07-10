@@ -114,12 +114,14 @@ class Retriever:
         if not results:
             return []
 
-        # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가하되, 문맥 유지용 헤더 추가)
-        # BGE reranker는 순수 (질문, 본문) 쌍으로 학습됨 — 메타데이터 헤더 없이 본문만 전달
-        # 질문은 키워드 위주의 search_query 대신, 원래의 구어체 질문(original_question)을 사용하여
-        # QA 쌍의 자연어 문맥을 살려 리랭커의 평가 점수를 극대화한다.
-        rerank_texts = [result.text for result in results]
-        rerank_q = original_question if original_question else question
+        # BGE reranker는 순수 (질문, 본문) 쌍으로 학습됨 — 메타데이터 헤더 없이 본문만 전달했었으나,
+        # chunker 분리 이후 문맥이 유실되어 점수가 폭락하는 문제가 발생하므로 헤더를 추가함
+        # 질문은 키워드가 보강된 재작성된 쿼리(question)를 사용하여 시맨틱 유사도를 극대화
+        rerank_texts = [
+            f"[{r.metadata.get('source', '')}] {r.metadata.get('chapter', '')} {r.metadata.get('article', '')}\n{r.text}"
+            for r in results
+        ]
+        rerank_q = question
 
         scores = self.reranker.rerank(rerank_q, rerank_texts)
 
@@ -146,7 +148,6 @@ class Retriever:
                 f"length={length}자 | idx={chunk_index} | {label}"
             )
 
-        # 3. SCORE_THRESHOLD로 필터링 (관련 있는 청크만 살리기)
         filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
         
         # 임계값 통과가 적으면 상위 청크로 보강 (커버리지 확보 — 기한 등 흩어진 정보 누락 방지)
@@ -168,9 +169,7 @@ class Retriever:
         # ★ 디버그: threshold 통과 후 살아남은 청크의 chunk_index만 따로 출력
         survived_indices = [r.metadata.get("chunk_index", "?") for r in filtered_results]
         print(f"[Retriever] 임계값 통과 chunk_index 목록: {survived_indices}")
-
         # 4. 살아남은 청크들을 문서의 원래 순서(chunk_index)대로 오름차순 정렬
-        # (순서대로 정렬해야 합쳤을 때 동아리나 규정 목록이 뒤죽박죽 섞이지 않음)
         filtered_results.sort(key=lambda r: r.metadata.get("chunk_index", 0))
 
         # 5. 합치기 실행 (이어지는 문맥 복원)

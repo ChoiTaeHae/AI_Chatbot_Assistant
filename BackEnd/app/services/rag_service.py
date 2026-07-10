@@ -64,6 +64,29 @@ class RagService:
     # 이미지 확장자 목록 — FastLoader/Docling 은 이미지 미지원 → OCR 직행
     _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
 
+    @staticmethod
+    def _pdf_has_table_or_image(path: Path) -> bool:
+        """PDF 페이지에 이미지 블록 또는 표(격자선)가 있는지 확인"""
+        try:
+            import fitz
+            doc = fitz.open(str(path))
+            for page in doc:
+                # 이미지 블록 감지 (type=1)
+                blocks = page.get_text("dict")["blocks"]
+                if any(b.get("type") == 1 for b in blocks):
+                    doc.close()
+                    return True
+                # 표 감지: stroke('s') 또는 rectangle('re') 가 3개 이상이면 표로 판단
+                paths = page.get_drawings()
+                lines = [p for p in paths if p["type"] in ("s", "re", "l")]
+                if len(lines) >= 3:
+                    doc.close()
+                    return True
+            doc.close()
+        except Exception as e:
+            print(f"[RAG] PDF 표/이미지 감지 실패 ({e}) → FastLoader 사용")
+        return False
+
     def ingest_document(self, file_path: str | Path, source: str | None = None, topic: str | None = None, doc_date: str | None = None, url: str | None = None, contact_name: str | None = None, contact_phone: str | None = None, original_filename: str | None = None) -> int:
         path = Path(file_path)
         source_name = source or path.stem
@@ -71,7 +94,7 @@ class RagService:
 
         text = None
 
-        # 이미지 파일 → FastLoader/Docling 없이 OCR 직행
+        # 이미지 파일 → OCR 직행
         if suffix in self._IMAGE_EXTS:
             print(f"[RAG] 이미지 파일 감지 → OCR 직접 처리: {path.name}")
             try:
@@ -79,8 +102,46 @@ class RagService:
                 print(f"[RAG] 이미지 OCR 성공: {len(text)}자")
             except Exception as e:
                 raise RuntimeError(f"이미지 OCR 실패: {e}")
+
+        elif suffix == ".pdf":
+            # PDF: 표/이미지 여부 먼저 확인 후 파서 선택
+            has_table_or_image = self._pdf_has_table_or_image(path)
+            print(f"[RAG] PDF 표/이미지 감지: {has_table_or_image} ({path.name})")
+
+            if has_table_or_image:
+                # 표/이미지 있음 → Docling (표를 마크다운으로 변환)
+                try:
+                    print(f"[RAG] Docling으로 텍스트 추출 시도: {path.name}")
+                    text = self.loader.load_text(path)
+                    print(f"[RAG] Docling 성공: {len(text)}자")
+                except Exception as e:
+                    print(f"[RAG] Docling 실패 ({e}), FastLoader로 재시도...")
+                    try:
+                        text = self.fast_loader.load_text(path)
+                        print(f"[RAG] FastLoader 성공: {len(text)}자")
+                    except Exception as e2:
+                        print(f"[RAG] FastLoader 실패 ({e2}), OCR로 재시도...")
+                        try:
+                            text = self.ocr_processor.load_text_with_ocr(path)
+                            print(f"[RAG] OCR 성공: {len(text)}자")
+                        except Exception as e3:
+                            raise RuntimeError(f"텍스트 추출 실패: {e3}")
+            else:
+                # 순수 텍스트 PDF → FastLoader (빠름)
+                try:
+                    print(f"[RAG] FastLoader로 텍스트 추출 시도: {path.name}")
+                    text = self.fast_loader.load_text(path)
+                    print(f"[RAG] FastLoader 성공: {len(text)}자")
+                except Exception as e:
+                    print(f"[RAG] FastLoader 실패 ({e}), Docling으로 재시도...")
+                    try:
+                        text = self.loader.load_text(path)
+                        print(f"[RAG] Docling 성공: {len(text)}자")
+                    except Exception as e2:
+                        raise RuntimeError(f"텍스트 추출 실패: {e2}")
+
         else:
-            # FastLoader → Docling → OCR 순서로 폴백
+            # .docx / .pptx 등 → FastLoader → Docling 순서로 폴백
             try:
                 print(f"[RAG] FastLoader로 텍스트 추출 시도: {path.name}")
                 text = self.fast_loader.load_text(path)
@@ -91,12 +152,7 @@ class RagService:
                     text = self.loader.load_text(path)
                     print(f"[RAG] Docling 성공: {len(text)}자")
                 except Exception as e2:
-                    print(f"[RAG] Docling 실패 ({e2}), OCR로 재시도...")
-                    try:
-                        text = self.ocr_processor.load_text_with_ocr(path)
-                        print(f"[RAG] OCR 성공: {len(text)}자")
-                    except Exception as e3:
-                        raise RuntimeError(f"텍스트 추출 실패 (FastLoader/Docling/OCR 전부 실패): {e3}")
+                    raise RuntimeError(f"텍스트 추출 실패: {e2}")
 
         if not text or not text.strip():
             return 0
@@ -104,20 +160,18 @@ class RagService:
         # 텍스트 정제
         text = preprocess_text(text)
 
-        # 1. 텍스트 분할 (메타데이터 포함)
-        # smart_split은 list[dict] 반환
-        # {"chunk_id", "chapter", "article", "path", "text", "embedding_text"}
+        # 1. 텍스트 분할
+        # 시맨틱 청킹을 다시 활성화하되, 청커 내부에서 짧은 문장(헤더)이 찢어지지 않도록 보호 로직이 적용됨
         chunk_dicts = smart_split(text, embed_fn=self.embedding.embed_texts)
         if not chunk_dicts:
             print("[RAG] chunk 생성 실패")
             return 0
 
-        # 2. 임베딩 모델용 순수 텍스트와 DB 저장용 텍스트 분리
+        # 2. 임베딩용 텍스트와 저장용 텍스트 분리
         embedding_texts = [c["embedding_text"] for c in chunk_dicts]
-        # Qdrant 저장용 원본 텍스트
         chunk_texts = [c["text"] for c in chunk_dicts]
 
-        # 3. 임베딩(벡터 변환) 실행
+        # 3. 임베딩 실행
         print(f"[RAG] embedding 시작 ({len(chunk_dicts)}개 청크)")
         embeddings = self.embedding.embed_texts(embedding_texts)
         print("[RAG] embedding 완료")
@@ -155,7 +209,6 @@ class RagService:
         )
         print(f"[RAG] qdrant 저장 완료 ({len(chunk_dicts)}개)")
         return len(chunk_dicts)
-
 
     def search(self, question: str, limit: int | None = None, source: str | None = None, topic: str | None = None) -> list[SearchResult]:
         return self.retriever.search(question=question, limit=limit, source=source, topic=topic)

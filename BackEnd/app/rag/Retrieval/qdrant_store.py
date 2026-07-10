@@ -74,6 +74,12 @@ class QdrantVectorStore:
             field_name="doc_date",
             field_schema=models.PayloadSchemaType.KEYWORD,
         )
+        # chunk_index 필터링을 위한 인덱스 추가
+        qdrant_client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="chunk_index",
+            field_schema=models.PayloadSchemaType.INTEGER,
+        )
 
     def upsert_chunks(
         self,
@@ -196,6 +202,9 @@ class QdrantVectorStore:
             ),
         )
         return count
+
+
+
 
     def count_by_topic(self, topic: str) -> int:
         """topic에 등록된 RAG 청크 수 반환."""
