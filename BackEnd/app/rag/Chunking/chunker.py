@@ -181,33 +181,56 @@ def _find_table_blocks(text: str) -> list[tuple[bool, str]]:
     return segments
 
 
+# article(행 키)로 쓸 수 있는 첫 셀 최대 길이 — 이보다 길면 '키'가 아니라 내용으로 보고 article=None
+_ARTICLE_MAXLEN = 50
+# 헤더(컬럼 라벨) 셀 최대 길이 — 첫 줄 셀이 전부 이보다 짧아야 헤더로 인정
+_HEADER_CELL_MAXLEN = 30
+
+
+def _cells(line: str) -> list[str]:
+    """마크다운 표 행에서 셀 리스트 추출."""
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
 def split_by_table(
     table_text: str,
     chunk_size: int = 1200,
     min_length: int = 50,
     carry_chunk: dict | None = None,
 ) -> list[dict]:
-    """마크다운 표를 '행(예: 과)' 단위로 청킹.
+    """마크다운 표를 '행(레코드)' 단위로 청킹.
 
-    - 첫 셀(과명)이 있으면 → 새 과 청크 시작, article = 과명.
-    - 첫 셀이 비면(| | 내용 |, 즉 '|||' 패턴) → 페이지를 넘어온 연속 행으로 보고
-      직전 과 청크에 이어붙임 (과명 누락/분리 방지).
-    - 블록 첫 행이 빈 과명이면 carry_chunk(직전 블록의 과 청크)에 병합 —
-      페이지 경계에 비표 텍스트가 껴서 표 블록이 쪼개진 경우 대비.
-    - 구분선(|---|)은 무시. 한 과가 chunk_size를 넘으면 길이 분할.
+    - 첫 셀(키, 예: 과명)이 있으면 → 새 레코드 청크 시작, article = 키.
+      단, 첫 셀이 너무 길면(키가 아니라 내용) article=None (긴 문단이 article로 오염 방지).
+    - 첫 셀이 비면('|||' 패턴) → 페이지를 넘어온 연속 행 → 직전 레코드에 병합.
+      블록 첫 행이 빈 셀이면 carry_chunk(직전 블록 레코드)에 병합 (페이지 경계 대비).
+    - 표준 마크다운 표(헤더행 + |---| + 데이터)에서 헤더가 짧은 라벨성이면 →
+      각 데이터 행 청크에 헤더를 주입해 컬럼 의미 보존 (다열 표 대응).
+    - 구분선(|---|)은 무시. 레코드가 chunk_size를 넘으면 길이 분할.
     """
-    rows = [
-        l.strip()
-        for l in table_text.split("\n")
-        if l.strip() and not _is_sep_line(l)
-    ]
+    raw = [l.strip() for l in table_text.split("\n") if l.strip()]
+    if not raw:
+        return [{"chapter": None, "article": None, "text": table_text.strip()}]
+
+    # ── 헤더(컬럼 라벨) 감지 ──
+    # 첫 줄 다음이 구분선이고, 첫 줄 셀이 모두 짧은 라벨성이면 헤더로 인정.
+    # (졸업표처럼 첫 줄에 긴 셀이 있으면 실제 데이터 행이므로 헤더 아님 → 오탐 방지)
+    header_prefix = ""
+    body = raw
+    if len(raw) >= 3 and _is_table_row(raw[0]) and _is_sep_line(raw[1]):
+        h_cells = [c for c in _cells(raw[0]) if c]
+        if len(h_cells) >= 2 and all(len(c) <= _HEADER_CELL_MAXLEN for c in h_cells):
+            header_prefix = f"{raw[0]}\n{raw[1]}\n"
+            body = raw[2:]
+
+    rows = [l for l in body if not _is_sep_line(l)]
     if not rows:
         return [{"chapter": None, "article": None, "text": table_text.strip()}]
 
     chunks: list[dict] = []
     cur_key: str | None = None
     cur_text: str | None = None
-    carry = carry_chunk   # 블록 첫 행 연속 시 병합할 직전 블록의 과 청크
+    carry = carry_chunk   # 블록 첫 행 연속 시 병합할 직전 블록의 레코드 청크
 
     def _flush() -> None:
         nonlocal cur_key, cur_text
@@ -217,36 +240,36 @@ def split_by_table(
             if len(cur_text) <= chunk_size:
                 chunks.append({"chapter": None, "article": cur_key, "text": cur_text})
             else:
-                # 한 과의 내용이 너무 길면 길이 분할 (각 조각에 과명 접두로 문맥 유지)
-                prefix = f"| {cur_key} | " if cur_key else ""
-                budget = max(chunk_size - len(prefix), 200)
-                for k, part in enumerate(split_by_length(cur_text, chunk_size=budget, overlap=0)):
-                    text = part if (k == 0 or not cur_key or part.startswith(prefix)) else f"{prefix}{part}"
-                    chunks.append({"chapter": None, "article": cur_key, "text": text})
+                # 레코드가 너무 길면 길이 분할 (이어지는 조각에 헤더 재주입으로 문맥 유지)
+                for k, part in enumerate(split_by_length(cur_text, chunk_size=chunk_size, overlap=0)):
+                    if k > 0 and header_prefix and not part.lstrip().startswith("|"):
+                        part = f"{header_prefix}{part}"
+                    chunks.append({"chapter": None, "article": cur_key, "text": part})
         cur_key, cur_text = None, None
 
     for row in rows:
-        cells = [c.strip() for c in row.strip().strip("|").split("|")]
-        key = cells[0] if cells else ""
-        if key:
-            # 새 과 시작 — carry 종료
+        cells = _cells(row)
+        first = cells[0] if cells else ""
+        if first:
+            # 새 레코드 시작 — carry 종료
             _flush()
             carry = None
-            cur_key = key
-            cur_text = row
+            # 첫 셀이 키라기엔 너무 길면 article로 안 씀 (긴 내용의 article 오염 방지)
+            cur_key = first if len(first) <= _ARTICLE_MAXLEN else None
+            cur_text = f"{header_prefix}{row}"
         else:
-            # 과명 빈 셀 = 페이지 넘어온 연속 행
+            # 빈 첫 셀 = 페이지 넘어온 연속 행
             cont = " ".join(c for c in cells if c).strip()
             if cur_text is not None:
                 if cont:
                     cur_text = f"{cur_text} {cont}"
             elif carry is not None:
-                # 블록 첫 행 연속 → 직전 블록의 과 청크에 물리 병합 (고아 방지)
+                # 블록 첫 행 연속 → 직전 블록 레코드에 물리 병합 (고아 방지)
                 if cont:
                     carry["text"] = f"{carry['text']} {cont}"
             else:
-                # 앞 과가 전혀 없으면 독립 청크(article 없음)
-                cur_text = row
+                # 앞 레코드가 전혀 없으면 독립 청크(article 없음)
+                cur_text = f"{header_prefix}{row}"
     _flush()
     return chunks
 # endregion

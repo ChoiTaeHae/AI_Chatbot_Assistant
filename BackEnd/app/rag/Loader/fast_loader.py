@@ -89,6 +89,12 @@ class FastLoader:
 
         ncol = max(len(r) for r in clean_rows)
 
+        # 1열 '표'는 데이터 표가 아니라 강조 박스(테두리만 있는 안내문) →
+        # 마크다운 표로 만들지 않고 평문으로 반환 (셀 전체가 article로 오염되는 것 방지)
+        if ncol <= 1:
+            cells = [fmt(r[0]) for r in clean_rows if r and fmt(r[0])]
+            return "\n\n".join(cells)
+
         def pad(r):
             return list(r) + [""] * (ncol - len(r))
 
