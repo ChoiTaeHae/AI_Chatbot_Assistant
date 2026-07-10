@@ -32,16 +32,74 @@ class FastLoader:
 
     def _load_pdf(self, path: Path) -> str:     #PDF 전용 함수
         import pdfplumber                       #PDF 텍스트 추출 라이브러리
-        texts = []                              #빈 리스트 생성, 각 페이지 텍스트를 저장할 리스트
+        parts = []                              #페이지별(표 마크다운 + 표 밖 텍스트) 조각 저장
         with pdfplumber.open(path) as pdf:      #PDF 열기
             for page in pdf.pages:              #페이지 반복
-                text = page.extract_text()      #텍스트 추출
-                if text:
-                    texts.append(text)          #리스트 저장
-        result = "\n\n".join(texts)             #페이지 합치기
+                try:
+                    tables = page.find_tables()
+                except Exception:
+                    tables = []
+
+                if tables:
+                    # 표가 감지되면: ① 표 영역을 제외한 텍스트, ② 표는 마크다운으로 (구조 보존)
+                    bboxes = [t.bbox for t in tables]
+
+                    def _outside_tables(obj, _bboxes=bboxes):
+                        x0, top = obj.get("x0", 0), obj.get("top", 0)
+                        for bx0, btop, bx1, bbottom in _bboxes:
+                            if bx0 <= x0 <= bx1 and btop <= top <= bbottom:
+                                return False   # 표 안쪽 객체는 제외
+                        return True
+
+                    try:
+                        non_table_text = page.filter(_outside_tables).extract_text() or ""
+                    except Exception:
+                        non_table_text = page.extract_text() or ""
+                    if non_table_text.strip():
+                        parts.append(non_table_text)
+
+                    for t in tables:
+                        try:
+                            md = self._table_to_markdown(t.extract())
+                        except Exception:
+                            md = ""
+                        if md:
+                            parts.append(md)
+                else:
+                    # 표 없으면 기존 방식 그대로
+                    text = page.extract_text()
+                    if text:
+                        parts.append(text)
+
+        result = "\n\n".join(parts)             #페이지 합치기
         if not result.strip():                  #빈 PDF 검사
             raise RuntimeError("PDF에서 텍스트를 추출할 수 없습니다. 스캔 문서일 수 있습니다.") #pdfplumber는 OCR이 없음 / 사진, 차트 안됨
         return result
+
+    @staticmethod
+    def _table_to_markdown(rows: list[list]) -> str:
+        """pdfplumber로 추출한 표(list[list[str|None]])를 마크다운 표로 변환.
+        빈 행 제거, 셀 내 줄바꿈은 공백으로, 셀 내 파이프(|)는 대체해 표 깨짐 방지."""
+        clean_rows = [r for r in (rows or []) if any((c or "").strip() for c in r)]
+        if not clean_rows:
+            return ""
+
+        def fmt(c):
+            return (c or "").replace("\n", " ").replace("|", "／").strip()
+
+        ncol = max(len(r) for r in clean_rows)
+
+        def pad(r):
+            return list(r) + [""] * (ncol - len(r))
+
+        header = pad(clean_rows[0])
+        lines = [
+            "| " + " | ".join(fmt(c) for c in header) + " |",
+            "| " + " | ".join("---" for _ in header) + " |",
+        ]
+        for r in clean_rows[1:]:
+            lines.append("| " + " | ".join(fmt(c) for c in pad(r)) + " |")
+        return "\n".join(lines)
 
     def _load_docx(self, path: Path) -> str:    #Word 전용 함수
         from docx import Document
