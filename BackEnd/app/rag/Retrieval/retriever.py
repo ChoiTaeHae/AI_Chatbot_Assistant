@@ -114,14 +114,19 @@ class Retriever:
         if not results:
             return []
 
-        # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가하되, 문맥 유지용 헤더 추가)
+        # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가)
         # BGE reranker는 순수 (질문, 본문) 쌍으로 학습됨 — 메타데이터 헤더 없이 본문만 전달
-        # 질문은 키워드 위주의 search_query 대신, 원래의 구어체 질문(original_question)을 사용하여
-        # QA 쌍의 자연어 문맥을 살려 리랭커의 평가 점수를 극대화한다.
+        # 리랭킹 쿼리: 재작성 검색어(question)와 원본 질문(original_question) 둘 다로 채점해
+        # 청크별 max를 취한다. 원본이 "공결신청하고싶은데 파일도 같이 줄래?"처럼 노이즈/복합
+        # 요청이면 리랭커 점수가 폭락(정답 문서 0.126)하지만, 깔끔한 재작성 키워드로는 0.9+로
+        # 살아난다(실측). max라 원본만 쓰던 기존 대비 점수가 내려갈 일이 없어 회귀 위험이 없다.
         rerank_texts = [result.text for result in results]
-        rerank_q = original_question if original_question else question
+        rerank_queries = [question]
+        if original_question and original_question.strip() and original_question != question:
+            rerank_queries.append(original_question)
 
-        scores = self.reranker.rerank(rerank_q, rerank_texts)
+        score_lists = [self.reranker.rerank(q, rerank_texts) for q in rerank_queries]
+        scores = [max(col) for col in zip(*score_lists)]
 
         # 리랭커 점수가 반영된 새로운 결과 리스트 생성
         reranked_results = [
