@@ -213,8 +213,6 @@ def split_by_table(
         return [{"chapter": None, "article": None, "text": table_text.strip()}]
 
     # ── 헤더(컬럼 라벨) 감지 ──
-    # 첫 줄 다음이 구분선이고, 첫 줄 셀이 모두 짧은 라벨성이면 헤더로 인정.
-    # (졸업표처럼 첫 줄에 긴 셀이 있으면 실제 데이터 행이므로 헤더 아님 → 오탐 방지)
     header_prefix = ""
     body = raw
     if len(raw) >= 3 and _is_table_row(raw[0]) and _is_sep_line(raw[1]):
@@ -231,9 +229,17 @@ def split_by_table(
     cur_key: str | None = None
     cur_text: str | None = None
     carry = carry_chunk   # 블록 첫 행 연속 시 병합할 직전 블록의 레코드 청크
+    carry_pending: str = ""  # carry에 이어붙일 내용을 보관. _flush() 시점에 연결함
 
     def _flush() -> None:
-        nonlocal cur_key, cur_text
+        nonlocal cur_key, cur_text, carry, carry_pending
+        if carry_pending and carry is not None:
+            # carry가 아직 chunks에 들어가 있으므로 직접 수정이 불가피하지만,
+            # 여기서는 _flush 호출 전까지 carry["text"]를 수정하지 않고
+            # 쌓아둔 pending을 한 번에 반영해 추적을 쉽게 한다.
+            carry["text"] = f"{carry['text']} {carry_pending}"
+            carry_pending = ""
+            carry = None
         if cur_text is None:
             return
         if len(cur_text) >= min_length:
@@ -254,7 +260,6 @@ def split_by_table(
             # 새 레코드 시작 — carry 종료
             _flush()
             carry = None
-            # 첫 셀이 키라기엔 너무 길면 article로 안 씀 (긴 내용의 article 오염 방지)
             cur_key = first if len(first) <= _ARTICLE_MAXLEN else None
             cur_text = f"{header_prefix}{row}"
         else:
@@ -264,15 +269,16 @@ def split_by_table(
                 if cont:
                     cur_text = f"{cur_text} {cont}"
             elif carry is not None:
-                # 블록 첫 행 연속 → 직전 블록 레코드에 물리 병합 (고아 방지)
+                # 블록 첫 행 연속 → 직접 수정 대신 pending에 보관
                 if cont:
-                    carry["text"] = f"{carry['text']} {cont}"
+                    carry_pending = f"{carry_pending} {cont}".strip()
             else:
-                # 앞 레코드가 전혀 없으면 독립 청크(article 없음)
                 cur_text = f"{header_prefix}{row}"
     _flush()
     return chunks
 # endregion
+
+
 
 
 # 조문 단위 문서
@@ -563,10 +569,9 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
     normalized = re.sub(r"[ \t]+", " ", text).strip()
     # 3개 이상 연속된 줄바꿈은 2개로 축소
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
-    
+
     chunks = []
     start = 0
-    current_table_header = ""
 
     while start < len(normalized):
         end = start + chunk_size
@@ -577,7 +582,7 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
             if len(chunk) >= min_length:
                 chunks.append({"chapter": chapter, "article": article, "text": chunk})
             break
-        
+
         # 단어 중간에서 자르지 않도록 줄바꿈 또는 공백 위치를 역방향 탐색
         cut = normalized.rfind("\n", start, end)
         if cut == -1 or cut <= start + overlap:
@@ -586,22 +591,10 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
                 cut = end
 
         chunk = normalized[start:cut].strip()
-        
-        # 이전 청크에서 잘린 표의 헤더가 있다면 현재 청크 맨 앞에 주입 (표 깨짐 방지)
-        if current_table_header and not chunk.startswith(current_table_header.strip()):
-            chunk = current_table_header + chunk
-
         if len(chunk) >= min_length:
             chunks.append({"chapter": chapter, "article": article, "text": chunk})
 
-        # 다음 청크를 위해 현재 자르는 지점이 표 내부인지 확인
-        current_table_header = _get_table_header(normalized, cut)
-
-        # 다음 시작점 = cut - overlap (표 헤더가 주입되는 상황이면 중복 방지를 위해 overlap 최소화)
-        actual_overlap = 0 if current_table_header else overlap
-        next_start = cut - actual_overlap
-        
-         # 무한루프 방지: next_start가 현재 start 이하면 강제로 앞으로
+        next_start = cut - overlap
         if next_start <= start:
             next_start = cut
         start = next_start

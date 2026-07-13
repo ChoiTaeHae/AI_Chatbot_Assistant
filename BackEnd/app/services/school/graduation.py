@@ -1,5 +1,5 @@
-﻿
 
+import re
 import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -129,7 +129,11 @@ class GraduationService:
         return await self._answer_from_db("내 졸업 요건 충족 현황을 알려줘", student_id, db)
 
     async def _classify_question(self, question: str) -> str:
-        """임베딩 유사도로 질문 유형 분류 (personal / document / both)"""
+        """임베딩 유사도로 질문 유형 분류 (personal / document / both)
+        
+        NOTE: 현재 answer_graduation_with_metadata()는 항상 RAG 경로만 사용.
+        개인현황+문서 통합 답변이 필요할 때 다시 활성화할 것.
+        """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _graduation_classifier.classify, question)
 
@@ -165,7 +169,6 @@ class GraduationService:
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
 
-        import re
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
             files_str = match.group(1)
@@ -179,6 +182,7 @@ class GraduationService:
     # 경로 3: 개인 현황 + 공식 문서 (DB + RAG)
     # =============================================
 
+    # NOTE: 현재 미사용. 개인현황(DB) + 공식문서(RAG) 통합 답변이 필요할 때 활성화.
     async def _answer_from_db_and_rag(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
         report, rag_data = await asyncio.gather(
             self._check_graduation_status(db, student_id),
@@ -195,7 +199,6 @@ class GraduationService:
         prompt = self._build_combined_prompt(question, db_context, rag_context, files_list)
         result = await llm_service.answer(prompt, max_tokens=1024)
 
-        import re
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
             files_str = match.group(1)
