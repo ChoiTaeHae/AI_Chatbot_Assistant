@@ -284,49 +284,39 @@ async def _embedding_classify(state: AgentState) -> dict:
         if prev_topic == "general":
             prev_topic = None
 
-        # 신뢰도 낮으면 이전 topic으로 fallback.
-        # 단, 새 topic이 이전 topic보다 _SWITCH_MARGIN 이상 우세하면(명확한 새 질문)
-        # 저신뢰여도 전환한다 — "공결신청하고싶어"가 이전 graduation에 갇히는 것을 방지.
+        # 저신뢰(< _HIGH_CONFIDENCE)이고 새 topic이 이전 topic보다 _SWITCH_MARGIN 이상
+        # 우세하지 못하면 → 이전 topic 유지(stickiness). 확신이거나 명확히 우세하면 전환.
+        # ("공결신청하고싶어"가 absence=0.728로 확실한데 이전 graduation에 갇히는 것 방지)
+        # ※ 기존 블록 2와 통합함 — 블록 2의 '이전 topic 유지' return은 prev_handler가 falsy일
+        #    때만 도달해 실제로는 늘 새 topic(handler_type)을 반환하던 죽은/오해 코드라 제거.
+        #    실질 stickiness는 이 블록 하나로 충분(margin 판정 중복 제거).
         if score < _HIGH_CONFIDENCE and prev_topic:
             prev_cmp_score = all_scores.get(prev_topic) or 0.0
             if score - prev_cmp_score < _SWITCH_MARGIN:
                 prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
                 if prev_handler:
                     print(
-                        f"[Graph] 임베딩 신뢰도 낮음 & 이전 대비 우세 미달 "
-                        f"(새 {topic_name}={score:.3f} vs 이전 {prev_topic}={prev_cmp_score:.3f}) "
-                        f"→ 이전 topic 사용 (handler={prev_handler})"
+                        f"[Graph] 저신뢰 & 이전 대비 우세 미달 "
+                        f"(새 {topic_name}={score:.3f} vs 이전 {prev_topic}={prev_cmp_score:.3f}, "
+                        f"차이 {score - prev_cmp_score:.3f} < {_SWITCH_MARGIN}) → 이전 topic 유지 (handler={prev_handler})"
                     )
                     return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
-            # 새 topic이 이전보다 확실히 우세하거나 prev_topic 해석 불가 → 현재 분류로 진행
-
-        # topic이 바뀌는 경우: 새 topic이 이전 topic보다 확실히 우세할 때만 전환.
-        # 단, 새 분류가 확신(>= _HIGH_CONFIDENCE)이면 스티키니스를 적용하지 않고 전환한다
-        # ("공결신청하고싶어"가 absence=0.728로 확실한데 graduation에 갇히는 것을 방지).
-        prev_score = all_scores.get(prev_topic) if prev_topic else None
-        if score < _HIGH_CONFIDENCE and prev_topic and topic_name != prev_topic and prev_score is not None:
-            if score - prev_score < _SWITCH_MARGIN:
-                prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
+                # prev_topic 해석 불가 → 새 분류로 진행
+            elif topic_name != prev_topic:
                 print(
-                    f"[Graph] topic 전환 우세 미달 (새 {topic_name}={score:.3f} vs "
-                    f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} < {_SWITCH_MARGIN})"
-                    f" → 이전 topic 유지"
+                    f"[Graph] topic 전환 승인 (새 {topic_name}={score:.3f} vs "
+                    f"이전 {prev_topic}={prev_cmp_score:.3f}, 차이 {score - prev_cmp_score:.3f} ≥ {_SWITCH_MARGIN})"
                 )
-                return {
-                    "intent": prev_handler or handler_type,
-                    "topic": prev_route_topic or topic_name,
-                    "confidence": score,
-                }
-            print(
-                f"[Graph] topic 전환 승인 (새 {topic_name}={score:.3f} vs "
-                f"이전 {prev_topic}={prev_score:.3f}, 차이 {score - prev_score:.3f} ≥ {_SWITCH_MARGIN})"
-            )
 
         # 새 topic에 문서가 하나도 없으면 전환 취소 → 이전 topic 유지
         # (빈 topic 전환 → 검색 0건 → 환각 답변으로 이어지는 함정 방지)
         # RAG 핸들러로의 전환만 검사 — graduation/campus/scholarship/general(chitchat 포함)은
         # Qdrant 문서가 아닌 DB 조회/코드 파싱/전용 로직으로 답하므로 문서 개수가 무의미함
-        if prev_topic and topic_name != prev_topic and handler_type == "rag":
+        # 단, 새 분류가 확신(score >= _HIGH_CONFIDENCE)이면 전환한다 — 사용자가 명확히 새
+        # topic을 물었으면, 빈 topic이어도 RAG가 "자료 없음"을 정직히 답하는 게(0건 fallback)
+        # 엉뚱한 이전 topic 답변보다 낫다. 이전 topic도 비어있을 때 계속 갇히는 버그 방지.
+        if (prev_topic and topic_name != prev_topic and handler_type == "rag"
+                and score < _HIGH_CONFIDENCE):
             try:
                 doc_count = await loop.run_in_executor(
                     None, rag_service.vector_store.count_by_topic, topic_name
