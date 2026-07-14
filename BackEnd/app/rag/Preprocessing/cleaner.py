@@ -1,8 +1,43 @@
 import re
 
 
+# PDF가 커스텀 심볼 폰트로 그린 글리프를 유니코드 사설영역(PUA)으로 뽑은 것을 복구.
+# - 성적 등급 폰트(공결 규정 등): 첫 글자=등급문자, 둘째 글자=부호 → A+/A0/B+ 로 복구
+# - 그 외 매핑 없는 PUA(화살표·불릿 등 장식)는 공백으로 치환 (아래 normalize_pua)
+_PUA_MAP = {
+    "": "A", "": "B", "": "C", "": "D", "": "F",  # 등급 문자
+    "": "+", "": "0",                                               # 등급 부호(+, 0)
+    "": "·",                                                              # 가운뎃점/불릿
+}
+
+
+def _is_pua(ch: str) -> bool:
+    o = ord(ch)
+    return (0xE000 <= o <= 0xF8FF) or (0xF0000 <= o <= 0xFFFFD) or (0x100000 <= o <= 0x10FFFD)
+
+
+def normalize_pua(text: str) -> str:
+    """유니코드 사설영역(PUA) 문자 정규화.
+
+    매핑된 코드포인트는 원래 문자로 복구(성적 등급 A+/A0 등),
+    매핑 없는 잔여 PUA(깨진 화살표·심볼)는 공백으로 치환한다.
+    (무조건 제거하면 등급 기호가 사라지므로 매핑 우선)"""
+    if not any(_is_pua(c) for c in text):
+        return text
+    out = []
+    for ch in text:
+        if ch in _PUA_MAP:
+            out.append(_PUA_MAP[ch])
+        elif _is_pua(ch):
+            out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def preprocess_text(text: str) -> str:
     """RAG 인제스트 전 텍스트 정제 파이프라인"""
+    text = normalize_pua(text)
     text = _normalize_whitespace_chars(text)
     text = _remove_page_numbers(text)
     text = _remove_document_headers(text)

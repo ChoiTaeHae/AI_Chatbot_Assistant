@@ -438,9 +438,36 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
         # 다음 조문 처리 전에 chapter 업데이트
         current_chapter = next_chapter
 
+    return _merge_article_chunks(chunks, chunk_size)
 
 
-    return chunks
+def _merge_article_chunks(chunks: list[dict], target: int) -> list[dict]:
+    """짧은 조문 청크들을 인접끼리 target 이내로 병합.
+
+    조문 하나당 청크 1개라 짧은 조(제1조 등)가 미니 청크로 흩어지는 것을 완화한다.
+    - 같은 chapter 안에서만 병합
+    - '(계속)'으로 이미 분할된 긴 조문끼리는 target를 넘으므로 자연히 안 합쳐짐
+    - article은 병합 범위를 반영해 '제1조(목적) ~ 제5조(…)'로 표기(단일이면 그대로)
+    """
+    merged: list[dict] = []
+    for c in chunks:
+        prev = merged[-1] if merged else None
+        if prev is not None and prev.get("chapter") == c.get("chapter") \
+                and len(prev["text"]) + len(c["text"]) + 1 <= target:
+            prev["text"] = f"{prev['text']}\n{c['text']}"
+            prev["_last_art"] = c.get("article")
+        else:
+            merged.append({
+                "chapter": c.get("chapter"),
+                "article": c.get("article"),
+                "text": c["text"],
+                "_last_art": c.get("article"),
+            })
+    for m in merged:
+        first, last = m["article"], m.pop("_last_art")
+        if first and last and first != last:
+            m["article"] = f"{first} ~ {last}"
+    return merged
 
 
 # 최상위 번호 항목 (1. 2. 3. ...) 감지용 패턴
