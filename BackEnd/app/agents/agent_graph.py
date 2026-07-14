@@ -358,10 +358,11 @@ async def _handle_campus(state: AgentState) -> dict:
 
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
-    prev_prefix = _build_prev_prefix(state)
-    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
+    # 졸업 분기(학과 감지·유형 분류)는 반드시 '현재 질문' 기준이어야 한다.
+    # enriched(이전 주제 프리픽스)를 넘기면 "간호학과 졸업요건" 뒤 "내 학과 졸업요건"이
+    # 프리픽스의 '간호학과'를 학과로 오인 → 다른 학과 요건이 나오는 치명적 버그.
     answer, metadata = await graduation_service.answer_graduation_with_metadata(
-        question=enriched_question, student_id=state["student_id"], db=state["db"]
+        question=state["question"], student_id=state["student_id"], db=state["db"]
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
