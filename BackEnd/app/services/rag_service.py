@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.core.config import settings
 from app.rag.Chunking import smart_split
 from app.rag.Embedding import BaaiEmbedding
 from app.rag.Loader import DoclingLoader
@@ -117,9 +118,13 @@ class RagService:
         # Qdrant 저장용 원본 텍스트
         chunk_texts = [c["text"] for c in chunk_dicts]
 
-        # 3. 임베딩(벡터 변환) 실행
+        # 3. 임베딩(벡터 변환) 실행 — 하이브리드면 dense+sparse 함께
         print(f"[RAG] embedding 시작 ({len(chunk_dicts)}개 청크)")
-        embeddings = self.embedding.embed_texts(embedding_texts)
+        sparse_vectors = None
+        if settings.HYBRID_SEARCH:
+            embeddings, sparse_vectors = self.embedding.embed_hybrid(embedding_texts)
+        else:
+            embeddings = self.embedding.embed_texts(embedding_texts)
         print("[RAG] embedding 완료")
 
         # 4. 같은 source의 기존 청크 제거 (재인제스트 멱등성 보장)
@@ -152,6 +157,7 @@ class RagService:
                 }
                 for c in chunk_dicts
             ],
+            sparse_vectors=sparse_vectors,
         )
         print(f"[RAG] qdrant 저장 완료 ({len(chunk_dicts)}개)")
         return len(chunk_dicts)

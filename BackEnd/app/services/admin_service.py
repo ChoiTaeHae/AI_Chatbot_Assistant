@@ -495,7 +495,12 @@ class AdminService:
             texts = [c["text"] for c in raw_chunks]
             embedding_texts = [c["embedding_text"] for c in raw_chunks]
             chunk_metas = [{"chapter": c["chapter"], "article": c["article"], "path": c["path"]} for c in raw_chunks]
-            embeddings = rag_service.embedding.embed_texts(embedding_texts)
+            # 하이브리드면 dense+sparse 함께 (아니면 기존 dense-only)
+            sparse_vectors = None
+            if settings.HYBRID_SEARCH:
+                embeddings, sparse_vectors = rag_service.embedding.embed_hybrid(embedding_texts)
+            else:
+                embeddings = rag_service.embedding.embed_texts(embedding_texts)
             meta = page.metadata()
             if doc_date:
                 meta["doc_date"] = doc_date
@@ -508,6 +513,7 @@ class AdminService:
                 metadata=meta,
                 topic=topic,
                 chunk_metas=chunk_metas,
+                sparse_vectors=sparse_vectors,
             )
             chunk_count = len(texts)
             self._upload_jobs[job_id] = {

@@ -82,8 +82,16 @@ def smart_split(             # 실제 진입점
                     if c.get("article"):
                         last_dept_chunk = c
                         break
+            elif _has_structure(block):
+                # 표 사이의 비표 블록도 헤딩/불릿 구조면 구조 청킹 (접수방법 등 리스트 중간 끊김 방지)
+                # 표 행(split_by_table) 경로는 건드리지 않음 → 졸업 표 청킹 무영향
+                raw_chunks.extend(split_by_structure(block, chunk_size=chunk_size, min_length=min_length))
             else:
                 raw_chunks.extend(_chunk_generic(block, chunk_size, overlap, min_length, embed_fn))
+    elif _has_structure(text):
+        # 표는 없지만 헤딩/불릿 구조가 뚜렷한 문서(접수방법 안내 등)
+        # → 헤딩+하위 불릿을 논리 단위로 유지하는 재귀 청킹 (리스트 중간 끊김 방지)
+        raw_chunks = split_by_structure(text, chunk_size=chunk_size, min_length=min_length)
     else:
         raw_chunks = _chunk_generic(text, chunk_size, overlap, min_length, embed_fn)
 
@@ -98,18 +106,102 @@ def smart_split(             # 실제 진입점
         for i, c in enumerate(raw_chunks)
     ]
 
+def _is_article_doc(text: str) -> bool:
+    """조문(제N조) 문서인지 판단 — split_by_article 대상. (구조 청킹에서 제외용으로도 사용)"""
+    articles = ARTICLE_DETECT_PATTERN.findall(text)
+    total_lines = max(len(text.splitlines()), 1)
+    return len(articles) >= 3 and (len(articles) / total_lines) > 0.05
+
+
 def _chunk_generic(text: str, chunk_size: int, overlap: int, min_length: int, embed_fn) -> list[dict]:
     """표가 아닌 일반 텍스트 청킹 — 조문/시맨틱/문단 중 자동 선택 (smart_split의 기존 로직)."""
-    articles = ARTICLE_DETECT_PATTERN.findall(text)    # 정규식에 맞는 것 전부 찾음
-    total_lines = max(len(text.splitlines()), 1)       # 줄 단위 분리
-
-    # 조문 비율 체크
-    if len(articles) >= 3 and (len(articles) / total_lines) > 0.05:     # 비율 체크 후 판단
+    if _is_article_doc(text):
         return split_by_article(text, min_length=min_length, chunk_size=chunk_size, overlap=overlap)     # 조문 단위 문서
     elif embed_fn is not None:
         return semantic_split(text, embed_fn, chunk_size=chunk_size, min_length=min_length)  # 시맨틱 청킹
     else:
         return split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap, min_length=min_length)   # 일반 문서
+
+
+# region 구조(헤딩/리스트) 인식 청킹 — 표 아닌 구조 문서용 (접수방법 안내 등)
+# 재귀: 굵은 헤딩부터 자르고, 조각이 chunk_size를 넘으면 다음(세밀) 레벨로 내려가며 분할.
+# 헤딩 + 그 아래 불릿을 한 논리 단위로 유지 → 리스트가 중간에서 끊기는 문제 방지.
+
+# 재귀 분할 구분자 (굵음 → 세밀). lookahead(?=)로 헤딩을 다음 조각 앞에 남겨 '헤딩+내용'을 유지.
+# 한국 공고문 위계: 1. > 가. > 1) > 가) > (1) > ○/■ > <소제목> > 불릿.
+# 마침표 번호(1.)와 반괄호 번호(1))를 다른 레벨로 분리해야 '4. 대항목 + 1)~8) 소항목'이 한 덩어리로 유지됨.
+_STRUCTURE_SEPARATORS = [
+    r"(?=\n\s*\d{1,2}\.\s(?!\d))",   # 레벨1: 1. 2. (한두 자리+마침표) — 연도(2026.)·날짜(7. 10.) 오탐 방지
+    r"(?=\n\s*[가-힣]\.\s)",           # 레벨2: 가. 나.
+    r"(?=\n\s*\d+\)\s)",             # 레벨3: 1) 2) (숫자+반괄호)
+    r"(?=\n\s*[가-힣]\)\s)",          # 레벨4: 가) 나)
+    r"(?=\n\s*\(\d+\)\s)",           # 레벨5: (1) (2)
+    r"(?=\n\s*[○◯■□▣]\s)",          # 레벨6: ○ ■ 마커 헤딩
+    r"(?=\n\s*<[^>\n]{1,40}>)",       # 레벨7: <소제목>
+    r"(?=\n\s*[•·▪◦▷▶☞*]\s)",        # 레벨8: 불릿
+    r"\n\s*\n",                        # 레벨9: 문단
+]
+
+# 헤딩/불릿 마커 (구조 문서 판별용)
+_HEADING_MARKER_RE = re.compile(
+    r"\n\s*(?:[○◯■□▣•·▪◦▷▶☞]|\d+[.)]\s|[가-힣][.)]\s|\(\d+\)\s|<[^>\n]{1,40}>)"
+)
+
+
+def _has_structure(text: str) -> bool:
+    """헤딩/불릿 구조가 뚜렷한 문서인지. 조문 문서는 제외(split_by_article로 감)."""
+    if _is_article_doc(text):
+        return False
+    return len(_HEADING_MARKER_RE.findall(text)) >= 3
+
+
+def _recursive_structure_split(text: str, sep_idx: int, chunk_size: int) -> list[str]:
+    """굵은 구분자부터 자르고, 조각이 chunk_size 넘으면 다음 레벨로 재귀."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= chunk_size:
+        return [text]
+    if sep_idx >= len(_STRUCTURE_SEPARATORS):
+        return split_by_length(text, chunk_size=chunk_size, overlap=0)   # 더 쪼갤 헤딩 없음 → 길이분할
+    parts = [p.strip() for p in re.split(_STRUCTURE_SEPARATORS[sep_idx], text) if p.strip()]
+    if len(parts) <= 1:
+        return _recursive_structure_split(text, sep_idx + 1, chunk_size)  # 이 레벨 헤딩 없음 → 다음 레벨
+    out: list[str] = []
+    for p in parts:
+        if len(p) <= chunk_size:
+            out.append(p)
+        else:
+            out.extend(_recursive_structure_split(p, sep_idx + 1, chunk_size))
+    return out
+
+
+def _merge_short_pieces(pieces: list[str], chunk_size: int, min_length: int) -> list[str]:
+    """짧은 조각/목록 항목을 인접 조각과 병합 (chunk_size 이내에서).
+
+    - 한쪽이 min_length 미만이거나
+    - 양쪽 다 '작은 조각'(목록 항목 수준)이면 병합
+      → [붙임] 1.2.3.4. 같은 번호 목록이 큰 블록에서 흩어지지 않게 한 덩어리로 유지.
+    접수방법/지원불가처럼 둘 다 큰 섹션이면 병합하지 않음(과합침 방지)."""
+    small = max(min_length, chunk_size // 6)   # '작은 조각' 기준 (예: chunk_size 1200 → 200자)
+    out: list[str] = []
+    for p in pieces:
+        if out and len(out[-1]) + len(p) + 1 <= chunk_size and (
+            len(p) < min_length or len(out[-1]) < min_length
+            or (len(p) < small and len(out[-1]) < small)
+        ):
+            out[-1] = out[-1] + "\n" + p
+        else:
+            out.append(p)
+    return out
+
+
+def split_by_structure(text: str, chunk_size: int = 1200, min_length: int = 50) -> list[dict]:
+    """구조(헤딩/리스트) 인식 재귀 청킹. 헤딩+하위 불릿을 단위로 유지, 넘치면 하위 레벨로 분할."""
+    pieces = _recursive_structure_split(text.strip(), 0, chunk_size)
+    merged = _merge_short_pieces(pieces, chunk_size, min_length)
+    return [{"chapter": None, "article": None, "text": p} for p in merged if p.strip()]
+# endregion
 
 
 # region 마크다운 표 청킹
@@ -222,6 +314,13 @@ def split_by_table(
         if len(h_cells) >= 2 and all(len(c) <= _HEADER_CELL_MAXLEN for c in h_cells):
             header_prefix = f"{raw[0]}\n{raw[1]}\n"
             body = raw[2:]
+
+    # ── 작은 '데이터 그리드'(컬럼 헤더 있는 표)는 행별로 안 쪼개고 통째 한 청크 ──
+    # 별표1(인정사유 표)·배점표처럼 헤더가 있는 작은 참조표는 행 파편화·주석 orphan을 막기 위해
+    # 통으로 유지. 졸업 과별표는 '| 과명 | 요건 |' 헤더 없는 key-value 표라 header_prefix가 비어
+    # 이 분기에 안 걸림 → 과별 행 분할 그대로(무영향).
+    if header_prefix and len(table_text.strip()) <= chunk_size:
+        return [{"chapter": None, "article": None, "text": table_text.strip()}]
 
     rows = [l for l in body if not _is_sep_line(l)]
     if not rows:
@@ -346,9 +445,36 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
         # 다음 조문 처리 전에 chapter 업데이트
         current_chapter = next_chapter
 
+    return _merge_article_chunks(chunks, chunk_size)
 
 
-    return chunks
+def _merge_article_chunks(chunks: list[dict], target: int) -> list[dict]:
+    """짧은 조문 청크들을 인접끼리 target 이내로 병합.
+
+    조문 하나당 청크 1개라 짧은 조(제1조 등)가 미니 청크로 흩어지는 것을 완화한다.
+    - 같은 chapter 안에서만 병합
+    - '(계속)'으로 이미 분할된 긴 조문끼리는 target를 넘으므로 자연히 안 합쳐짐
+    - article은 병합 범위를 반영해 '제1조(목적) ~ 제5조(…)'로 표기(단일이면 그대로)
+    """
+    merged: list[dict] = []
+    for c in chunks:
+        prev = merged[-1] if merged else None
+        if prev is not None and prev.get("chapter") == c.get("chapter") \
+                and len(prev["text"]) + len(c["text"]) + 1 <= target:
+            prev["text"] = f"{prev['text']}\n{c['text']}"
+            prev["_last_art"] = c.get("article")
+        else:
+            merged.append({
+                "chapter": c.get("chapter"),
+                "article": c.get("article"),
+                "text": c["text"],
+                "_last_art": c.get("article"),
+            })
+    for m in merged:
+        first, last = m["article"], m.pop("_last_art")
+        if first and last and first != last:
+            m["article"] = f"{first} ~ {last}"
+    return merged
 
 
 # 최상위 번호 항목 (1. 2. 3. ...) 감지용 패턴
