@@ -27,7 +27,16 @@ class QdrantVectorStore:
     """Qdrant collection operations for document chunks."""
 
     def __init__(self, collection_name: str | None = None) -> None:
-        self.collection_name = collection_name or settings.QDRANT_COLLECTION
+        # 하이브리드 토글에 따라 컬렉션 자동 선택 (병행 구축·즉시 롤백용)
+        self.collection_name = collection_name or settings.active_collection
+
+    def _exists(self) -> bool:
+        """컬렉션이 실제로 존재하는지. (하이브리드 켰지만 아직 재인제스트 전이면 없음)
+        컬렉션은 첫 upsert 때 생성되므로, 읽기 작업은 없을 때 404 대신 빈 결과를 돌려야 함."""
+        try:
+            return qdrant_client.collection_exists(self.collection_name)
+        except Exception:
+            return False
 
     def ensure_collection(self, vector_size: int) -> None:
         existing = [
@@ -36,33 +45,54 @@ class QdrantVectorStore:
         ]
 
         if self.collection_name not in existing:
-            qdrant_client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=vector_size,
-                    distance=Distance.COSINE,
-                ),
-            )
+            if settings.HYBRID_SEARCH:
+                # named 벡터: dense + sparse (bge-m3 하이브리드)
+                qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config={
+                        "dense": VectorParams(size=vector_size, distance=Distance.COSINE),
+                    },
+                    sparse_vectors_config={
+                        "sparse": models.SparseVectorParams(),
+                    },
+                )
+            else:
+                qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE,
+                    ),
+                )
 
-        collection_info = qdrant_client.get_collection(
-            collection_name=self.collection_name
+        if not settings.HYBRID_SEARCH:
+            # dense-only 컬렉션만 차원 검증 (하이브리드는 named 벡터라 구조가 다름)
+            collection_info = qdrant_client.get_collection(
+                collection_name=self.collection_name
+            )
+            vectors_config = collection_info.config.params.vectors
+            existing_vector_size = getattr(vectors_config, "size", None)
+
+            if existing_vector_size is not None and existing_vector_size != vector_size:
+                raise ValueError(
+                    f"Qdrant 컬렉션 벡터 차원이 맞지 않습니다. "
+                    f"collection={self.collection_name}, "
+                    f"existing={existing_vector_size}, current={vector_size}"
+                )
+
+        # source 인덱스 — delete_by_source / source 필터 검색에 필수
+        qdrant_client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="source",
+            field_schema=models.PayloadSchemaType.KEYWORD,
         )
-        vectors_config = collection_info.config.params.vectors
-        existing_vector_size = getattr(vectors_config, "size", None)
 
-        if existing_vector_size is not None and existing_vector_size != vector_size:
-            raise ValueError(
-                f"Qdrant 컬렉션 벡터 차원이 맞지 않습니다. "
-                f"collection={self.collection_name}, "
-                f"existing={existing_vector_size}, current={vector_size}"
-            )
-        
         qdrant_client.create_payload_index(
             collection_name=self.collection_name,
             field_name="file_name",
             field_schema=models.PayloadSchemaType.KEYWORD,
         )
-        
+
         # topic도 나중을 위해 만듦
         qdrant_client.create_payload_index(
             collection_name=self.collection_name,
@@ -83,6 +113,7 @@ class QdrantVectorStore:
         metadata: dict | None = None,
         topic: str | None = None,
         chunk_metas: list[dict] | None = None,  # chapter, article, path 메타데이터
+        sparse_vectors: list[tuple[list[int], list[float]]] | None = None,  # 하이브리드용 키워드 벡터
     ) -> None:
         if not chunks:
             return
@@ -98,11 +129,21 @@ class QdrantVectorStore:
 
         self.ensure_collection(vector_size=len(embeddings[0]))
         base_metadata = metadata or {}
+        hybrid = settings.HYBRID_SEARCH and sparse_vectors is not None
+
+        def _vector(index: int, embedding: list[float]):
+            if not hybrid:
+                return embedding
+            named = {"dense": embedding}
+            idx, val = sparse_vectors[index]
+            if idx:   # 빈 sparse(불용어뿐 등)면 sparse 키 생략 → dense만 저장
+                named["sparse"] = models.SparseVector(indices=idx, values=val)
+            return named
 
         points = [
             PointStruct(
                 id=str(uuid5(NAMESPACE_URL, f"{source}:{index}")),
-                vector=embedding,
+                vector=_vector(index, embedding),
                 payload={
                     "chunk_index": index,
                     "source": source,
@@ -127,7 +168,11 @@ class QdrantVectorStore:
         limit: int | None = None,
         source: str | None = None,
         topic: str | None = None,
+        sparse_query: tuple[list[int], list[float]] | None = None,  # 하이브리드용 키워드 쿼리
     ) -> list[SearchResult]:
+        if not self._exists():
+            return []   # 컬렉션 미생성(재인제스트 전) → 빈 결과
+
         query_filter = None
 
         if topic:
@@ -149,13 +194,48 @@ class QdrantVectorStore:
                 ]
             )
 
-        response = qdrant_client.query_points(
-            collection_name=self.collection_name,
-            query=query_embedding,
-            query_filter=query_filter,
-            limit=limit or settings.RAG_TOP_K,
-            with_payload=True,
-        )
+        lim = limit or settings.RAG_TOP_K
+
+        if settings.HYBRID_SEARCH:
+            has_sparse = bool(sparse_query and sparse_query[0])
+            if has_sparse:
+                # dense + sparse 두 갈래 prefetch → RRF 융합. 필터는 양쪽 모두에 적용.
+                prefetch_limit = max(lim, 40)   # 후보 넉넉히 (sparse 노이즈에 슬롯 안 뺏기게)
+                s_idx, s_val = sparse_query
+                response = qdrant_client.query_points(
+                    collection_name=self.collection_name,
+                    prefetch=[
+                        models.Prefetch(
+                            query=query_embedding, using="dense",
+                            limit=prefetch_limit, filter=query_filter,
+                        ),
+                        models.Prefetch(
+                            query=models.SparseVector(indices=s_idx, values=s_val),
+                            using="sparse", limit=prefetch_limit, filter=query_filter,
+                        ),
+                    ],
+                    query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    limit=lim,
+                    with_payload=True,
+                )
+            else:
+                # 빈 sparse → dense 단독 폴백 (named 벡터라 using 지정)
+                response = qdrant_client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_embedding, using="dense",
+                    query_filter=query_filter,
+                    limit=lim,
+                    with_payload=True,
+                )
+        else:
+            # 기존 dense-only (unnamed 벡터) — 동작 불변
+            response = qdrant_client.query_points(
+                collection_name=self.collection_name,
+                query=query_embedding,
+                query_filter=query_filter,
+                limit=lim,
+                with_payload=True,
+            )
 
         results: list[SearchResult] = []
 
@@ -176,8 +256,22 @@ class QdrantVectorStore:
 
         return results
 
+    def _ensure_source_index(self) -> None:
+        """source payload 인덱스 보장 (구 컬렉션·인덱스 누락 자가치유). 이미 있으면 무시."""
+        try:
+            qdrant_client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="source",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
+        except Exception:
+            pass
+
     def delete_by_source(self, source: str) -> int:
         """source 기준으로 문서 청크 전체 삭제. 삭제된 포인트 수 반환."""
+        if not self._exists():
+            return 0
+        self._ensure_source_index()   # source 필터 전에 인덱스 보장
         count_result = qdrant_client.count(
             collection_name=self.collection_name,
             count_filter=Filter(
@@ -199,6 +293,8 @@ class QdrantVectorStore:
 
     def count_by_topic(self, topic: str) -> int:
         """topic에 등록된 RAG 청크 수 반환."""
+        if not self._exists():
+            return 0
         result = qdrant_client.count(
             collection_name=self.collection_name,
             count_filter=Filter(
@@ -210,6 +306,8 @@ class QdrantVectorStore:
 
     def list_sources(self) -> list[dict]:
         """저장된 문서 source 목록 반환."""
+        if not self._exists():
+            return []
         result = qdrant_client.scroll(
             collection_name=self.collection_name,
             limit=10000,

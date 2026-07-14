@@ -1,3 +1,4 @@
+from app.core.config import settings
 from app.rag.Embedding import BaaiEmbedding
 from app.rag.Retrieval.qdrant_store import (
     QdrantVectorStore,
@@ -101,14 +102,22 @@ class Retriever:
         if not question:
             return []
 
-        query_embedding = self.embedding.embed_text(question)
+        # 하이브리드면 dense+sparse 함께, 아니면 기존 dense 단독
+        sparse_query = None
+        if settings.HYBRID_SEARCH:
+            dense_list, sparse_list = self.embedding.embed_hybrid([question])
+            query_embedding = dense_list[0]
+            sparse_query = sparse_list[0]
+        else:
+            query_embedding = self.embedding.embed_text(question)
 
-        # 1. 넉넉하게 후보 가져오기 (Vector Search)
+        # 1. 넉넉하게 후보 가져오기 (Vector Search / 하이브리드 융합)
         results = self.vector_store.search(
             query_embedding=query_embedding,
             limit=30,
             source=source,
             topic=topic,
+            sparse_query=sparse_query,
         )
 
         if not results:

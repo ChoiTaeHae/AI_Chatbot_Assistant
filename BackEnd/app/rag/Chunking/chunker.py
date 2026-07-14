@@ -315,6 +315,13 @@ def split_by_table(
             header_prefix = f"{raw[0]}\n{raw[1]}\n"
             body = raw[2:]
 
+    # ── 작은 '데이터 그리드'(컬럼 헤더 있는 표)는 행별로 안 쪼개고 통째 한 청크 ──
+    # 별표1(인정사유 표)·배점표처럼 헤더가 있는 작은 참조표는 행 파편화·주석 orphan을 막기 위해
+    # 통으로 유지. 졸업 과별표는 '| 과명 | 요건 |' 헤더 없는 key-value 표라 header_prefix가 비어
+    # 이 분기에 안 걸림 → 과별 행 분할 그대로(무영향).
+    if header_prefix and len(table_text.strip()) <= chunk_size:
+        return [{"chapter": None, "article": None, "text": table_text.strip()}]
+
     rows = [l for l in body if not _is_sep_line(l)]
     if not rows:
         return [{"chapter": None, "article": None, "text": table_text.strip()}]

@@ -65,3 +65,39 @@ class BaaiEmbedding:
 
         dense_vectors = result["dense_vecs"]    ## numpy 배열로 반환됨
         return [vector.tolist() for vector in dense_vectors]   # Qdrant에 넣으려면 Python 리스트여야 해서 .tolist()로 변환.
+
+    def embed_hybrid(
+        self, texts: list[str]
+    ) -> tuple[list[list[float]], list[tuple[list[int], list[float]]]]:
+        """dense + sparse(키워드) 벡터를 함께 반환 (bge-m3 하이브리드).
+
+        - dense: list[list[float]]
+        - sparse: list[(indices, values)] — bge-m3 lexical_weights를 Qdrant SparseVector용으로 변환
+          (지원되는 토큰 id → 가중치. 같은 forward에서 나오므로 추가 비용 거의 없음)
+        빈 sparse(불용어뿐 등)는 ([], [])로 반환 → 검색 측에서 dense 폴백.
+        """
+        if not texts:
+            return [], []
+
+        result = self.model.encode(
+            texts,
+            return_dense=True,
+            return_sparse=True,          # 키워드 벡터 켜기
+            return_colbert_vecs=False,
+        )
+
+        dense_vectors = [vector.tolist() for vector in result["dense_vecs"]]
+
+        sparse_vectors: list[tuple[list[int], list[float]]] = []
+        for lw in result["lexical_weights"]:   # dict: {token_id: weight}
+            indices: list[int] = []
+            values: list[float] = []
+            for token_id, weight in lw.items():
+                w = float(weight)
+                if w <= 0:
+                    continue
+                indices.append(int(token_id))
+                values.append(w)
+            sparse_vectors.append((indices, values))
+
+        return dense_vectors, sparse_vectors
