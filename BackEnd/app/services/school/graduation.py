@@ -287,20 +287,40 @@ class GraduationService:
         """
         return await self._answer_from_db("내 졸업 요건 충족 현황을 알려줘", student_id, db)
 
-    async def get_status_report(self, student_id: int, db: AsyncSession) -> dict:
+    async def get_status_report(self, current_user: Student, db: AsyncSession) -> dict:
         """학점 진행률 위젯용 — 이수/필요/남은 학점(구조화 데이터, LLM 미사용).
 
         백분율·졸업시험·영어인증 등은 제외하고 순수 학점만 반환한다
-        (위젯이 '학점 진행률'로만 표기 — 졸업 전체 충족과 혼동 방지)."""
-        report = await self._check_graduation_status(db, student_id)
+        (위젯이 '학점 진행률'로만 표기 — 졸업 전체 충족과 혼동 방지).
+        학생이 아니거나 데이터 없음/오류면 위젯 숨김 신호({available: False})를 반환한다
+        (사이드바가 깨지지 않도록 예외를 밖으로 던지지 않음)."""
+        # 학생이 아니면(관리자 등) 학점 데이터 없음 → 위젯 숨김
+        if getattr(current_user, "role", None) != "student":
+            return {"available": False, "reason": "not_student"}
+        try:
+            report = await self._check_graduation_status(db, current_user.id)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            return {"available": False}
         if "error" in report:
             return {"available": False}
         remaining = max(0, report["total_required"] - report["total_earned"])
         categories = [
             {"name": "전공", "earned": report["earned_major"],   "required": report["req_major"]},
             {"name": "교양", "earned": report["earned_liberal"], "required": report["req_liberal"]},
-            {"name": "일반", "earned": report["earned_general"], "required": report["req_general"]},
         ]
+        # 일반(일반선택): 최소 요건이 없으면(required=0) '0/0 충족'처럼 무의미하게 보임 →
+        # 이수 학점이 있거나 요건이 있을 때만 항목 표시. (이수 학점은 총 이수학점엔 이미 포함)
+        if report["earned_general"] > 0 or report["req_general"] > 0:
+            categories.append(
+                {"name": "일반", "earned": report["earned_general"], "required": report["req_general"]}
+            )
+        # 다전공(중점전공): 트랙 요건이 있는 학과만 표시 (전공 하위 요건)
+        if report.get("req_track") is not None:
+            categories.append(
+                {"name": "다전공", "earned": report["earned_track"], "required": report["req_track"]}
+            )
         return {
             "available": True,
             "dept_name": report.get("dept_name"),
@@ -308,6 +328,7 @@ class GraduationService:
             "total_required": report["total_required"],
             "remaining": remaining,
             "categories": categories,
+            "student_no": current_user.student_no,
         }
 
     async def _classify_question(self, question: str) -> str:
@@ -507,6 +528,12 @@ class GraduationService:
         earned_general = passed_credits.get("일반", 0.0)
         total_earned   = earned_major + earned_liberal + earned_general
 
+        # 다전공(중점전공/트랙): 전공의 하위 요건 → 총학점엔 별도 가산하지 않음(전공에 이미 포함).
+        # 이수학점은 category "중점전공" 집계로 계산 (과목이 그렇게 분류돼야 채워짐).
+        # req_track이 None인 학과는 트랙 요건이 없음.
+        req_track    = rule.min_credits_track
+        earned_track = passed_credits.get("중점전공", 0.0)
+
         # 학점 충족 여부 확인
         if earned_major < rule.min_credits_major:
             is_graduated = False
@@ -524,6 +551,11 @@ class GraduationService:
             is_graduated = False
             insufficient_details.append(f"총학점 {rule.min_credits_total - total_earned}학점 부족")
 
+        # 다전공(중점전공) 부족 판정 — 트랙 요건이 있는 학과만
+        if req_track is not None and earned_track < req_track:
+            is_graduated = False
+            insufficient_details.append(f"다전공(중점전공) {req_track - earned_track}학점 부족")
+
         # 영어 인증 확인
         english_cert_passed = await self._has_english_cert(db, student_id)
         if not english_cert_passed:
@@ -540,6 +572,8 @@ class GraduationService:
             "req_liberal":        rule.min_credits_liberal,
             "earned_general":     earned_general,
             "req_general":        rule.min_credits_general,
+            "earned_track":       earned_track,
+            "req_track":          req_track,
             "total_earned":       total_earned,
             "total_required":     rule.min_credits_total,
             "insufficient_details": insufficient_details,

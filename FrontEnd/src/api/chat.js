@@ -2,6 +2,17 @@ import { authFetch } from './utils'
 
 const BASE = 'http://localhost:8000/api'
 
+// 백엔드 준비 확인 — /health 는 FastAPI lifespan(모델 로딩·토픽 워밍업)이 끝난 뒤에야
+// 응답하므로, 성공 = "완전히 켜져서 요청을 받을 수 있는 상태". 인증 불필요한 경량 핑.
+export async function checkBackendHealth() {
+  try {
+    const res = await fetch(BASE.replace(/\/api\/?$/, '') + '/health', { cache: 'no-store' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export async function sendMessage(question, session_id = null, pendingFile = null, pendingContext = null, lang = 'ko', file_confirm = null) {
   const res = await authFetch(`${BASE}/chat`, {
     method: 'POST',
@@ -30,14 +41,14 @@ export async function getGraduationReport() {
   return res.json()  // { available, reason?, dept_name, total_earned, total_required, remaining, student_no }
 }
 
-export async function getTodayCafeteria() {
-  const res = await authFetch(`${BASE}/cafeteria/today`, { method: 'GET' })
+export async function getTodayDining() {
+  const res = await authFetch(`${BASE}/dining/today`, { method: 'GET' })
   if (!res.ok) throw new Error('학식 정보를 불러오지 못했습니다.')
   return res.json()  // { available, restaurant, date, weekday, meals: [{ name, items }] }
 }
 
-export async function getWeekCafeteria() {
-  const res = await authFetch(`${BASE}/cafeteria/week`, { method: 'GET' })
+export async function getWeekDining() {
+  const res = await authFetch(`${BASE}/dining/week`, { method: 'GET' })
   if (!res.ok) throw new Error('학식 정보를 불러오지 못했습니다.')
   return res.json()  // { available, restaurants: [{ name, days: [{ date, meals: [{ name, items }] }] }] }
 }
@@ -52,6 +63,12 @@ export async function getSessionMessages(sessionId) {
   const res = await authFetch(`${BASE}/chat/sessions/${sessionId}`, { method: 'GET' })
   if (!res.ok) throw new Error('대화를 불러오지 못했습니다.')
   return res.json()  // { session_id, messages: [{ id, role, content, topic, message_id }] }
+}
+
+export async function deleteSession(sessionId) {
+  const res = await authFetch(`${BASE}/chat/sessions/${sessionId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('대화를 삭제하지 못했습니다.')
+  return res.json()  // { ok: true }
 }
 
 export async function sendFeedback(message_id, is_helpful, rating = null, comment = null) {

@@ -571,17 +571,23 @@ class AdminService:
     _VALID_HANDLER_TYPES = {"rag", "campus", "graduation", "scholarship", "general"}
 
     async def create_topic(self, db: AsyncSession, body: TopicCreateRequest) -> Topic:
+        # 이름·라벨 앞뒤 공백 제거 — ' graduate_school'처럼 공백 낀 채 저장돼 topic 매칭이
+        # 깨지는 것을 방지 (중복 체크·저장 모두 정리된 값 사용)
+        name = (body.name or "").strip()
+        label = body.label.strip() if isinstance(body.label, str) else body.label
+        if not name:
+            raise ValueError("topic 이름은 비어 있을 수 없습니다.")
         if body.handler_type not in self._VALID_HANDLER_TYPES:
             raise ValueError(
                 f"유효하지 않은 handler_type: {body.handler_type}. "
                 f"가능한 값: {sorted(self._VALID_HANDLER_TYPES)}"
             )
-        existing = await db.execute(select(Topic).where(Topic.name == body.name))
+        existing = await db.execute(select(Topic).where(Topic.name == name))
         if existing.scalar_one_or_none():
-            raise ValueError(f"이미 존재하는 topic: {body.name}")
+            raise ValueError(f"이미 존재하는 topic: {name}")
         topic = Topic(
-            name=body.name,
-            label=body.label,
+            name=name,
+            label=label,
             handler_type=body.handler_type,
             sentences=body.sentences,
             description=body.description,
@@ -600,7 +606,7 @@ class AdminService:
         if not topic:
             raise LookupError("topic을 찾을 수 없습니다.")
         if body.label is not None:
-            topic.label = body.label
+            topic.label = body.label.strip() if isinstance(body.label, str) else body.label
         if body.sentences is not None:
             topic.sentences = body.sentences
         if body.description is not None:

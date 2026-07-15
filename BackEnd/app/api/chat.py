@@ -47,6 +47,18 @@ async def my_session_messages(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.delete("/chat/sessions/{session_id}", summary="대화 삭제 (soft delete)")
+async def delete_my_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Student = Depends(get_current_user),
+):
+    try:
+        return await chat_service.delete_my_session(db, session_id, current_user)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.post("/chat/feedback", summary="답변 피드백 (좋아요/싫어요)")
 async def chat_feedback(
     request: FeedbackRequest,

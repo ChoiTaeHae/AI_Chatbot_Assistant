@@ -25,6 +25,7 @@ export default function ChatPage() {
   const { messages, isLoading, send, confirmFile, checkGraduation, reset, loadSession, sessionId, clearPendingFile, pendingFile } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sessionsRefresh, setSessionsRefresh] = useState(0)
   const profileRef = useRef(null)
   const { user, clearUser } = useAuth()
   const navigate = useNavigate()
@@ -34,6 +35,11 @@ export default function ChatPage() {
     clearUser()
     navigate('/login')
   }
+
+  // 새 세션이 생성(첫 메시지)되거나 다른 세션으로 전환되면 사이드바 '최근 대화' 목록 갱신
+  useEffect(() => {
+    if (sessionId) setSessionsRefresh((v) => v + 1)
+  }, [sessionId])
 
   // 드롭다운 바깥 클릭 시 닫기
   useEffect(() => {
@@ -57,7 +63,7 @@ export default function ChatPage() {
           className={`hidden md:block shrink-0 overflow-hidden transition-all duration-300 ${sidebarOpen ? 'w-[264px]' : 'w-0'}`}
           style={{ marginRight: sidebarOpen ? '24px' : '0' }}
         >
-          <Sidebar lang={lang} role={user?.role} onNewChat={reset} onSelectSession={loadSession} activeSessionId={sessionId} onSessionDeleted={reset} />
+          <Sidebar lang={lang} role={user?.role} onNewChat={reset} onSelectSession={loadSession} activeSessionId={sessionId} onSessionDeleted={reset} refreshTrigger={sessionsRefresh} />
         </div>
 
         {/* 채팅 카드 */}
