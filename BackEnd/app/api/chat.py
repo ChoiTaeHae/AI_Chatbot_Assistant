@@ -27,6 +27,26 @@ async def chat(
         raise HTTPException(status_code=503, detail=f"AI 서비스 오류: {str(e)}")
 
 
+@router.get("/chat/sessions", summary="내 최근 대화 목록 (사이드바)")
+async def my_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: Student = Depends(get_current_user),
+):
+    return await chat_service.get_my_sessions(db, current_user)
+
+
+@router.get("/chat/sessions/{session_id}", summary="과거 대화 다시 열기")
+async def my_session_messages(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Student = Depends(get_current_user),
+):
+    try:
+        return await chat_service.get_my_session_messages(db, session_id, current_user)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.post("/chat/feedback", summary="답변 피드백 (좋아요/싫어요)")
 async def chat_feedback(
     request: FeedbackRequest,

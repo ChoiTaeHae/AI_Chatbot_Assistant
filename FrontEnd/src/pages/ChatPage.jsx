@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ChatWindow from '../components/chat/ChatWindow'
 import ChatInput from '../components/chat/ChatInput'
+import Sidebar from '../components/chat/Sidebar'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { logout } from '../api/auth'
 import { useAuth } from '../store/AuthContext'
@@ -21,8 +22,9 @@ const T = {
 
 export default function ChatPage() {
   const [lang, setLang] = useState('ko')
-  const { messages, isLoading, send, confirmFile, checkGraduation, reset, clearPendingFile, pendingFile } = useChat(lang)
+  const { messages, isLoading, send, confirmFile, checkGraduation, reset, loadSession, sessionId, clearPendingFile, pendingFile } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const profileRef = useRef(null)
   const { user, clearUser } = useAuth()
   const navigate = useNavigate()
@@ -47,11 +49,33 @@ export default function ChatPage() {
   return ( 
     // 배경을 흰색으로, 중앙 정렬 컨테이너를 조금 더 넓게 설정
     <main className="flex min-h-[100dvh] bg-[#e8eaed] items-center justify-center py-4 px-2 sm:py-8 sm:px-6">
-      <div className="flex flex-col w-full max-w-3xl h-[calc(100dvh-2rem)] sm:h-[calc(100vh-4rem)] bg-white rounded-2xl shadow-2xl overflow-hidden">
+      <div className="flex w-full max-w-6xl h-[calc(100dvh-2rem)] sm:h-[calc(100vh-4rem)]">
+
+        {/* 사이드바 (슬라이드로 접기/펴기) */}
+        {/* 여백은 전역 `* { margin: 0 }` 리셋이 Tailwind mr-* 유틸을 덮어써서 인라인 style로 처리 */}
+        <div
+          className={`hidden md:block shrink-0 overflow-hidden transition-all duration-300 ${sidebarOpen ? 'w-[264px]' : 'w-0'}`}
+          style={{ marginRight: sidebarOpen ? '24px' : '0' }}
+        >
+          <Sidebar lang={lang} role={user?.role} onNewChat={reset} onSelectSession={loadSession} activeSessionId={sessionId} onSessionDeleted={reset} />
+        </div>
+
+        {/* 채팅 카드 */}
+        <div className="flex flex-col flex-1 min-w-0 bg-white rounded-2xl shadow-2xl overflow-hidden">
 
         {/* 헤더 */}
         <header className="shrink-0 bg-[#005956] flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>
           <div className="flex items-center gap-3">
+            {/* 사이드바 접기/펴기 (데스크톱) */}
+            <button
+              onClick={() => setSidebarOpen((v) => !v)}
+              className="hidden md:inline-flex items-center justify-center h-9 w-9 rounded-lg text-white hover:bg-white/10 transition"
+              aria-label="사이드바 토글"
+            >
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
             <MascotAvatar className="h-13 w-13 object-contain" />
             <span className="text-white font-bold text-lg">{T[lang].title}</span>
           </div>
@@ -135,9 +159,11 @@ export default function ChatPage() {
             pendingFile={pendingFile}
             onConfirmFile={confirmFile}
             onCheckGraduation={checkGraduation}
+            onSendQuestion={send}
           />
           <ChatInput onSend={send} disabled={isLoading} lang={lang} />
-        </div>      
+        </div>
+        </div>
       </div>
     </main>
   )

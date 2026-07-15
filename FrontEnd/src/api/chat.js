@@ -24,6 +24,36 @@ export async function getGraduationStatus() {
   return res.json()  // { answer }
 }
 
+export async function getGraduationReport() {
+  const res = await authFetch(`${BASE}/graduation/report`, { method: 'GET' })
+  if (!res.ok) throw new Error('학점 정보를 불러오지 못했습니다.')
+  return res.json()  // { available, reason?, dept_name, total_earned, total_required, remaining, student_no }
+}
+
+export async function getTodayCafeteria() {
+  const res = await authFetch(`${BASE}/cafeteria/today`, { method: 'GET' })
+  if (!res.ok) throw new Error('학식 정보를 불러오지 못했습니다.')
+  return res.json()  // { available, restaurant, date, weekday, meals: [{ name, items }] }
+}
+
+export async function getWeekCafeteria() {
+  const res = await authFetch(`${BASE}/cafeteria/week`, { method: 'GET' })
+  if (!res.ok) throw new Error('학식 정보를 불러오지 못했습니다.')
+  return res.json()  // { available, restaurants: [{ name, days: [{ date, meals: [{ name, items }] }] }] }
+}
+
+export async function getMySessions() {
+  const res = await authFetch(`${BASE}/chat/sessions`, { method: 'GET' })
+  if (!res.ok) throw new Error('대화 목록을 불러오지 못했습니다.')
+  return res.json()  // [{ id, title, topic, last_message_at }]
+}
+
+export async function getSessionMessages(sessionId) {
+  const res = await authFetch(`${BASE}/chat/sessions/${sessionId}`, { method: 'GET' })
+  if (!res.ok) throw new Error('대화를 불러오지 못했습니다.')
+  return res.json()  // { session_id, messages: [{ id, role, content, topic, message_id }] }
+}
+
 export async function sendFeedback(message_id, is_helpful, rating = null, comment = null) {
   const res = await authFetch(`${BASE}/chat/feedback`, {
     method: 'POST',

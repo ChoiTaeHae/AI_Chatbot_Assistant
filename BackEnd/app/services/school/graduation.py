@@ -287,6 +287,29 @@ class GraduationService:
         """
         return await self._answer_from_db("내 졸업 요건 충족 현황을 알려줘", student_id, db)
 
+    async def get_status_report(self, student_id: int, db: AsyncSession) -> dict:
+        """학점 진행률 위젯용 — 이수/필요/남은 학점(구조화 데이터, LLM 미사용).
+
+        백분율·졸업시험·영어인증 등은 제외하고 순수 학점만 반환한다
+        (위젯이 '학점 진행률'로만 표기 — 졸업 전체 충족과 혼동 방지)."""
+        report = await self._check_graduation_status(db, student_id)
+        if "error" in report:
+            return {"available": False}
+        remaining = max(0, report["total_required"] - report["total_earned"])
+        categories = [
+            {"name": "전공", "earned": report["earned_major"],   "required": report["req_major"]},
+            {"name": "교양", "earned": report["earned_liberal"], "required": report["req_liberal"]},
+            {"name": "일반", "earned": report["earned_general"], "required": report["req_general"]},
+        ]
+        return {
+            "available": True,
+            "dept_name": report.get("dept_name"),
+            "total_earned": report["total_earned"],
+            "total_required": report["total_required"],
+            "remaining": remaining,
+            "categories": categories,
+        }
+
     async def _classify_question(self, question: str) -> str:
         """임베딩 유사도로 질문 유형 분류 (personal / document / both)"""
         loop = asyncio.get_event_loop()

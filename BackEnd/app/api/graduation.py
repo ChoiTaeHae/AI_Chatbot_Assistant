@@ -29,3 +29,21 @@ async def graduation_status(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=503, detail=f"졸업 현황 조회 오류: {str(e)}")
+
+
+@router.get("/graduation/report", summary="학점 진행률 (사이드바 위젯 · 학점만)")
+async def graduation_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: Student = Depends(get_current_user),
+):
+    # 학생이 아니면(관리자 등) 학점 데이터 없음 → 위젯 숨김 신호
+    if current_user.role != "student":
+        return {"available": False, "reason": "not_student"}
+    try:
+        data = await graduation_service.get_status_report(current_user.id, db)
+        if data.get("available"):
+            data["student_no"] = current_user.student_no
+        return data
+    except Exception:
+        traceback.print_exc()
+        return {"available": False}

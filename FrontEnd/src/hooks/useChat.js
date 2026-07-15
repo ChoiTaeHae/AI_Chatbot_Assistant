@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { sendMessage, getGraduationStatus } from '../api/chat'
+import { sendMessage, getGraduationStatus, getSessionMessages } from '../api/chat'
 
 function getTime() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -149,6 +149,28 @@ export function useChat(lang = 'ko') {
     }
   }, [lang])
 
+  /** 사이드바 '최근 대화'에서 과거 세션 다시 열기 */
+  const loadSession = useCallback(async (sid) => {
+    setIsLoading(true)
+    try {
+      const data = await getSessionMessages(sid)
+      setSessionId(sid)
+      setPendingFile(null)
+      setPendingContext(null)
+      setMessages((data.messages || []).map((m) => ({
+        id: m.id,
+        role: m.role === 'assistant' ? 'ai' : 'user',
+        content: m.content,
+        time: getTime(),
+        messageId: m.message_id || null,
+      })))
+    } catch (err) {
+      setMessages([{ id: Date.now(), role: 'ai', content: `${ERR[lang]}: ${err.message}`, time: getTime() }])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [lang])
+
   function clearPendingFile() {
     setPendingFile(null)
   }
@@ -160,5 +182,5 @@ export function useChat(lang = 'ko') {
     setPendingContext(null)
   }
 
-  return { messages, isLoading, sessionId, send, confirmFile, checkGraduation, reset, clearPendingFile, pendingFile }
+  return { messages, isLoading, sessionId, send, confirmFile, checkGraduation, reset, loadSession, clearPendingFile, pendingFile }
 }
