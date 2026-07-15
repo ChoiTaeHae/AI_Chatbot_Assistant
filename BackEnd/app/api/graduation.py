@@ -36,14 +36,5 @@ async def graduation_report(
     db: AsyncSession = Depends(get_db),
     current_user: Student = Depends(get_current_user),
 ):
-    # 학생이 아니면(관리자 등) 학점 데이터 없음 → 위젯 숨김 신호
-    if current_user.role != "student":
-        return {"available": False, "reason": "not_student"}
-    try:
-        data = await graduation_service.get_status_report(current_user.id, db)
-        if data.get("available"):
-            data["student_no"] = current_user.student_no
-        return data
-    except Exception:
-        traceback.print_exc()
-        return {"available": False}
+    # 위젯 안전 응답({available:...})은 서비스가 처리 — role 가드·오류도 서비스에서
+    return await graduation_service.get_status_report(current_user, db)

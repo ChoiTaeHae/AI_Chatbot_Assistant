@@ -170,6 +170,15 @@ class ChatService:
             ],
         }
 
+    async def delete_my_session(self, db: AsyncSession, session_id: int, current_user: Student) -> dict:
+        """대화 삭제 (soft delete) — 본인 세션만. is_deleted=True로 목록/조회에서 제외."""
+        session = await db.get(ChatSession, session_id)
+        if not session or session.student_id != current_user.id or session.is_deleted:
+            raise LookupError("세션을 찾을 수 없습니다.")
+        session.is_deleted = True
+        await db.commit()
+        return {"ok": True}
+
     async def save_feedback(
         self,
         request: FeedbackRequest,

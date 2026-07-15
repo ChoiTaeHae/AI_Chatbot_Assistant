@@ -178,7 +178,7 @@ def get_menu_data(force: bool = False) -> dict[str, RestaurantMenu]:
         _cache = _parse_meal_html(html)
         _cache_week = current_week
         total_days = sum(len(m.days) for m in _cache.values())
-        print(f"[Cafeteria] 메뉴 갱신 완료 (주차={current_week}, 식당={len(_cache)}개, 총 {total_days}일치)")
+        print(f"[Dining] 메뉴 갱신 완료 (주차={current_week}, 식당={len(_cache)}개, 총 {total_days}일치)")
 
     return _cache
 
@@ -197,7 +197,7 @@ def get_guide_data(force: bool = False) -> dict[str, RestaurantGuide]:
         html = _fetch_guide_html()
         _guide_cache = _parse_guide_html(html)
         _guide_cache_week = current_week
-        print(f"[Cafeteria] 안내정보 갱신 완료 (주차={current_week}, 식당={len(_guide_cache)}개)")
+        print(f"[Dining] 안내정보 갱신 완료 (주차={current_week}, 식당={len(_guide_cache)}개)")
 
     return _guide_cache
 
@@ -391,7 +391,7 @@ async def _answer_menu(question: str) -> str:
     try:
         data = await asyncio.to_thread(get_menu_data)
     except Exception as e:
-        print(f"[Cafeteria] 메뉴 조회 실패: {e}")
+        print(f"[Dining] 메뉴 조회 실패: {e}")
         return "학식 메뉴 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
 
     if not data:
@@ -411,7 +411,7 @@ async def _answer_guide(question: str, intent: str) -> str:
     try:
         data = await asyncio.to_thread(get_guide_data)
     except Exception as e:
-        print(f"[Cafeteria] 안내정보 조회 실패: {e}")
+        print(f"[Dining] 안내정보 조회 실패: {e}")
         return "학식 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
 
     if not data:
@@ -425,7 +425,7 @@ async def _answer_guide(question: str, intent: str) -> str:
     return _format_guide_answer(guide_name, guide, intent, explicit)
 
 
-async def answer_cafeteria_question(question: str) -> str:
+async def answer_dining_question(question: str) -> str:
     """학식 질문(메뉴/위치/전화/가격/운영시간)에 대한 완성된 답변 문자열을 반환한다."""
     intent = _resolve_intent(question)
     if intent == "menu":
@@ -442,7 +442,7 @@ def get_today_menu(restaurant: str | None = None) -> dict:
     try:
         data = get_menu_data()
     except Exception as e:
-        print(f"[Cafeteria] 오늘 메뉴 조회 실패: {e}")
+        print(f"[Dining] 오늘 메뉴 조회 실패: {e}")
         return {"available": False}
     if not data:
         return {"available": False}
@@ -479,17 +479,35 @@ def get_today_menu(restaurant: str | None = None) -> dict:
 
 
 def get_week_menu() -> dict:
-    """학식 '더보기'용 — 이번 주 전체 식당·요일·끼니 메뉴(JSON 친화 dict)."""
+    """학식 '더보기'용 — 이번 주 식당·요일·끼니 메뉴 + 안내(위치/운영/전화/가격) 병합.
+
+    - 기숙사 3곳(국제·청운숙·동캠)은 메뉴가 동일하므로 1개로 dedup.
+    - 각 식당에 안내 정보를 붙여, 메뉴가 없어도(방학 등) 위치·안내는 표시 가능.
+      available은 '표시할 식당이 있는지', has_menu는 '식단 데이터가 있는지'로 구분.
+    """
     try:
         data = get_menu_data()
     except Exception as e:
-        print(f"[Cafeteria] 주간 메뉴 조회 실패: {e}")
-        return {"available": False, "restaurants": []}
+        print(f"[Dining] 주간 메뉴 조회 실패: {e}")
+        return {"available": False, "has_menu": False, "restaurants": []}
     if not data:
-        return {"available": False, "restaurants": []}
+        return {"available": False, "has_menu": False, "restaurants": []}
+
+    try:
+        guides = get_guide_data()
+    except Exception as e:
+        print(f"[Dining] 안내정보 조회 실패(무시): {e}")
+        guides = {}
 
     restaurants = []
+    dorm_added = False
     for name, menu in data.items():
+        # 기숙사 3곳 메뉴 동일 → 1개만 유지 (dedup)
+        if name in _SHARED_MENU_DORMS:
+            if dorm_added:
+                continue
+            dorm_added = True
+
         days = []
         for date_key, day_data in menu.days.items():
             meals = []
@@ -499,13 +517,22 @@ def get_week_menu() -> dict:
                     meals.append({"name": col, "items": items})
             if meals:
                 days.append({"date": date_key, "meals": meals})
-        restaurants.append({"name": _display_name(name), "days": days})
 
-    has_data = any(r["days"] for r in restaurants)
-    return {"available": has_data, "restaurants": restaurants}
+        guide = guides.get(_MENU_TO_GUIDE_NAME.get(name, ""))
+        restaurants.append({
+            "name": _display_name(name),
+            "location": guide.location if guide else None,
+            "hours": guide.hours if guide else None,
+            "phone": guide.phone if guide else None,
+            "price": guide.price if guide else None,
+            "days": days,
+        })
+
+    has_menu = any(r["days"] for r in restaurants)
+    return {"available": bool(restaurants), "has_menu": has_menu, "restaurants": restaurants}
 
 
-class CafeteriaService:
+class DiningService:
     @staticmethod
-    async def answer_cafeteria_question(question: str) -> str:
-        return await answer_cafeteria_question(question)
+    async def answer_dining_question(question: str) -> str:
+        return await answer_dining_question(question)

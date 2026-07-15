@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
-import { getWeekCafeteria, getMySessions, getGraduationReport } from '../../api/chat'
+import { useState, useEffect, useRef } from 'react'
+import { getWeekDining, getMySessions, getGraduationReport, deleteSession, checkBackendHealth } from '../../api/chat'
 
 const T = {
-  ko: { newChat: '새 대화', meal: '학생식단', recent: '최근 대화', all: '전체', empty: '아직 대화가 없어요', noMeal: '이번 주 학식 정보가 없어요', credit: '학점 진행률', toGrad: '졸업까지', earned: '총 이수',
+  ko: { newChat: '새 대화', meal: '학생식당', recent: '최근 대화', all: '전체', empty: '아직 대화가 없어요', noMeal: '이번 주 학식 정보가 없어요', credit: '학점 진행률', toGrad: '졸업까지', earned: '총 이수',
         detail: '자세히', collapse: '접기', sample: ' · 예시', unit: '학점', met: '충족', totalLabel: '총 이수학점',
         shortMsg: (n) => `${n}학점 부족`, remainMsg: (n) => `졸업까지 ${n}학점 남음`, classOf: (yy) => `${yy}학번`,
         note: '※ 학점 기준이에요. 졸업시험·영어인증 등은 별도로 확인하세요.' },
@@ -94,17 +94,6 @@ function groupMeals(meals) {
   return _MEAL_ORDER.filter((b) => map[b]).map((b) => ({ meal: b, corners: map[b] }))
 }
 
-// ── 시연용 더미 (실데이터 없을 때 fallback) ──
-const SAMPLE_CREDIT = {
-  dept_name: '소프트웨어학과', student_no: '20221234',
-  total_earned: 115, total_required: 145, remaining: 30,
-  categories: [
-    { name: '전공', earned: 58, required: 66 },
-    { name: '교양', earned: 27, required: 30 },
-    { name: '다전공', earned: 12, required: 21 },   // 복수전공 이수 학점 (샘플)
-    { name: '일반', earned: 18, required: 28 },       // 표기는 '일선'으로 나감
-  ],
-}
 // 학생식당(서캠/동캠)은 월~금만, 기숙사식당은 토·일까지 7일 전체 사용
 const WEEKDAY = {
   ko: ['일', '월', '화', '수', '목', '금', '토'],
@@ -122,93 +111,11 @@ function fmtMMDD(dt) {
   return `${String(dt.getMonth() + 1).padStart(2, '0')}.${String(dt.getDate()).padStart(2, '0')}`
 }
 const mmddToday = () => fmtMMDD(new Date())
-// 이번 주 날짜 (샘플이 항상 이번 주로 보이도록 동적 생성)
-function thisWeekDates(count) {
-  const now = new Date()
-  const monday = new Date(now)
-  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7))
-  return Array.from({ length: count }, (_, i) => {
-    const d = new Date(monday); d.setDate(monday.getDate() + i); return fmtMMDD(d)
-  })
-}
-const thisWeekMonToFri = () => thisWeekDates(5)   // 학생식당(서캠/동캠): 월~금
-const thisWeekMonToSun = () => thisWeekDates(7)   // 기숙사식당: 월~일(매일 운영)
 
-// ── 시연용 학식 샘플 (실데이터 없을 때 fallback) ──
-// 참고: 실제 학식 API는 메뉴 항목만 제공. 위치/가격은 데모용 샘플 값이다.
-const _WD = thisWeekMonToFri()
-const _WD7 = thisWeekMonToSun()
-const SAMPLE_WEEK = {
-  restaurants: [
-    // 학생식당(서캠/동캠): 실제 크롤 구조 그대로 — 천원의아침밥(조식) + 여러 점심 코너.
-    // 학기중엔 코너가 자율주문(급식 아님)이라 끼니 대신 코너로 나뉘어서, 위젯이 점심 코너들을
-    // '중식' 하나로 묶어 '자세히'로 펼친다. 실 API엔 가격이 없어 price 미표기.
-    {
-      name: '학생식당(서캠)', location: '서캠퍼스 학생회관 1층',
-      days: [
-        { date: _WD[0], meals: [{ name: '천원의아침밥', items: ['백미밥', '북어해장국', '계란말이'] }, { name: '소담상', items: ['제육볶음', '계란국', '쌈채소', '겉절이'] }, { name: '속이찬새참', items: ['참치마요덮밥', '유부된장국', '단무지'] }, { name: '덮밥', items: ['마파두부덮밥', '미소국', '치킨너겟'] }, { name: '바삭카츠', items: ['등심돈까스', '양배추샐러드', '크림스프'] }, { name: '교직원', items: ['갈비탕', '잡곡밥', '도라지무침', '배추김치'] }] },
-        { date: _WD[1], meals: [{ name: '천원의아침밥', items: ['흑미밥', '시래기국', '어묵볶음'] }, { name: '소담상', items: ['비빔밥', '된장국', '깍두기'] }, { name: '속이찬새참', items: ['김치볶음밥', '어묵맑은국', '단무지'] }, { name: '덮밥', items: ['오징어덮밥', '유부장국', '군만두'] }, { name: '바삭카츠', items: ['치즈돈까스', '양배추샐러드', '콘스프'] }, { name: '교직원', items: ['육개장', '수수밥', '고사리무침', '배추김치'] }] },
-        { date: _WD[2], meals: [{ name: '천원의아침밥', items: ['백미밥', '콩나물국', '스크램블에그'] }, { name: '소담상', items: ['김치찌개', '계란말이', '김'] }, { name: '속이찬새참', items: ['새우볶음밥', '짬뽕국', '단무지'] }, { name: '덮밥', items: ['제육덮밥', '미소된장국', '치킨텐더'] }, { name: '바삭카츠', items: ['생선까스', '타르타르소스', '양배추샐러드'] }, { name: '교직원', items: ['삼계탕', '찰밥', '부추무침', '열무김치'] }] },
-        { date: _WD[3], meals: [{ name: '천원의아침밥', items: ['기장밥', '감자국', '비엔나볶음'] }, { name: '소담상', items: ['카레라이스', '샐러드', '피클'] }, { name: '속이찬새참', items: ['불고기덮밥', '유부장국', '단무지'] }, { name: '덮밥', items: ['규동', '미소국', '핫도그'] }, { name: '바삭카츠', items: ['등심돈까스', '양배추샐러드', '크림스프'] }, { name: '교직원', items: ['뚝배기불고기', '잡곡밥', '도토리묵무침', '배추김치'] }] },
-        { date: _WD[4], meals: [{ name: '천원의아침밥', items: ['백미밥', '미역국', '계란찜'] }, { name: '소담상', items: ['짜장밥', '군만두', '단무지'] }, { name: '속이찬새참', items: ['오므라이스', '양송이스프', '피클'] }, { name: '덮밥', items: ['치킨마요덮밥', '유부장국', '군만두'] }, { name: '바삭카츠', items: ['고구마치즈까스', '양배추샐러드', '콘스프'] }, { name: '교직원', items: ['아귀찜', '쌀밥', '콩나물무침', '배추김치'] }] },
-      ],
-    },
-    {
-      name: '학생식당(동캠)', location: '동캠퍼스 테크노디자인센터 지하',
-      days: [
-        { date: _WD[0], meals: [{ name: '천원의아침밥', items: ['백미밥', '미소된장국', '스크램블에그'] }, { name: '한식', items: ['돈까스', '우동', '단무지'] }, { name: '푸드코트', items: ['짜장면', '미니탕수육', '단무지'] }] },
-        { date: _WD[1], meals: [{ name: '천원의아침밥', items: ['흑미밥', '북어국', '어묵볶음'] }, { name: '한식', items: ['제육쌈밥', '미역국', '겉절이'] }, { name: '푸드코트', items: ['돈까스', '크림파스타', '피클'] }] },
-        { date: _WD[2], meals: [{ name: '천원의아침밥', items: ['백미밥', '콩나물국', '계란말이'] }, { name: '한식', items: ['순두부찌개', '계란찜', '김치'] }, { name: '푸드코트', items: ['비빔밥', '유부장국', '야채튀김'] }] },
-        { date: _WD[3], meals: [{ name: '천원의아침밥', items: ['기장밥', '감자국', '비엔나볶음'] }, { name: '한식', items: ['비프카레', '샐러드', '깍두기'] }, { name: '푸드코트', items: ['우동', '유부초밥', '단무지'] }] },
-        { date: _WD[4], meals: [{ name: '천원의아침밥', items: ['백미밥', '시래기국', '계란찜'] }, { name: '한식', items: ['짬뽕밥', '군만두', '단무지'] }, { name: '푸드코트', items: ['치킨마요덮밥', '미소국', '피클'] }] },
-      ],
-    },
-    // 기숙사식당: 국제기숙사/청운숙기숙사/기숙사(동캠) 3곳 모두 메뉴 동일 → 위치란에 3곳 이름 표기
-    // 기숙사생은 매일 식사하므로 학생식당과 달리 토·일 포함 7일 전체 제공
-    {
-      name: '기숙사식당', location: '국제기숙사 · 청운숙기숙사 · 기숙사(동캠)',
-      days: [
-        { date: _WD7[0], meals: [{ name: '조식', items: ['북엇국', '계란후라이', '김', '쌀밥'] }, { name: '중식', items: ['치킨가스', '크림스프', '피클'] }, { name: '석식', items: ['소불고기', '미역국', '나물무침'] }] },
-        { date: _WD7[1], meals: [{ name: '조식', items: ['된장국', '스크램블에그', '깍두기', '쌀밥'] }, { name: '중식', items: ['제육덮밥', '어묵국', '단무지'] }, { name: '석식', items: ['생선까스', '콩나물국', '겉절이'] }] },
-        { date: _WD7[2], meals: [{ name: '조식', items: ['시래기국', '계란말이', '김치', '쌀밥'] }, { name: '중식', items: ['김치볶음밥', '유부장국', '단무지'] }, { name: '석식', items: ['닭갈비', '미소국', '쌈채소'] }] },
-        { date: _WD7[3], meals: [{ name: '조식', items: ['콩나물국', '햄구이', '김', '쌀밥'] }, { name: '중식', items: ['카레라이스', '샐러드', '피클'] }, { name: '석식', items: ['돼지갈비찜', '두부된장국', '나물'] }] },
-        { date: _WD7[4], meals: [{ name: '조식', items: ['미역국', '계란후라이', '깍두기', '쌀밥'] }, { name: '중식', items: ['불닭덮밥', '계란국', '단무지'] }, { name: '석식', items: ['고등어구이', '된장국', '김치'] }] },
-        { date: _WD7[5], meals: [{ name: '조식', items: ['감자국', '소시지구이', '깍두기', '쌀밥'] }, { name: '중식', items: ['부대찌개', '계란말이', '단무지'] }, { name: '석식', items: ['돈까스', '미역국', '쌈채소'] }] },
-        { date: _WD7[6], meals: [{ name: '조식', items: ['황태국', '계란찜', '김', '쌀밥'] }, { name: '중식', items: ['비빔밥', '된장국', '나물'] }, { name: '석식', items: ['삼겹살구이', '김치찌개', '겉절이'] }] },
-      ],
-    },
-  ],
-}
-const SAMPLE_SESSIONS = [
-  { id: -1, title: '수강신청 기간 언제야?', topic: 'course_registration' },
-  { id: -2, title: '학생회관 어디야?', topic: 'campus' },
-  { id: -3, title: '휴학 어떻게 신청해?', topic: 'leave' },
-  { id: -4, title: '졸업 요건 알려줘', topic: 'graduation' },
-  { id: -5, title: '장학금 종류 뭐 있어?', topic: 'scholarship' },
-  { id: -6, title: '기숙사 신청 방법 알려줘', topic: 'dormitory' },
-  { id: -7, title: '공결 신청하고 싶어', topic: 'absence' },
-  { id: -8, title: '성적 이의신청 어떻게 해?', topic: 'grades' },
-  { id: -9, title: '학생회관 시설대여 방법', topic: 'facility_rental' },
-  { id: -10, title: '기숙사 주차 가능해?', topic: 'parking' },
-  { id: -11, title: '학생지원 프로그램 뭐 있어', topic: 'student_support' },
-  { id: -12, title: '학칙 위반하면 어떻게 돼?', topic: 'school_rules' },
-  { id: -13, title: 'ROTC 지원 자격이 어떻게 돼?', topic: 'rotc' },
-  { id: -14, title: '대학원 진학 상담받고 싶어', topic: 'graduate_school' },
-  { id: -15, title: '전공 변경 신청 기간', topic: 'major_change' },
-  { id: -16, title: '학생식당 위치가 어디야?', topic: 'welfare_facilities' },
-  { id: -17, title: '학사일정 언제 나와?', topic: 'schedule' },
-  { id: -18, title: '학부/학과 소개해줘', topic: 'college_department' },
-  { id: -19, title: '자격증 취득하면 학점 인정돼?', topic: 'rag_general' },
-  { id: -20, title: '안녕!', topic: 'general' },
-]
-
-export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession, activeSessionId, onSessionDeleted }) {
+export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession, activeSessionId, onSessionDeleted, refreshTrigger = 0 }) {
   const t = T[lang] || T.ko
   const [credit, setCredit] = useState(null)
-  const [creditSample, setCreditSample] = useState(false)
-  const [mealSample, setMealSample] = useState(false)
   const [sessions, setSessions] = useState([])
-  const [sessionsSample, setSessionsSample] = useState(false)
   const [filter, setFilter] = useState('all')
   const [creditModal, setCreditModal] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)   // 삭제 확인 대상 세션
@@ -217,41 +124,72 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
   const [dayIdx, setDayIdx] = useState(0)      // 선택된 요일 탭
   const [openMeals, setOpenMeals] = useState({})   // 펼친 끼니 그룹 {중식: true}
 
+  // 위젯 자동 갱신 트리거 — 주기 폴링 없이 표준 방식(React Query/SWR 기본값과 동일):
+  // 창 포커스(탭 복귀) + 네트워크 재연결 시 재조회. 데이터가 바뀌거나 백엔드가 다시 떠도
+  // 브라우저로 돌아오는 순간 수동 새로고침 없이 반영된다.
+  const [autoRefresh, setAutoRefresh] = useState(0)
+  const firstMenuLoad = useRef(true)
+  useEffect(() => {
+    const bump = () => setAutoRefresh((v) => v + 1)
+    const onVis = () => { if (document.visibilityState === 'visible') bump() }
+    window.addEventListener('focus', bump)          // 탭/창 복귀
+    window.addEventListener('online', bump)         // 네트워크 재연결
+    document.addEventListener('visibilitychange', onVis)
+
+    // 백엔드 준비 감시 — /health 는 lifespan(모델 로딩·워밍업) 완료 후에야 응답하므로,
+    // 응답 성공 = "완전히 켜져 요청 받을 수 있는 상태(Application startup complete)".
+    // 위젯을 주기적으로 다시 받는 게 아니라 가벼운 핑만 하고, 준비 완료로 전환될 때만(down→up) 갱신.
+    // 준비되어 있으면 15s 간격, 대기 중(재시작 등)이면 2s 간격으로 확인해 완료를 빨리 잡는다.
+    let up = true
+    let timer
+    const ping = async () => {
+      const ok = await checkBackendHealth()
+      if (ok && !up) bump()      // 백엔드가 방금 완전히 준비됨 → 위젯 갱신
+      up = ok
+      timer = setTimeout(ping, ok ? 15000 : 2000)
+    }
+    timer = setTimeout(ping, 2000)
+
+    return () => {
+      window.removeEventListener('focus', bump)
+      window.removeEventListener('online', bump)
+      document.removeEventListener('visibilitychange', onVis)
+      clearTimeout(timer)
+    }
+  }, [])
+
   useEffect(() => {
     // 학점 진행률은 학생만 — 관리자·비학생은 아예 조회/표시 안 함
     if (role === 'student') {
       getGraduationReport()
-        .then((d) => {
-          if (d?.available) { setCredit(d); setCreditSample(false) }
-          else { setCredit(SAMPLE_CREDIT); setCreditSample(true) }  // 학생인데 데이터 없음 → 시연용 샘플
-        })
-        .catch(() => { setCredit(SAMPLE_CREDIT); setCreditSample(true) })
+        .then((d) => setCredit(d?.available ? d : null))   // 데이터 없으면 위젯 숨김
+        .catch(() => setCredit(null))
     }
     // role !== 'student'(관리자 등)는 credit 초기값(null)이 유지되어 위젯이 자동으로 숨겨짐
 
-    getWeekCafeteria()
-      .then((d) => ((d?.available && d.restaurants?.length) ? d : SAMPLE_WEEK))
-      .catch(() => SAMPLE_WEEK)
+    getWeekDining()
+      .then((d) => (d?.restaurants?.length ? d : null))   // 식당(안내)만 있어도 표시 — 메뉴 없어도 위치는 노출
+      .catch(() => null)
       .then((data) => {
-        setWeek(data); setMealSample(data === SAMPLE_WEEK)
-        // 오늘 요일 탭을 기본 선택 (API 실패로 샘플 fallback일 때도 동일 적용)
-        const days = data.restaurants[0]?.days || []
-        const idx = days.findIndex((x) => x.date === mmddToday())
-        if (idx >= 0) setDayIdx(idx)
-      })
-
-    getMySessions()
-      .then((list) => {
-        if (list?.length) {
-          // DB에 topic 값이 앞뒤 공백과 함께 저장된 경우가 있어 (예: " graduate_school")
-          // trim 없이 비교하면 TOPIC_LABELS에 매칭이 안 되고 '일반대화'로 잘못 표시된다.
-          setSessions(list.map((s) => ({ ...s, topic: s.topic?.trim() || s.topic })))
-          setSessionsSample(false)
+        setWeek(data)
+        // 오늘 요일 탭 기본 선택 — 첫 로드에만 (자동 재조회 시 사용자가 고른 요일 보존)
+        if (firstMenuLoad.current && data) {
+          const days = data?.restaurants?.[0]?.days || []
+          const idx = days.findIndex((x) => x.date === mmddToday())
+          if (idx >= 0) setDayIdx(idx)
+          firstMenuLoad.current = false
         }
-        else { setSessions(SAMPLE_SESSIONS); setSessionsSample(true) }
       })
-      .catch(() => { setSessions(SAMPLE_SESSIONS); setSessionsSample(true) })
-  }, [role])
+  }, [role, autoRefresh])
+
+  // '최근 대화' 목록은 새 세션 생성/전환(refreshTrigger)·자동 갱신(autoRefresh)마다 다시 불러 최신 유지
+  useEffect(() => {
+    getMySessions()
+      // DB에 topic 값이 앞뒤 공백과 함께 저장된 경우가 있어 (예: " graduate_school") trim 처리.
+      // 데이터 없으면 빈 목록 → '아직 대화가 없어요' 표시
+      .then((list) => setSessions((list || []).map((s) => ({ ...s, topic: s.topic?.trim() || s.topic }))))
+      .catch(() => setSessions([]))
+  }, [role, refreshTrigger, autoRefresh])
 
   const presentTopics = Array.from(new Set(sessions.map((s) => s.topic).filter(Boolean)))
   const filtered = filter === 'all' ? sessions : sessions.filter((s) => s.topic === filter)
@@ -265,13 +203,18 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
     setDayIdx(idx >= 0 ? idx : 0)
   }
 
-  // 대화 삭제: 확인 모달에서 최종 승인 시 로컬 목록에서 제거 (실제 영구 삭제는 백엔드 DELETE 엔드포인트 필요)
-  function confirmDeleteSession() {
+  // 대화 삭제: 확인 모달 승인 시 백엔드 soft-delete 후 목록에서 제거
+  async function confirmDeleteSession() {
     if (!deleteTarget) return
     const id = deleteTarget.id
+    setDeleteTarget(null)
+    try {
+      await deleteSession(id)
+    } catch {
+      return   // 삭제 실패 시 목록 유지 (되살아나는 혼란 방지)
+    }
     setSessions((prev) => prev.filter((x) => x.id !== id))
     if (id === activeSessionId) onSessionDeleted?.(id)
-    setDeleteTarget(null)
   }
 
   // 학식: 선택된 식당/요일 파생값
@@ -299,7 +242,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         {credit && (
           <section className="border border-slate-200 rounded-xl bg-white shrink-0" style={{ padding: '12px', marginTop: '14px' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
-              <span className="text-xs font-bold text-slate-800">🎓 {t.credit}{creditSample && <span className="text-slate-400 font-medium">{t.sample}</span>}</span>
+              <span className="text-xs font-bold text-slate-800">🎓 {t.credit}</span>
               <button onClick={() => setCreditModal(true)} className="font-semibold text-[#005956] hover:underline" style={{ fontSize: '11px' }}>{t.detail}</button>
             </div>
             <p className="text-slate-400" style={{ fontSize: '11px' }}>{t.toGrad}</p>
@@ -320,7 +263,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
           <div style={{ padding: '12px' }}>
             {/* 헤더: 제목 + 식당 선택 */}
             <div className="flex items-center justify-between" style={{ marginBottom: rest?.location ? '4px' : '10px' }}>
-              <span className="text-xs font-bold text-slate-800">🍱 {t.meal}{mealSample && <span className="text-slate-400 font-medium">{t.sample}</span>}</span>
+              <span className="text-xs font-bold text-slate-800">🍱 {t.meal}</span>
               {restaurants.length > 0 && (
                 <select
                   value={restIdx}
@@ -435,7 +378,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         <div className="flex flex-col min-h-0 flex-1" style={{ marginTop: '16px' }}>
           <div className="flex items-center justify-between shrink-0" style={{ marginBottom: '8px', padding: '0 2px' }}>
             <span className="text-slate-400 font-semibold uppercase tracking-wide" style={{ fontSize: '11px' }}>
-              {t.recent}{sessionsSample && t.sample}
+              {t.recent}
             </span>
             {presentTopics.length > 0 && (
               <select
@@ -527,6 +470,14 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-700">{t.totalLabel}</span>
                 <span className="text-sm font-bold text-slate-800">{credit.total_earned} <span className="text-slate-400 font-medium">/ {credit.total_required}</span></span>
+              </div>
+              {/* 총 이수학점 진행 바 — 카테고리(teal/green)와 구분되는 앰버 색 */}
+              <div className="rounded-full bg-slate-100 overflow-hidden" style={{ height: '9px', marginTop: '8px' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${credit.total_required > 0 ? Math.min(100, (credit.total_earned / credit.total_required) * 100) : 0}%`,
+                  background: '#f59e0b',
+                }} />
               </div>
               <p className="font-bold" style={{ fontSize: '13px', marginTop: '8px', color: '#005956' }}>{t.remainMsg(credit.remaining)}</p>
             </div>
