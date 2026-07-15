@@ -17,6 +17,9 @@ export function useChat(lang = 'ko') {
   const [sessionId, setSessionId] = useState(null)
   const [pendingFile, setPendingFile] = useState(null)       // AI가 제안한 파일 { topic, files }
   const [pendingContext, setPendingContext] = useState(null)  // 멀티턴 대화 상태 { type: "scholarship", ... }
+  // 대화 전환(새 대화/과거 대화 열기)마다 증가 → ChatWindow를 remount해 '다른 창' 느낌을 준다.
+  // (첫 메시지로 sessionId만 바뀔 땐 증가 안 함 → 대화 중엔 remount 안 됨)
+  const [viewKey, setViewKey] = useState(0)
 
   /** 일반 메시지 전송 */
   const send = useCallback(async (text) => {
@@ -152,6 +155,7 @@ export function useChat(lang = 'ko') {
   /** 사이드바 '최근 대화'에서 과거 세션 다시 열기 */
   const loadSession = useCallback(async (sid) => {
     setIsLoading(true)
+    setViewKey((k) => k + 1)   // 과거 대화 열기 → 뷰 새로 마운트
     try {
       const data = await getSessionMessages(sid)
       setSessionId(sid)
@@ -180,7 +184,8 @@ export function useChat(lang = 'ko') {
     setSessionId(null)
     setPendingFile(null)
     setPendingContext(null)
+    setViewKey((k) => k + 1)   // 새 대화 → 뷰 새로 마운트
   }
 
-  return { messages, isLoading, sessionId, send, confirmFile, checkGraduation, reset, loadSession, clearPendingFile, pendingFile }
+  return { messages, isLoading, sessionId, send, confirmFile, checkGraduation, reset, loadSession, clearPendingFile, pendingFile, viewKey }
 }

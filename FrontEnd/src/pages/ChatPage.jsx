@@ -22,7 +22,7 @@ const T = {
 
 export default function ChatPage() {
   const [lang, setLang] = useState('ko')
-  const { messages, isLoading, send, confirmFile, checkGraduation, reset, loadSession, sessionId, clearPendingFile, pendingFile } = useChat(lang)
+  const { messages, isLoading, send, confirmFile, checkGraduation, reset, loadSession, sessionId, clearPendingFile, pendingFile, viewKey } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sessionsRefresh, setSessionsRefresh] = useState(0)
@@ -158,6 +158,7 @@ export default function ChatPage() {
 
         <div className="flex-1 flex flex-col min-h-0">
           <ChatWindow
+            key={viewKey}
             messages={messages}
             isLoading={isLoading}
             lang={lang}
