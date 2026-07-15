@@ -124,6 +124,7 @@ class RequirementRule(Base):
     min_credits_liberal = Column(Float, nullable=False)                        # 교양 최소 이수 학점 (REAL)
     min_credits_general = Column(Float, nullable=False)                        # 일반 최소 이수 학점 (REAL)
     min_credits_total = Column(Float, nullable=False)                          # 총 최소 이수 학점 (REAL)
+    min_credits_track = Column(Float, nullable=True)                           # 트랙(중점전공) 최소 이수 학점 (REAL, 없는 학과는 NULL)
 
 # ==========================================
 # 9. 장학금 마스터 테이블 (scholarship)
