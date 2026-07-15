@@ -492,6 +492,14 @@ class AdminService:
                     fallback += f"\n작성일: {page.published_at}"
                 raw_chunks = [{"chapter": None, "article": None, "path": "", "text": fallback, "embedding_text": fallback}]
                 print(f"[AdminService] 텍스트 추출 실패 → 메타데이터 fallback 청크 사용")
+            # 크롤러가 '제목' 감지용으로 넣은 ○ 마커는 청킹(제목+본문 그룹핑)에만 쓰고
+            # 저장·임베딩 텍스트에선 제거 → 유사도/답변에 영향 없이 깨끗하게 보존.
+            # 줄 맨 앞의 마커만 벗겨, 표의 ○/✕ 같은 실제 내용은 건드리지 않음.
+            _mk = _re.compile(r"(?m)^[ \t]*○[ \t]+")
+            for c in raw_chunks:
+                for _k in ("text", "embedding_text", "path", "chapter", "article"):
+                    if isinstance(c.get(_k), str):
+                        c[_k] = _mk.sub("", c[_k])
             texts = [c["text"] for c in raw_chunks]
             embedding_texts = [c["embedding_text"] for c in raw_chunks]
             chunk_metas = [{"chapter": c["chapter"], "article": c["article"], "path": c["path"]} for c in raw_chunks]
