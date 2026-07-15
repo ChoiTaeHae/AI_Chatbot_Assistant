@@ -1,6 +1,7 @@
 ﻿
 
 import asyncio
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, distinct
@@ -12,7 +13,36 @@ from app.models.DB_Table import (
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 from app.rag.Embedding import BaaiEmbedding
-from app.prompts import GRADUATION_DB_PROMPT, GRADUATION_RAG_PROMPT, GRADUATION_COMBINED_PROMPT
+from app.prompts import (
+    GRADUATION_DB_PROMPT, GRADUATION_RAG_PROMPT, GRADUATION_COMBINED_PROMPT,
+    GRADUATION_OTHER_DEPT_PROMPT, GRADUATION_MY_DEPT_PROMPT,
+)
+
+
+# ── 학과명 매칭 (별칭 기반) ─────────────────────────────────────────
+# 질문에 다른 학과가 언급됐는지 코드로 판별 (8B 판단에 맡기지 않음).
+# 서버/첫 호출 시 DB에서 (id, name, aliases)를 캐시로 로드한다.
+_DEPT_CACHE: list[tuple[int, str, list[str]]] | None = None
+
+
+def _norm(s: str) -> str:
+    """비교용 정규화 — 공백·구분자(·․/,) 제거 + 소문자."""
+    return re.sub(r"[\s·․/,]", "", s or "").lower()
+
+
+def detect_department(question: str) -> tuple[int, str] | None:
+    """질문에서 학과명/별칭을 탐지해 (dept_id, name) 반환. 가장 긴 매칭 우선(부분매칭 오탐 방지).
+    캐시 미로드 또는 미매칭이면 None → 호출부에서 '내 학과'로 폴백."""
+    if not _DEPT_CACHE:
+        return None
+    q = _norm(question)
+    best: tuple[int, int, str] | None = None   # (매칭길이, id, name)
+    for did, name, aliases in _DEPT_CACHE:
+        for term in [name, *(aliases or [])]:
+            nt = _norm(term)
+            if nt and nt in q and (best is None or len(nt) > best[0]):
+                best = (len(nt), did, name)
+    return (best[1], best[2]) if best else None
 
 # ── 졸업 질문 유형 분류 프로토타입 (임베딩 기반) ──────────────────────
 # personal : 개인 현황 조회 (DB)
@@ -48,11 +78,10 @@ _GRADUATION_PROTOTYPES: dict[str, list[str]] = {
 }
 
 
-def _avg_normalize(vectors: list[list[float]]) -> list[float]:
-    n, dim = len(vectors), len(vectors[0])
-    avg = [sum(vectors[i][j] for i in range(n)) / n for j in range(dim)]
-    norm = sum(x * x for x in avg) ** 0.5
-    return [x / norm for x in avg] if norm > 0 else avg
+# 유형 분류 점수 = 카테고리 프로토타입 중 질문과 가장 가까운 상위 K개의 평균 유사도.
+# (평균 프로토타입은 "졸업요건 어떻게 되니?" 같은 혼합 표현을 오분류 → top-K로 완화.
+#  topic_router와 동일 원리.)
+_GRAD_TOP_K = 3
 
 
 class _GraduationClassifier:
@@ -60,7 +89,7 @@ class _GraduationClassifier:
 
     def __init__(self):
         self._embedding: BaaiEmbedding | None = None
-        self._proto_vecs: dict[str, list[float]] | None = None
+        self._proto_vecs: dict[str, list[list[float]]] | None = None   # 카테고리별 개별 문장 벡터
 
     @property
     def embedding(self) -> BaaiEmbedding:
@@ -80,7 +109,7 @@ class _GraduationClassifier:
         all_vecs = self.embedding.embed_texts(all_sentences)
         self._proto_vecs = {}
         for cat, (start, end) in zip(categories, ranges):
-            self._proto_vecs[cat] = _avg_normalize(all_vecs[start:end])
+            self._proto_vecs[cat] = all_vecs[start:end]   # 개별 문장 벡터 보관 (평균 안 함)
         print(f"[GraduationClassifier] {len(categories)}개 유형 임베딩 완료")
 
     def classify(self, question: str) -> str:
@@ -89,8 +118,11 @@ class _GraduationClassifier:
 
         q_vec = self.embedding.embed_text(question)
         best_cat, best_score = "both", -1.0
-        for cat, proto in self._proto_vecs.items():
-            score = sum(x * y for x, y in zip(q_vec, proto))
+        for cat, vecs in self._proto_vecs.items():
+            # 개별 문장 유사도 중 상위 K개 평균 (평균 프로토타입 대신)
+            sims = sorted((sum(x * y for x, y in zip(q_vec, v)) for v in vecs), reverse=True)
+            k = min(_GRAD_TOP_K, len(sims))
+            score = sum(sims[:k]) / k
             if score > best_score:
                 best_score, best_cat = score, cat
 
@@ -108,14 +140,141 @@ class GraduationService:
     # =============================================
 
     async def answer_graduation_with_metadata(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
-        """Agent가 호출하는 메인 함수.
+        """Agent가 호출하는 메인 함수 — 개인현황/문서/다른학과를 코드로 분기.
 
-        채팅의 졸업 질문은 항상 **규정 문서(RAG)**로만 답한다.
-        개인 이수현황(부족 학점)은 명시적 액션(GET /api/graduation/status)으로 분리했다.
-        → 다른 학과 요건을 물었을 때 로그인 학생 본인의 개인현황이 섞여 나오는 환각을 방지.
-        (student_id·db는 호출부 호환/로깅용으로 유지)
+        - 질문에 '내 학과가 아닌 다른 학과'가 언급되면 → 그 학과 요건(DB, 내 입학연도 기준)
+          + RAG. 본인 이수현황은 절대 섞지 않는다(환각 방지).
+        - 그 외: 유형 분류(personal/document/both)로 개인현황(DB)+문서(RAG) 라우팅.
         """
-        return await self._answer_from_rag(question)
+        await self._ensure_dept_cache(db)
+        student, my_dept_name = await self._get_student(db, student_id)
+        if not student:
+            return await self._answer_from_rag(question)
+        try:
+            my_year = int(student.student_no[:4])
+        except (ValueError, TypeError, IndexError):
+            my_year = 2026
+
+        mentioned = detect_department(question)
+        is_other = bool(mentioned and mentioned[0] != student.dept_id)
+        print(f"[Graduation] 분기 판별: 언급학과={mentioned}, 내학과id={student.dept_id}, 다른학과={is_other}")
+
+        # 다른 학과 언급 → 그 학과 요건만 (개인 이수현황은 본인 학과만 가능하므로 제외)
+        if is_other:
+            return await self._answer_dept_requirement(question, mentioned[0], mentioned[1], my_year, db)
+
+        # 내 학과(또는 학과 미언급) → 유형 분류로 라우팅
+        cat = await self._classify_question(question)
+        if cat == "document":
+            # 절차/일정 질문 → RAG
+            return await self._answer_from_rag(question)
+        # personal / both → 내 학과 졸업요건(학점+서술형) + 본인 학점 이수현황을 함께
+        # (요건/현황 분류가 표현 겹침으로 불안정 → 둘 다 보여줘 분류 어려움을 우회)
+        return await self._answer_my_dept(question, student.dept_id, my_dept_name, my_year, student_id, db)
+
+    async def _ensure_dept_cache(self, db: AsyncSession) -> None:
+        """학과 매칭 캐시 지연 로드 (첫 졸업 질문 시 1회)."""
+        global _DEPT_CACHE
+        if _DEPT_CACHE is None:
+            rows = (await db.execute(
+                select(Department.id, Department.name, Department.aliases)
+            )).all()
+            _DEPT_CACHE = [(r[0], r[1], r[2] or []) for r in rows]
+            print(f"[Graduation] 학과 매칭 캐시 {len(_DEPT_CACHE)}개 로드")
+
+    async def _answer_dept_requirement(self, question: str, dept_id: int, dept_name: str,
+                                       admission_year: int, db: AsyncSession) -> tuple[str, dict]:
+        """학과 졸업요건 답변 (본인/타 학과 공통) — 그 학과 요건 수치(DB) + 서술형 규정(RAG).
+        개인 이수현황은 미포함. '요건' 질문(both) 및 '다른 학과' 질문에 사용."""
+        from pathlib import Path
+        from app.services.file_service import AVAILABLE_FILES
+
+        _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
+        if rule:
+            req_context = (
+                f"학과: {dept_name} ({admission_year}학번 기준)\n"
+                f"전공 최소 이수학점: {rule.min_credits_major}학점\n"
+                f"교양 최소 이수학점: {rule.min_credits_liberal}학점\n"
+                f"졸업 총 이수학점: {rule.min_credits_total}학점\n"
+                f"영어 공인성적: 필요"
+            )
+        else:
+            req_context = f"{dept_name} {admission_year}학번 졸업요건 정보가 DB에 등록되어 있지 않습니다."
+
+        # RAG(서술형 규정) 검색은 회화체·이전맥락이 낀 원 질문 대신 '학과 키워드'로 리랭킹한다.
+        # (리랭커는 쿼리 노이즈에 극도로 민감 — "간호학과 졸업요건"=0.77 vs "…알려줘+맥락"=0.13)
+        rag_query = f"{dept_name} 졸업요건 전공 교양 이수학점"
+        rag_context, metadata = await self._search_rag(rag_query)
+
+        files = AVAILABLE_FILES.get("graduation", [])
+        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+
+        prompt = GRADUATION_OTHER_DEPT_PROMPT.format(
+            dept=dept_name, req_context=req_context, rag_context=rag_context,
+            question=question, files_list=files_list,
+        )
+        # 구조적 졸업 답변은 실행마다 흔들리면 안 되므로 결정론적으로(temp 0.0) 생성.
+        # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
+        result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
+
+        match = re.search(r'<FILES>(.*?)</FILES>', result)
+        if match:
+            metadata["files_to_offer"] = [f.strip() for f in match.group(1).split(',') if f.strip()]
+            result = (result[:match.start()] + result[match.end():]).strip()
+
+        return result, metadata
+
+    async def _answer_my_dept(self, question: str, dept_id: int, dept_name: str,
+                             admission_year: int, student_id: int, db: AsyncSession) -> tuple[str, dict]:
+        """내 학과 졸업 답변 — 졸업요건(학점 DB + 서술형 문서) + 본인 '학점' 이수현황을 함께.
+        영어·자격증·토익·졸업가능여부는 현황으로 판단 안 하고 요건 안내에만 포함(DB 미추적)."""
+        from pathlib import Path
+        from app.services.file_service import AVAILABLE_FILES
+
+        # 1) 요건 학점 (DB rule)
+        _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
+        if rule:
+            req_context = (
+                f"전공 최소 이수학점: {rule.min_credits_major}학점\n"
+                f"교양 최소 이수학점: {rule.min_credits_liberal}학점\n"
+                f"졸업 총 이수학점: {rule.min_credits_total}학점\n"
+                f"영어 공인성적: 필요"
+            )
+        else:
+            req_context = f"{dept_name} {admission_year}학번 졸업요건 정보가 DB에 등록되어 있지 않습니다."
+
+        # 2) 서술형 요건 (리랭커 노이즈 방지 위해 깔끔한 학과 키워드로 검색)
+        rag_context, metadata = await self._search_rag(f"{dept_name} 졸업요건 전공 교양 이수학점")
+
+        # 3) 본인 '학점' 이수현황 (영어·졸업가능여부 등은 제외)
+        report = await self._check_graduation_status(db, student_id)
+        if "error" in report:
+            status_context = report["error"]
+        else:
+            mj = max(0, report["req_major"] - report["earned_major"])
+            lb = max(0, report["req_liberal"] - report["earned_liberal"])
+            tt = max(0, report["total_required"] - report["total_earned"])
+            status_context = (
+                f"전공: {report['earned_major']} / {report['req_major']} (부족 {mj})\n"
+                f"교양: {report['earned_liberal']} / {report['req_liberal']} (부족 {lb})\n"
+                f"총: {report['total_earned']} / {report['total_required']} (부족 {tt})"
+            )
+
+        files = AVAILABLE_FILES.get("graduation", [])
+        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+
+        prompt = GRADUATION_MY_DEPT_PROMPT.format(
+            dept=dept_name, req_context=req_context, rag_context=rag_context,
+            status_context=status_context, question=question, files_list=files_list,
+        )
+        result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
+
+        match = re.search(r'<FILES>(.*?)</FILES>', result)
+        if match:
+            metadata["files_to_offer"] = [f.strip() for f in match.group(1).split(',') if f.strip()]
+            result = (result[:match.start()] + result[match.end():]).strip()
+
+        return result, metadata
 
     async def answer_graduation(self, question: str, student_id: int, db: AsyncSession) -> str:
         answer, _ = await self.answer_graduation_with_metadata(question, student_id, db)
@@ -188,7 +347,6 @@ class GraduationService:
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
 
-        import re
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
             files_str = match.group(1)
@@ -216,9 +374,10 @@ class GraduationService:
         files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
         prompt = self._build_combined_prompt(question, db_context, rag_context, files_list)
-        result = await llm_service.answer(prompt, max_tokens=1024)
+        # 구조적 졸업 답변은 실행마다 흔들리면 안 되므로 결정론적으로(temp 0.0) 생성.
+        # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
+        result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
-        import re
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
             files_str = match.group(1)

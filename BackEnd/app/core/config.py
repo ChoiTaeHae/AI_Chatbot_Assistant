@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION: str = "school_documents"
     RAG_TOP_K: int = 3
 
+    # 하이브리드 검색 (dense + sparse, bge-m3). True 시 별도 컬렉션(HYBRID_COLLECTION) 사용.
+    # 롤백은 이 토글만 False로 → dense-only 기존 컬렉션으로 즉시 복귀.
+    HYBRID_SEARCH: bool = False
+    HYBRID_COLLECTION: str = "school_documents_hybrid"
+
     # Frontend
     FRONTEND_ORIGINS: str = "http://localhost:5173"
 
@@ -50,6 +55,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     CHAT_RATE_LIMIT: int = 20       # 분당 최대 요청 수
     RATE_LIMIT_WINDOW: int = 60     # 윈도우 크기 (초)
+
+    @property
+    def active_collection(self) -> str:
+        """현재 사용할 Qdrant 컬렉션명. 하이브리드면 별도 컬렉션."""
+        return self.HYBRID_COLLECTION if self.HYBRID_SEARCH else self.QDRANT_COLLECTION
 
 
 settings = Settings()

@@ -484,8 +484,8 @@ class AdminService:
                     print(f"[AdminService] 이미지 OCR 실패 (무시): {ocr_err}")
             raw_chunks = smart_split(document_text, embed_fn=rag_service.embedding.embed_texts)
             if not raw_chunks:
-                # 텍스트·OCR 모두 실패 시 제목+URL로 최소 청크 생성
-                fallback = f"제목: {page.title}\nURL: {url}"
+                # 텍스트·OCR 모두 실패 시 제목 기반 최소 청크 생성 (URL은 임베딩 제외, payload로만 보존)
+                fallback = f"제목: {page.title}"
                 if page.author:
                     fallback += f"\n작성자: {page.author}"
                 if page.published_at:
@@ -495,7 +495,12 @@ class AdminService:
             texts = [c["text"] for c in raw_chunks]
             embedding_texts = [c["embedding_text"] for c in raw_chunks]
             chunk_metas = [{"chapter": c["chapter"], "article": c["article"], "path": c["path"]} for c in raw_chunks]
-            embeddings = rag_service.embedding.embed_texts(embedding_texts)
+            # 하이브리드면 dense+sparse 함께 (아니면 기존 dense-only)
+            sparse_vectors = None
+            if settings.HYBRID_SEARCH:
+                embeddings, sparse_vectors = rag_service.embedding.embed_hybrid(embedding_texts)
+            else:
+                embeddings = rag_service.embedding.embed_texts(embedding_texts)
             meta = page.metadata()
             if doc_date:
                 meta["doc_date"] = doc_date
@@ -508,6 +513,7 @@ class AdminService:
                 metadata=meta,
                 topic=topic,
                 chunk_metas=chunk_metas,
+                sparse_vectors=sparse_vectors,
             )
             chunk_count = len(texts)
             self._upload_jobs[job_id] = {

@@ -8,11 +8,33 @@ from app.core.Database import Base
 # ==========================================
 # 1. 부서/학과 테이블 (department)
 # ==========================================
+class College(Base):
+    """단과대학 (예: 소프트웨어(SW)융합대학)"""
+    __tablename__ = "college"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+
+
+class Division(Base):
+    """학부/모집단위 (예: 소프트웨어학부). 학부 없이 단과대학 직속 학과도 있으므로 department에선 nullable."""
+    __tablename__ = "division"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    college_id = Column(Integer, ForeignKey("college.id"), nullable=False)
+
+    __table_args__ = (UniqueConstraint("name", "college_id", name="uq_division_name_college"),)
+
+
 class Department(Base):
     __tablename__ = "department"
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
+    aliases = Column(JSONB)                                     # 학과명 별칭/약칭 매칭용 (예: ["컴공","컴퓨터공학"])
+    college_id = Column(Integer, ForeignKey("college.id"))      # 단과대학
+    division_id = Column(Integer, ForeignKey("division.id"))    # 학부(모집단위), 직속이면 NULL
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -102,6 +124,7 @@ class RequirementRule(Base):
     min_credits_liberal = Column(Float, nullable=False)                        # 교양 최소 이수 학점 (REAL)
     min_credits_general = Column(Float, nullable=False)                        # 일반 최소 이수 학점 (REAL)
     min_credits_total = Column(Float, nullable=False)                          # 총 최소 이수 학점 (REAL)
+    min_credits_track = Column(Float, nullable=True)                           # 트랙(중점전공) 최소 이수 학점 (REAL, 없는 학과는 NULL)
 
 # ==========================================
 # 9. 장학금 마스터 테이블 (scholarship)
