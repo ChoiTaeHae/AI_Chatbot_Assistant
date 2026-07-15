@@ -526,7 +526,8 @@ def _semantic_split_inner(
         return []
     if len(sentences) <= 2:
         combined = "\n".join(sentences)
-        return [{"chapter": None, "article": None, "text": combined}] if len(combined) >= min_length else []
+        # 짧아도 버리지 않는다 (내용 누락 방지) — 비어있지만 않으면 유지
+        return [{"chapter": None, "article": None, "text": combined}] if combined.strip() else []
 
     # 슬라이딩 윈도우(크기 3)로 전후 문맥 포함 임베딩 생성
     windowed = []
@@ -551,17 +552,17 @@ def _semantic_split_inner(
     threshold = float(np.percentile(distances, breakpoint_percentile))
     print(f"[SemanticChunker] 청크 경계 임계값: {threshold:.4f} (percentile={breakpoint_percentile})")
 
-    # 청크 경계 결정: 거리 > 임계값 이거나 최대 크기 초과 시 분할
-    chunks = []
+    # 청크 경계 결정: 거리 > 임계값 이거나 최대 크기 초과 시 분할.
+    # 짧은 조각을 버리면 URL·짧은 안내문 등이 통째로 누락되므로(버그), 버리지 않고 모은 뒤
+    # min_length 미만은 인접 조각과 병합한다.
+    raw_pieces: list[str] = []
     current = [sentences[0]]
     current_len = len(sentences[0])
 
     for i, dist in enumerate(distances):
         nxt = sentences[i + 1]
         if dist > threshold or current_len + len(nxt) + 1 > chunk_size:
-            text_chunk = "\n".join(current)
-            if len(text_chunk) >= min_length:
-                chunks.append({"chapter": None, "article": None, "text": text_chunk})
+            raw_pieces.append("\n".join(current))
             current = [nxt]
             current_len = len(nxt)
         else:
@@ -569,9 +570,10 @@ def _semantic_split_inner(
             current_len += len(nxt) + 1
 
     if current:
-        text_chunk = "\n".join(current)
-        if len(text_chunk) >= min_length:
-            chunks.append({"chapter": None, "article": None, "text": text_chunk})
+        raw_pieces.append("\n".join(current))
+
+    merged = _merge_short_pieces([p for p in raw_pieces if p.strip()], chunk_size, min_length)
+    chunks = [{"chapter": None, "article": None, "text": p} for p in merged if p.strip()]
 
     print(f"[SemanticChunker] {len(sentences)}문장 → {len(chunks)}청크")
     return chunks
