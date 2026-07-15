@@ -23,16 +23,15 @@ class CrawledPage:
     attachments: list[dict[str, str]] = field(default_factory=list)
 
     def to_document_text(self) -> str:
+        # 임베딩되는 본문에는 검색에 도움되는 것만 포함.
+        # URL·조회수는 의미 없는 토큰(https, 숫자)이라 임베딩에서 제외 → metadata() payload로만 보존.
         lines = [
             f"제목: {self.title}",
-            f"URL: {self.url}",
         ]
         if self.author:
             lines.append(f"작성자: {self.author}")
         if self.published_at:
             lines.append(f"작성일: {self.published_at}")
-        if self.view_count is not None:
-            lines.append(f"조회수: {self.view_count}")
         if self.attachments:
             attachment_names = ", ".join(item["name"] for item in self.attachments)
             lines.append(f"첨부파일: {attachment_names}")
