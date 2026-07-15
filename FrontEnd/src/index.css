@@ -41,6 +41,15 @@ button:disabled {
   background: rgba(37, 99, 235, 0.16);
 }
 
+/* 대화 전환 시 '다른 창' 느낌 — 살짝 아래에서 올라오며 페이드인 */
+@keyframes chatViewEnter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.chat-view-enter {
+  animation: chatViewEnter 0.28s ease-out;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

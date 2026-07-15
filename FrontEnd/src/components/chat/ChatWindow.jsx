@@ -14,13 +14,15 @@ const T = {
 
 export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, onCheckGraduation, onSendQuestion }) {
   const bottomRef = useRef(null)
+  const firstScroll = useRef(true)   // 마운트 직후 첫 스크롤은 즉시(대화 전환 시 스무스 스크롤 튐 방지)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({ behavior: firstScroll.current ? 'auto' : 'smooth' })
+    firstScroll.current = false
   }, [messages, isLoading])
 
   return (
-    <section className="flex-1 overflow-y-auto bg-[#fdfdfd] flex flex-col items-center">
+    <section className="flex-1 overflow-y-auto bg-[#fdfdfd] flex flex-col items-center chat-view-enter">
       {messages.length === 0 ? (
         /* 시작 화면 — 중앙 정렬 인사 + 질문칩 */
         <div className="flex-1 w-full max-w-3xl flex flex-col items-center justify-center" style={{ padding: '24px' }}>
