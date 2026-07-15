@@ -433,6 +433,78 @@ async def answer_cafeteria_question(question: str) -> str:
     return await _answer_guide(question, intent)
 
 
+def get_today_menu(restaurant: str | None = None) -> dict:
+    """사이드바 '오늘의 학식' 위젯용 JSON 친화 dict 반환.
+
+    구조화 데이터(끼니별 메뉴)를 그대로 내보낸다 — 채팅 답변(문자열)과 달리
+    프론트에서 렌더링하기 좋게. get_menu_data()의 주 단위 캐시를 그대로 공유한다.
+    """
+    try:
+        data = get_menu_data()
+    except Exception as e:
+        print(f"[Cafeteria] 오늘 메뉴 조회 실패: {e}")
+        return {"available": False}
+    if not data:
+        return {"available": False}
+
+    rest = restaurant if (restaurant and restaurant in data) else _DEFAULT_RESTAURANT
+    if rest not in data:
+        rest = next(iter(data), None)
+    menu = data.get(rest)
+    if not menu:
+        return {"available": False}
+
+    date_key = date.today().strftime("%m.%d")
+    try:
+        month, day_n = date_key.split(".")
+        weekday = _WEEKDAY_KO[date(date.today().year, int(month), int(day_n)).weekday()]
+    except Exception:
+        weekday = ""
+
+    day_data = menu.days.get(date_key)
+    meals = []
+    if day_data:
+        for col in menu.columns:
+            items = day_data.get(col)
+            if items:
+                meals.append({"name": col, "items": items})
+
+    return {
+        "available": bool(meals),
+        "restaurant": _display_name(rest),
+        "date": date_key,
+        "weekday": weekday,
+        "meals": meals,
+    }
+
+
+def get_week_menu() -> dict:
+    """학식 '더보기'용 — 이번 주 전체 식당·요일·끼니 메뉴(JSON 친화 dict)."""
+    try:
+        data = get_menu_data()
+    except Exception as e:
+        print(f"[Cafeteria] 주간 메뉴 조회 실패: {e}")
+        return {"available": False, "restaurants": []}
+    if not data:
+        return {"available": False, "restaurants": []}
+
+    restaurants = []
+    for name, menu in data.items():
+        days = []
+        for date_key, day_data in menu.days.items():
+            meals = []
+            for col in menu.columns:
+                items = day_data.get(col)
+                if items:
+                    meals.append({"name": col, "items": items})
+            if meals:
+                days.append({"date": date_key, "meals": meals})
+        restaurants.append({"name": _display_name(name), "days": days})
+
+    has_data = any(r["days"] for r in restaurants)
+    return {"available": has_data, "restaurants": restaurants}
+
+
 class CafeteriaService:
     @staticmethod
     async def answer_cafeteria_question(question: str) -> str:

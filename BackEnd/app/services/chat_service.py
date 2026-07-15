@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.DB_Table import ChatFeedback, ChatMessage, ChatSession, Student
@@ -109,6 +109,66 @@ class ChatService:
             map_card=result.map_card,
             pending_context=result.pending_context,
         )
+
+    async def get_my_sessions(self, db: AsyncSession, current_user: Student) -> list[dict]:
+        """로그인 학생 본인의 최근 대화 목록 (사이드바용). topic은 필터용."""
+        sessions = (await db.execute(
+            select(ChatSession)
+            .where(ChatSession.student_id == current_user.id, ChatSession.is_deleted == False)
+            .order_by(ChatSession.last_message_at.desc())
+            .limit(50)
+        )).scalars().all()
+        if not sessions:
+            return []
+
+        session_ids = [s.id for s in sessions]
+        # 각 세션의 첫 assistant 메시지 topic (필터 기준)
+        min_id_sub = (
+            select(ChatMessage.session_id, func.min(ChatMessage.id).label("min_id"))
+            .where(ChatMessage.session_id.in_(session_ids), ChatMessage.role == "assistant")
+            .group_by(ChatMessage.session_id)
+            .subquery()
+        )
+        topic_rows = (await db.execute(
+            select(ChatMessage.session_id, ChatMessage.topic)
+            .join(min_id_sub, ChatMessage.id == min_id_sub.c.min_id)
+        )).all()
+        topic_map = {sid: topic for sid, topic in topic_rows}
+
+        return [
+            {
+                "id": s.id,
+                "title": s.title or "새 대화",
+                "topic": topic_map.get(s.id),
+                "last_message_at": s.last_message_at,
+            }
+            for s in sessions
+        ]
+
+    async def get_my_session_messages(self, db: AsyncSession, session_id: int, current_user: Student) -> dict:
+        """과거 세션 다시 열기 — 본인 세션만 조회 가능."""
+        session = await db.get(ChatSession, session_id)
+        if not session or session.student_id != current_user.id or session.is_deleted:
+            raise LookupError("세션을 찾을 수 없습니다.")
+        msgs = (await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at)
+        )).scalars().all()
+        return {
+            "session_id": session_id,
+            "messages": [
+                {
+                    "id": m.id,
+                    "role": m.role,        # user / assistant
+                    "content": m.content,
+                    "topic": m.topic,
+                    "source": m.source,
+                    "message_id": m.id,
+                }
+                for m in msgs
+            ],
+        }
 
     async def save_feedback(
         self,
