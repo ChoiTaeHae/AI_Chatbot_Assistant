@@ -103,14 +103,34 @@ def _remove_special_chars(text: str) -> str:
     text = re.sub(r'[.·]{4,}', '', text)
     return text
 
+_VALUE_TOKEN_RE = re.compile(r'\d+\s*%|(?<!\S)-(?!\S)')   # 표 값 토큰: N%, 독립된 '-'(값 없음)
+
+
+def _looks_like_table_row(line: str) -> bool:
+    """표 행 신호: 마크다운 표(|)이거나 값 토큰(N%·독립 '-')이 2개 이상."""
+    if line.lstrip().startswith('|'):
+        return True
+    return len(_VALUE_TOKEN_RE.findall(line)) >= 2
+
+
 def _fix_pdf_line_breaks(text: str) -> str:
-    """PDF 추출 시 단어 중간에 끊긴 줄바꿈 복구"""
-    # 줄 끝이 하이픈으로 끊긴 경우: "수강신-\n청" → "수강신청"
-    text = re.sub(r'-\n([가-힣a-zA-Z])', r'\1', text)
-    # 줄 끝이 한글/영문으로 끝나고 다음 줄도 한글/영문으로 시작하면서
-    # 다음 줄이 소문자나 한글로 시작하면 이어붙임 (문장 중간 줄바꿈)
-    text = re.sub(r'([가-힣a-zA-Z])\n([가-힣a-z])', r'\1 \2', text)
-    return text
+    """PDF 추출 시 단어 중간에 끊긴 줄바꿈 복구. 표 행은 붙이지 않아 구조·값을 보존."""
+    # 1) 단어에 '붙은' 하이픈만 복구: "수강신-\n청" → "수강신청".
+    #    표의 " - "(값 없음)은 앞이 공백이라 매칭 안 돼 그대로 보존됨.
+    text = re.sub(r'(?<=[가-힣a-zA-Z])-\n(?=[가-힣a-zA-Z])', '', text)
+    # 2) 문장 중간 줄바꿈 이어붙임 — 단, 앞/뒤가 표 행이면 행 구조를 지키려 건너뜀.
+    lines = text.split('\n')
+    if not lines:
+        return text
+    out = [lines[0]]
+    for cur in lines[1:]:
+        prev = out[-1]
+        if (prev and cur and re.search(r'[가-힣a-zA-Z]$', prev) and re.match(r'[가-힣a-z]', cur)
+                and not _looks_like_table_row(prev) and not _looks_like_table_row(cur)):
+            out[-1] = prev + ' ' + cur       # 문장 줄바꿈 → 공백으로 이어붙임
+        else:
+            out.append(cur)
+    return '\n'.join(out)
 
 
 def _remove_repeated_lines(text: str, min_repeat: int = 3, max_len: int = 50) -> str:
