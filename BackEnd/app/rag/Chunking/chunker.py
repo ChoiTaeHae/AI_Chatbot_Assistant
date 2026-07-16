@@ -210,10 +210,53 @@ def _merge_short_pieces(pieces: list[str], chunk_size: int, min_length: int) -> 
     return out
 
 
+# 헤딩 줄(구조 마커로 시작) 판별 — 제목 전파용. 줄 전체가 헤딩으로 '시작'하는지.
+_LINE_HEADING_RE = re.compile(
+    r"^(?:[○◯■□▣]|\d{1,2}[.)]|[가-힣][.)]|\(\d+\)|<[^>\n]{1,40}>)\s"
+)
+
+
+def _propagate_headings(chunks: list[str]) -> list[str]:
+    """큰 섹션이 여러 청크로 쪼개질 때, 섹션 제목을 뒤 연속 청크들 앞에 전파.
+
+    - 청크가 제목(헤딩)으로 '끝나면'(dangling) 그 제목을 떼어내 다음 섹션 제목으로 넘긴다.
+    - 헤딩으로 '시작하지 않는'(= 이전 섹션의 연속 본문) 청크엔 현재 섹션 제목을 1회 붙인다.
+    → '수료증명서' 기준표가 여러 청크로 나뉘어도 각 청크가 '수료증명서'로 검색됨.
+    표 청킹(split_by_table)과는 무관(여기서만 호출)."""
+    out: list[str] = []
+    cur_head: str | None = None
+    for ch in chunks:
+        lines = ch.split("\n")
+        ne = [ln for ln in lines if ln.strip()]
+        first_ne = ne[0].strip() if ne else ""
+        # 연속 본문(헤딩으로 시작 안 함)이면 현재 섹션 제목을 앞에 붙임
+        if cur_head and not _LINE_HEADING_RE.match(first_ne):
+            ch = cur_head + "\n" + ch
+            lines = ch.split("\n")
+            ne = [ln for ln in lines if ln.strip()]
+        last_ne = ne[-1].strip() if ne else ""
+        if last_ne and _LINE_HEADING_RE.match(last_ne):
+            # 제목으로 끝남(dangling) → 떼어내 다음으로 전파
+            cur_head = last_ne
+            idx = len(lines) - 1
+            while idx >= 0 and lines[idx].strip() != last_ne:
+                idx -= 1
+            ch = "\n".join(lines[:idx]).rstrip()
+        else:
+            # 내부 마지막 헤딩을 현재 섹션 제목으로 기억
+            inner = [ln.strip() for ln in lines if _LINE_HEADING_RE.match(ln.strip())]
+            if inner:
+                cur_head = inner[-1]
+        if ch.strip():
+            out.append(ch)
+    return out
+
+
 def split_by_structure(text: str, chunk_size: int = 1200, min_length: int = 50) -> list[dict]:
     """구조(헤딩/리스트) 인식 재귀 청킹. 헤딩+하위 불릿을 단위로 유지, 넘치면 하위 레벨로 분할."""
     pieces = _recursive_structure_split(text.strip(), 0, chunk_size)
     merged = _merge_short_pieces(pieces, chunk_size, min_length)
+    merged = _propagate_headings(merged)   # 쪼개진 섹션에 제목 전파
     return [{"chapter": None, "article": None, "text": p} for p in merged if p.strip()]
 # endregion
 
