@@ -35,6 +35,25 @@ async def _is_semantic_drift(original: str, rewritten: str) -> bool:
         return False
 
 
+def _clean_rewrite_output(raw: str | None) -> str:
+    """LLM 재작성 출력 정리.
+    - 빈/None 출력 안전 처리 (빈 문자열 반환)
+    - 프롬프트 형식 에코 제거: LLM이 '… → 결과' 나 '이전 질문:… / 현재 질문:… → 결과'
+      처럼 템플릿을 그대로 뱉는 경우 '→' 뒤(실제 결과)만 취한다.
+    - 남은 '이전 질문:/현재 질문:/입력:/출력:' 접두 제거."""
+    lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    text = lines[0]
+    for arrow in ("→", "->"):                 # 프롬프트 화살표 에코 → 뒤만
+        if arrow in text:
+            text = text.split(arrow)[-1].strip()
+    for pref in ("이전 질문:", "현재 질문:", "입력:", "출력:"):
+        if text.startswith(pref):
+            text = text.split(":", 1)[1].strip()
+    return text.strip()
+
+
 async def _rewrite_query(question: str, prev_question: str | None = None) -> str:
     """구어체 질문을 검색용 공식 용어로 변환.
 
@@ -52,10 +71,10 @@ async def _rewrite_query(question: str, prev_question: str | None = None) -> str
         system_prompt=KEYWORD_EXTRACTION_SYSTEM_PROMPT,
         temperature=0.0,   # 결정론적 출력으로 창의적 변형(환각) 억제
     )
-    rewritten = rewritten.strip().splitlines()[0].strip()
-    # LLM이 "입력:" 접두사를 그대로 출력하거나 원본과 동일한 경우 원본 사용
-    if rewritten.startswith("입력:") or rewritten == question:
-        print(f"[RAG_GENERAL] 질문 재작성 실패 → 원본 사용: '{question}'")
+    rewritten = _clean_rewrite_output(rewritten)   # 빈출력·프롬프트 형식 에코 안전 정리
+    # 빈 출력이거나 원본과 동일 → 원본 사용
+    if not rewritten or rewritten == question:
+        print(f"[RAG_GENERAL] 질문 재작성 실패/빈출력 → 원본 사용: '{question}'")
         return question
     # 드리프트 가드: 재작성이 원문과 의미가 너무 멀어지면(예: 공결→전과) 원본 사용
     # 맥락 통합 시엔 주제어가 이전 질문에서 오므로 이전+현재를 합친 텍스트와 비교
@@ -138,7 +157,11 @@ async def answer_rag_general_question_with_metadata(
     # 없으면(1차 질문) 여기서 구어체→키워드 재작성. (이중 rewrite / 이중 LLM 호출 방지)
     hoisted = search_query is not None
     if not hoisted:
-        search_query = await _rewrite_query(question, prev_question=prev_question)
+        try:
+            search_query = await _rewrite_query(question, prev_question=prev_question)
+        except Exception as e:
+            print(f"[RAG_GENERAL] rewrite 실패(원본 사용): {e}")
+            search_query = question
 
     # 리랭킹 질문: 후속질문 원본은 맥락 없는 파편("기간은?")이라 리랭커 점수가 폭락한다.
     # → 후속(hoisted)은 재작성 쿼리("휴학 기간")로 리랭킹하고, 1차 질문은 기존대로 구어체 원본으로.
