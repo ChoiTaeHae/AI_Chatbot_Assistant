@@ -156,13 +156,17 @@ def _extract_content(container: Tag, title: str) -> str:
     for removable in container.find_all(class_="path"):         # breadcrumb 단독 잔존 시
         removable.decompose()
 
-    # rowspan 동아리 표 감지
-    club_table = container.find("table", class_="tbl_skin2")
-    if club_table:
-        items = _parse_table_with_rowspan(club_table)
-        if items:
-            return "---ITEM---\n" + "\n---ITEM---\n".join(items)
-            
+    # 표(rowspan/colspan 포함)를 읽기순서 유지하며 '행 블록'으로 제자리 치환 (범용).
+    # 각 행을 한 줄로 이어붙여 표를 하나의 텍스트 블록으로 만든다. 표 바로 앞의 제목(h태그)은
+    # 그대로 두므로, 이후 구조 청킹이 '제목 + 표 블록'을 한 청크로 묶고(표=1청크),
+    # 표가 chunk_size를 넘으면 제목을 각 조각에 전파하며 나눈다.
+    for table in container.find_all("table"):
+        rows = _parse_html_table(table)
+        if rows:
+            table.replace_with("\n" + "\n".join(rows) + "\n")
+        else:
+            table.decompose()
+
     # 제목 태그(h1~h6)를 구조 마커로 표기 → 평문 추출 후에도 '제목+본문'을 한 덩어리로
     # 청킹할 수 있게(split_by_structure가 헤딩을 인식). 부수효과로 크롤 문서가 semantic 대신
     # 구조 청킹을 타 임베딩 이중 계산이 사라져 속도도 개선됨.
@@ -244,77 +248,62 @@ def _trim_before_article_body(lines: list[str]) -> list[str]:
     return body_lines
 
 
-def _parse_table_with_rowspan(table_tag: Tag) -> list[str]:
-    """rowspan이 있는 표를 블록으로 변환 (헤더 동적 추출)"""
-    items = []
-    
-    headers = ["항목1", "항목2", "항목3", "항목4"]
-    # 헤더 찾기 시도
-    thead = table_tag.find("thead")
-    if thead:
-        ths = thead.find_all("th")
-        if ths:
-            headers = [th.get_text(" ", strip=True) for th in ths]
-    else:
-        first_tr = table_tag.find("tr")
-        if first_tr:
-            ths = first_tr.find_all("th")
-            if ths:
-                headers = [th.get_text(" ", strip=True) for th in ths]
-                
-    # 안전장치로 길이를 4개로 맞춤
-    while len(headers) < 4:
-        headers.append(f"추가항목{len(headers)+1}")
+def _parse_html_table(table_tag: Tag) -> list[str]:
+    """HTML 표를 rowspan/colspan을 전개해 '헤더: 값' 행 블록 리스트로 변환.
 
-    current_category = ""
-    category_remaining = 0   # 현재 분야가 몇 행 더 이어지는지
+    범용 — 열 수·병합 형태에 무관(동아리·주차·요금 등 어떤 표든). rowspan은 값을
+    아래 행으로 물려주고, colspan은 여러 열로 펼쳐 그리드를 완성한 뒤 첫 행을 헤더로
+    삼아 각 데이터 행을 '헤더: 값'으로 라벨링한다."""
+    trs = table_tag.find_all("tr")
+    if not trs:
+        return []
 
-    tbody = table_tag.find("tbody") or table_tag
-    for row in tbody.find_all("tr"):
-        cells = row.find_all(["td", "th"])
-        if not cells:
+    # 1) rowspan/colspan 전개해 그리드 완성
+    grid: list[list[str]] = []
+    spans: dict[int, list] = {}          # col -> [text, 남은 행 수]
+    for tr in trs:
+        cells = tr.find_all(["td", "th"])
+        row: list[str] = []
+        col = 0
+        ci = 0
+        while (col in spans) or (ci < len(cells)):
+            if col in spans:             # 위 행 rowspan이 이 열을 차지
+                text, rem = spans[col]
+                row.append(text)
+                if rem - 1 > 0:
+                    spans[col] = [text, rem - 1]
+                else:
+                    del spans[col]
+                col += 1
+                continue
+            cell = cells[ci]
+            ci += 1
+            text = cell.get_text(" ", strip=True)
+            try:
+                cs = max(1, int(cell.get("colspan") or 1))
+                rs = max(1, int(cell.get("rowspan") or 1))
+            except (ValueError, TypeError):
+                cs = rs = 1
+            for _ in range(cs):
+                row.append(text)
+                if rs > 1:
+                    spans[col] = [text, rs - 1]
+                col += 1
+        grid.append(row)
+
+    # 2) 첫 행을 헤더로, 데이터 행을 '헤더: 값' 블록으로
+    if len(grid) < 2:
+        return [" ".join(c for c in r if c) for r in grid if any(v.strip() for v in r)]
+    headers = grid[0]
+    items: list[str] = []
+    for row in grid[1:]:
+        if row == headers:               # 반복된 헤더 행 건너뜀
             continue
-            
-        # 모든 셀이 th인 헤더 행은 건너뜀
-        if all(c.name == "th" for c in cells):
+        if not any(v.strip() for v in row):
             continue
-
-        # rowspan 셀(분야)이 있는 행 — 첫 번째 td에 rowspan 속성
-        if cells[0].get("rowspan"):
-            current_category = cells[0].get_text(" ", strip=True)
-            category_remaining = int(cells[0].get("rowspan")) - 1
-            name_cell     = cells[1] if len(cells) > 1 else None
-            activity_cell = cells[2] if len(cells) > 2 else None
-            date_cell     = cells[3] if len(cells) > 3 else None
-
-        # rowspan 없는 행 — 분야가 이어지는 중이면 3열, 새 분야면 4열
-        elif category_remaining > 0:
-            category_remaining -= 1
-            name_cell     = cells[0] if len(cells) > 0 else None
-            activity_cell = cells[1] if len(cells) > 1 else None
-            date_cell     = cells[2] if len(cells) > 2 else None
-
-        else:
-            # rowspan 없이 분야가 직접 있는 행 (4열짜리)
-            if len(cells) >= 4:
-                current_category = cells[0].get_text(" ", strip=True)
-                name_cell     = cells[1]
-                activity_cell = cells[2]
-                date_cell     = cells[3]
-            else:
-                name_cell     = cells[0] if len(cells) > 0 else None
-                activity_cell = cells[1] if len(cells) > 1 else None
-                date_cell     = cells[2] if len(cells) > 2 else None
-
-        name     = name_cell.get_text(" ", strip=True)     if name_cell     else ""
-        activity = activity_cell.get_text(" ", strip=True) if activity_cell else ""
-        date     = date_cell.get_text(" ", strip=True)     if date_cell     else ""
-
-        # 이름이 없는 행은 건너뜀 (thead 잔재 등)
-        if not name or name == headers[1]:
-            continue
-
-        item = f"{headers[0]}: {current_category}\n{headers[1]}: {name}\n{headers[2]}: {activity}\n{headers[3]}: {date}"
-        items.append(item)
-
+        parts = []
+        for idx, val in enumerate(row):
+            h = headers[idx] if idx < len(headers) and headers[idx].strip() else f"항목{idx+1}"
+            parts.append(f"{h}: {val}")
+        items.append(" | ".join(parts))     # 한 행 = 한 줄 (제목 아래 표 블록으로 묶기 위함)
     return items
