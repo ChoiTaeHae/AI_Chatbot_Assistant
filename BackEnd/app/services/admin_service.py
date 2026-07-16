@@ -495,7 +495,7 @@ class AdminService:
             # 크롤러가 '제목' 감지용으로 넣은 ○ 마커는 청킹(제목+본문 그룹핑)에만 쓰고
             # 저장·임베딩 텍스트에선 제거 → 유사도/답변에 영향 없이 깨끗하게 보존.
             # 줄 맨 앞의 마커만 벗겨, 표의 ○/✕ 같은 실제 내용은 건드리지 않음.
-            _mk = _re.compile(r"(?m)^[ \t]*○[ \t]+")
+            _mk = _re.compile(r"(?m)^[ \t]*[○▷][ \t]+")
             for c in raw_chunks:
                 for _k in ("text", "embedding_text", "path", "chapter", "article"):
                     if isinstance(c.get(_k), str):

@@ -169,14 +169,17 @@ def _extract_content(container: Tag, title: str) -> str:
         if items:
             return "---ITEM---\n" + "\n---ITEM---\n".join(items)
             
-    # 제목 태그(h1~h6)를 구조 마커(○)로 표기 → 평문 추출 후에도 '제목+본문'을 한 덩어리로
-    # 청킹할 수 있게(split_by_structure가 ○ 헤딩을 인식). 부수효과로 크롤 문서가 semantic 대신
+    # 제목 태그(h1~h6)를 구조 마커로 표기 → 평문 추출 후에도 '제목+본문'을 한 덩어리로
+    # 청킹할 수 있게(split_by_structure가 헤딩을 인식). 부수효과로 크롤 문서가 semantic 대신
     # 구조 청킹을 타 임베딩 이중 계산이 사라져 속도도 개선됨.
+    # 계층 구분: h1~h4=대분류(○, 굵은 레벨), h5~h6=하위(▷, 가는 레벨) → 청커가 대분류 경계를
+    # 먼저 자르므로 '증명서 발급(h4)' 같은 대분류가 하위 항목과 안 섞이고 통째로 유지됨.
     for h in container.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
         htext = h.get_text(" ", strip=True)
         if htext:
+            marker = "○" if h.name in ("h1", "h2", "h3", "h4") else "▷"
             h.clear()
-            h.append(f"○ {htext}")
+            h.append(f"{marker} {htext}")
 
     #HTML 요소 사이의 구분자를 \n\n으로 주어서 문단을 명확히 나눔
     text = container.get_text("\n\n", strip=True)
