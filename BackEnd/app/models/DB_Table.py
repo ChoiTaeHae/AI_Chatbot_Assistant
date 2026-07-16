@@ -249,6 +249,24 @@ class ChatFeedback(Base):
     comment    = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
+# ==========================================
+# 16-2. rewrite 라벨 (rewrite_label) — 개발용 rewrite 피드백/파인튜닝 데이터
+# ==========================================
+class RewriteLabel(Base):
+    __tablename__ = "rewrite_label"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    message_id    = Column(Integer, ForeignKey("chat_message.id", ondelete="SET NULL"), unique=True, nullable=True)
+    question      = Column(Text, nullable=False)      # 입력: 원본 질문
+    prev_question = Column(Text, nullable=True)       # 맥락모드면 이전 질문(null=첫질문)
+    model_rewrite = Column(Text, nullable=True)       # 모델이 뱉은 rewrite (참고·분석용)
+    label_rewrite = Column(Text, nullable=True)       # ★정답 rewrite (학습 타깃) — 좋으면 model_rewrite, 나쁘면 교정
+    is_good       = Column(Boolean, nullable=True)    # 모델이 맞았나? null=미검토
+    source        = Column(String(20), nullable=False, server_default="dev")  # dev / log / synthetic
+    reviewer      = Column(String(50), nullable=True)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+
 # ==========================================
 # 17. 등록금 납부 테이블 (tuition)
 # ==========================================

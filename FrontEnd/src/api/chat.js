@@ -83,3 +83,17 @@ export async function sendFeedback(message_id, is_helpful, rating = null, commen
   }
   return res.json()
 }
+
+// [개발용] rewrite 피드백 — 파인튜닝 라벨 수집 (배포 시 호출부와 함께 제거)
+export async function sendRewriteFeedback({ message_id, question, model_rewrite, prev_question = null, is_good, corrected = null }) {
+  const res = await authFetch(`${BASE}/chat/rewrite-feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_id, question, model_rewrite, prev_question, is_good, corrected }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'rewrite 피드백 저장에 실패했습니다.')
+  }
+  return res.json()
+}
