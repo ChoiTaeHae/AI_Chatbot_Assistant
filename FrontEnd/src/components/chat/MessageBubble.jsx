@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import MascotAvatar from '../common/MascotAvatar'
-import { sendFeedback } from '../../api/chat'
+import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -165,6 +165,68 @@ function FeedbackModal({ type, onSubmit, onClose }) {
 }
 // ── [DEV-ONLY] ────────────────────────────────────────────────────────────────
 
+// ── [DEV-ONLY] rewrite 피드백 패널 (파인튜닝 라벨 수집) ─────────────────────────
+// 배포 시: 아래 컴포넌트 + isUser 렌더부(import.meta.env.DEV 블록)만 제거하면 됨.
+function RewriteFeedbackPanel({ question, rewrite, messageId }) {
+  const [saved, setSaved] = useState(null)      // null | true(좋음) | false(교정)
+  const [editing, setEditing] = useState(false)
+  const [corrected, setCorrected] = useState(rewrite)
+  const [busy, setBusy] = useState(false)
+
+  async function save(isGood, correctedText) {
+    setBusy(true)
+    try {
+      await sendRewriteFeedback({
+        message_id: messageId, question, model_rewrite: rewrite,
+        is_good: isGood, corrected: correctedText ?? null,
+      })
+      setSaved(isGood)
+      setEditing(false)
+    } catch { /* noop */ }
+    setBusy(false)
+  }
+
+  const btn = (bg, bd, col) => ({
+    padding: '4px 10px', borderRadius: '6px', border: `1px solid ${bd}`,
+    background: bg, color: col, fontWeight: 600, cursor: busy ? 'default' : 'pointer',
+  })
+
+  return (
+    <div style={{
+      marginTop: '6px', maxWidth: '320px', width: '100%',
+      border: '1px dashed #cbd5e1', borderRadius: '10px',
+      background: '#f8fafc', padding: '8px 10px', fontSize: '12px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '5px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '10px', fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: '999px' }}>DEV</span>
+        <span style={{ color: '#64748b' }}>재작성:</span>
+        <span style={{ color: '#0f172a', fontWeight: 600 }}>{rewrite}</span>
+      </div>
+      {saved !== null ? (
+        <div style={{ color: saved ? '#059669' : '#e53e3e', fontWeight: 600 }}>
+          {saved ? '👍 좋음 저장됨' : '👎 교정 저장됨'}
+        </div>
+      ) : editing ? (
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <input
+            value={corrected}
+            onChange={e => setCorrected(e.target.value)}
+            placeholder="정답 rewrite 입력"
+            style={{ flex: 1, padding: '5px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', outline: 'none' }}
+          />
+          <button type="button" disabled={busy} onClick={() => save(false, corrected.trim())} style={btn('#e53e3e', '#e53e3e', '#fff')}>저장</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button type="button" disabled={busy} onClick={() => save(true, null)} style={btn('#f0f9f8', '#005956', '#005956')}>👍 좋음</button>
+          <button type="button" disabled={busy} onClick={() => setEditing(true)} style={btn('#fff5f5', '#e53e3e', '#e53e3e')}>👎 교정</button>
+        </div>
+      )}
+    </div>
+  )
+}
+// ── [DEV-ONLY] ────────────────────────────────────────────────────────────────
+
 function MessageActions({ messageId, content }) {
   const [feedback, setFeedback] = useState(null) // null | 'like' | 'dislike'
   const [modalType, setModalType] = useState(null) // null | 'like' | 'dislike'
@@ -263,6 +325,14 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
             {message.content}
           </div>
           <span className="text-xs text-slate-400" style={{ marginTop: '4px' }}>{message.time}</span>
+          {/* [DEV-ONLY] rewrite 피드백 패널 — 배포 시 이 블록 제거 */}
+          {import.meta.env.DEV && message.rewrittenQuery && (
+            <RewriteFeedbackPanel
+              question={message.content}
+              rewrite={message.rewrittenQuery}
+              messageId={message.rewriteMessageId}
+            />
+          )}
         </div>
         <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200" style={{ marginTop: '4px' }}>
           <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

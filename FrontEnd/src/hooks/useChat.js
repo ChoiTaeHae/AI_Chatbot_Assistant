@@ -53,7 +53,15 @@ export function useChat(lang = 'ko') {
         fileDownload: data.file_download || null,
         mapCard: data.map_card || null,
       }
-      setMessages((prev) => [...prev, aiMsg])
+      // [DEV-ONLY] rewrite가 있으면 사용자 메시지에 붙여 rewrite 피드백 패널 표시
+      setMessages((prev) => {
+        const withRewrite = data.rewritten_query
+          ? prev.map((m) => (m.id === userMsg.id
+              ? { ...m, rewrittenQuery: data.rewritten_query, rewriteMessageId: data.message_id || null }
+              : m))
+          : prev
+        return [...withRewrite, aiMsg]
+      })
     } catch (err) {
       setPendingFile(null)
       setMessages((prev) => [...prev, {

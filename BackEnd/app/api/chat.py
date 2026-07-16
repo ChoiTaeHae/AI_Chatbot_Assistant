@@ -2,7 +2,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 import traceback
 
-from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest
+from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest, RewriteFeedbackRequest
 from app.core.Database import get_db
 from app.core.deps import get_current_user
 from app.core.rate_limit import chat_rate_limit
@@ -74,3 +74,16 @@ async def chat_feedback(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"피드백 저장 오류: {str(e)}")
+
+
+@router.post("/chat/rewrite-feedback", summary="[개발용] rewrite 피드백 (파인튜닝 라벨)")
+async def rewrite_feedback(
+    request: RewriteFeedbackRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Student = Depends(get_current_user),
+):
+    try:
+        return await chat_service.save_rewrite_feedback(request, db, current_user)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"rewrite 피드백 저장 오류: {str(e)}")

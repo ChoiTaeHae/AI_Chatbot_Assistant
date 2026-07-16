@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.DB_Table import ChatFeedback, ChatMessage, ChatSession, Student
-from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest
+from app.models.DB_Table import ChatFeedback, ChatMessage, ChatSession, RewriteLabel, Student
+from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest, RewriteFeedbackRequest
 
 
 class ChatService:
@@ -108,6 +108,7 @@ class ChatService:
             file_download=result.file_download,
             map_card=result.map_card,
             pending_context=result.pending_context,
+            rewritten_query=getattr(result, "rewritten_query", None),
         )
 
     async def get_my_sessions(self, db: AsyncSession, current_user: Student) -> list[dict]:
@@ -206,6 +207,43 @@ class ChatService:
                 comment=request.comment,
             ))
 
+        await db.commit()
+        return {"ok": True}
+
+    async def save_rewrite_feedback(
+        self,
+        request: RewriteFeedbackRequest,
+        db: AsyncSession,
+        current_user: Student,
+    ) -> dict:
+        """개발용 rewrite 피드백 → rewrite_label 저장(파인튜닝 라벨).
+        정답 라벨 = 좋으면 모델 rewrite 그대로, 나쁘면 교정값."""
+        label = request.model_rewrite if request.is_good else (request.corrected or None)
+        reviewer = getattr(current_user, "student_no", None) or str(current_user.id)
+
+        existing = None
+        if request.message_id is not None:
+            existing = await db.scalar(
+                select(RewriteLabel).where(RewriteLabel.message_id == request.message_id)
+            )
+        if existing:
+            existing.question = request.question
+            existing.prev_question = request.prev_question
+            existing.model_rewrite = request.model_rewrite
+            existing.label_rewrite = label
+            existing.is_good = request.is_good
+            existing.reviewer = reviewer
+        else:
+            db.add(RewriteLabel(
+                message_id=request.message_id,
+                question=request.question,
+                prev_question=request.prev_question,
+                model_rewrite=request.model_rewrite,
+                label_rewrite=label,
+                is_good=request.is_good,
+                source="dev",
+                reviewer=reviewer,
+            ))
         await db.commit()
         return {"ok": True}
 
