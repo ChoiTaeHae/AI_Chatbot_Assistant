@@ -460,7 +460,7 @@ class AdminService:
         contact_phone: str | None = None,
     ) -> None:
         """URL 크롤링 및 RAG 인제스트 — ThreadPool 안에서 호출됨"""
-        from app.crawling.crawler import fetch_page_html, parse_notice_page
+        from app.imsi.crawler import fetch_page_html, parse_notice_page
         from app.rag.Chunking import smart_split
         import re as _re
         try:
