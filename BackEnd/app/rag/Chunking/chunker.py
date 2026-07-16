@@ -179,20 +179,77 @@ def _recursive_structure_split(text: str, sep_idx: int, chunk_size: int) -> list
 def _merge_short_pieces(pieces: list[str], chunk_size: int, min_length: int) -> list[str]:
     """짧은 조각/목록 항목을 인접 조각과 병합 (chunk_size 이내에서).
 
-    - 한쪽이 min_length 미만이거나
-    - 양쪽 다 '작은 조각'(목록 항목 수준)이면 병합
-      → [붙임] 1.2.3.4. 같은 번호 목록이 큰 블록에서 흩어지지 않게 한 덩어리로 유지.
+    - 앞 조각이 이미 '큰 섹션'(>= small)이면 뒤의 작은 형제를 흡수하지 않는다.
+      (예: 거대한 '수료증명서'가 뒤의 재학·성적을 빨아들여 교육비·휴학·제적을 고아로
+       만드는 것 방지 → 작은 형제(증명서 종류)들끼리 한 덩어리로 모이게 둔다)
+    - 앞 조각이 아직 작을 때만: 뒤가 '작은 조각'(목록 항목 수준)이거나 앞이 아주 짧은
+      헤딩 조각(< min_length)이면 병합 → [붙임] 1.2.3.4. 목록이 흩어지지 않게 유지.
     접수방법/지원불가처럼 둘 다 큰 섹션이면 병합하지 않음(과합침 방지)."""
-    small = max(min_length, chunk_size // 6)   # '작은 조각' 기준 (예: chunk_size 1200 → 200자)
+    small = max(min_length, chunk_size // 6)   # '작은 조각'/'큰 섹션' 경계 (예: 1200 → 200자)
     out: list[str] = []
     for p in pieces:
-        if out and len(out[-1]) + len(p) + 1 <= chunk_size and (
-            len(p) < min_length or len(out[-1]) < min_length
-            or (len(p) < small and len(out[-1]) < small)
+        if out and len(out[-1]) + len(p) + 1 <= chunk_size and len(out[-1]) < small and (
+            len(p) < small or len(out[-1]) < min_length
         ):
             out[-1] = out[-1] + "\n" + p
         else:
             out.append(p)
+    # 정리: 위 병합 후에도 남은 아주 짧은 고아(< min_length)는 인접 조각에 흡수
+    i = 0
+    while i < len(out):
+        if len(out) > 1 and len(out[i]) < min_length:
+            if i > 0 and len(out[i - 1]) + len(out[i]) + 1 <= chunk_size:
+                out[i - 1] = out[i - 1] + "\n" + out[i]
+                out.pop(i)
+                continue
+            if i + 1 < len(out) and len(out[i]) + len(out[i + 1]) + 1 <= chunk_size:
+                out[i + 1] = out[i] + "\n" + out[i + 1]
+                out.pop(i)
+                continue
+        i += 1
+    return out
+
+
+# 헤딩 줄(구조 마커로 시작) 판별 — 제목 전파용. 줄 전체가 헤딩으로 '시작'하는지.
+# ▷(h5 하위 헤딩)도 포함 → 쪼개진 하위 섹션(예: 수료증명서)에도 제목이 전파됨.
+_LINE_HEADING_RE = re.compile(
+    r"^(?:[○◯■□▣▷]|\d{1,2}[.)]|[가-힣][.)]|\(\d+\)|<[^>\n]{1,40}>)\s"
+)
+
+
+def _propagate_headings(chunks: list[str]) -> list[str]:
+    """큰 섹션이 여러 청크로 쪼개질 때, 섹션 제목을 뒤 연속 청크들 앞에 전파.
+
+    - 청크가 제목(헤딩)으로 '끝나면'(dangling) 그 제목을 떼어내 다음 섹션 제목으로 넘긴다.
+    - 헤딩으로 '시작하지 않는'(= 이전 섹션의 연속 본문) 청크엔 현재 섹션 제목을 1회 붙인다.
+    → '수료증명서' 기준표가 여러 청크로 나뉘어도 각 청크가 '수료증명서'로 검색됨.
+    표 청킹(split_by_table)과는 무관(여기서만 호출)."""
+    out: list[str] = []
+    cur_head: str | None = None
+    for ch in chunks:
+        lines = ch.split("\n")
+        ne = [ln for ln in lines if ln.strip()]
+        first_ne = ne[0].strip() if ne else ""
+        # 연속 본문(헤딩으로 시작 안 함)이면 현재 섹션 제목을 앞에 붙임
+        if cur_head and not _LINE_HEADING_RE.match(first_ne):
+            ch = cur_head + "\n" + ch
+            lines = ch.split("\n")
+            ne = [ln for ln in lines if ln.strip()]
+        last_ne = ne[-1].strip() if ne else ""
+        if last_ne and _LINE_HEADING_RE.match(last_ne):
+            # 제목으로 끝남(dangling) → 떼어내 다음으로 전파
+            cur_head = last_ne
+            idx = len(lines) - 1
+            while idx >= 0 and lines[idx].strip() != last_ne:
+                idx -= 1
+            ch = "\n".join(lines[:idx]).rstrip()
+        else:
+            # 내부 마지막 헤딩을 현재 섹션 제목으로 기억
+            inner = [ln.strip() for ln in lines if _LINE_HEADING_RE.match(ln.strip())]
+            if inner:
+                cur_head = inner[-1]
+        if ch.strip():
+            out.append(ch)
     return out
 
 
@@ -200,6 +257,7 @@ def split_by_structure(text: str, chunk_size: int = 1200, min_length: int = 50) 
     """구조(헤딩/리스트) 인식 재귀 청킹. 헤딩+하위 불릿을 단위로 유지, 넘치면 하위 레벨로 분할."""
     pieces = _recursive_structure_split(text.strip(), 0, chunk_size)
     merged = _merge_short_pieces(pieces, chunk_size, min_length)
+    merged = _propagate_headings(merged)   # 쪼개진 섹션에 제목 전파
     return [{"chapter": None, "article": None, "text": p} for p in merged if p.strip()]
 # endregion
 
@@ -333,17 +391,17 @@ def split_by_table(
 
     def _flush() -> None:
         nonlocal cur_key, cur_text
-        if cur_text is None:
+        if cur_text is None or not cur_text.strip():
             return
-        if len(cur_text) >= min_length:
-            if len(cur_text) <= chunk_size:
-                chunks.append({"chapter": None, "article": cur_key, "text": cur_text})
-            else:
-                # 레코드가 너무 길면 길이 분할 (이어지는 조각에 헤더 재주입으로 문맥 유지)
-                for k, part in enumerate(split_by_length(cur_text, chunk_size=chunk_size, overlap=0)):
-                    if k > 0 and header_prefix and not part.lstrip().startswith("|"):
-                        part = f"{header_prefix}{part}"
-                    chunks.append({"chapter": None, "article": cur_key, "text": part})
+        # 짧은 행도 버리지 않고 독립 청크로 유지 (병합하면 과별 article이 뭉치므로 병합 X)
+        if len(cur_text) <= chunk_size:
+            chunks.append({"chapter": None, "article": cur_key, "text": cur_text})
+        else:
+            # 레코드가 너무 길면 길이 분할 (이어지는 조각에 헤더 재주입으로 문맥 유지)
+            for k, part in enumerate(split_by_length(cur_text, chunk_size=chunk_size, overlap=0)):
+                if k > 0 and header_prefix and not part.lstrip().startswith("|"):
+                    part = f"{header_prefix}{part}"
+                chunks.append({"chapter": None, "article": cur_key, "text": part})
         cur_key, cur_text = None, None
 
     for row in rows:
@@ -389,8 +447,7 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
     if chap_matches:
         current_chapter = chap_matches[-1].group(1).strip()
     
-    if preamble and len(preamble) >= min_length:    # 서론이 min_length(50자) 이상이면 청크로 저장
-
+    if preamble.strip():    # 서론 유지 (짧아도 버리지 않음)
         # _build_chunks: 길이 기준으로 자르는 헬퍼 함수
         chunks.extend(_build_chunks(preamble, current_chapter, "서론", chunk_size, overlap, min_length))
 
@@ -414,8 +471,8 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
 
         chunk_text = f"{title}\n{body}".strip()     # 제목 + 본문 합치기
 
-        # min_length(50자) 미만이면 너무 짧은 조문이므로 본문 추가는 건너뜀
-        if len(chunk_text) >= min_length:
+        # 짧은 조문도 버리지 않고 유지 (이후 _merge_article_chunks가 인접 조와 범위로 병합)
+        if chunk_text.strip():
             # chunk_size(1200자) 초과 시 → 항/호 단위로 분할
             if len(chunk_text) > chunk_size:
                 clauses = CLAUSE_SPLIT_PATTERN.split(body)   # CLAUSE_SPLIT_PATTERN: ①②③ 또는 1. 2. 3. 기준으로 분리
@@ -439,7 +496,7 @@ def split_by_article(text: str, min_length: int = 50, chunk_size: int = 1200, ov
                 })
 
         # 현재 조문 처리가 끝난 후, 새로운 장의 서론(안내문)이 있다면 청크로 추가 (데이터 유실 방지)
-        if new_chap_preamble and len(new_chap_preamble) >= min_length:
+        if new_chap_preamble.strip():
             chunks.extend(_build_chunks(new_chap_preamble, next_chapter, "서론", chunk_size, overlap, min_length))
 
         # 다음 조문 처리 전에 chapter 업데이트
@@ -591,9 +648,8 @@ def split_by_paragraph(text: str, chunk_size: int = 1200, overlap: int = 150, mi
     
     chunks = []
     for text_chunk in merged_texts:
-        # min_length(50자) 이상인 청크만 저장
-        # chapter, article은 문단 단위 문서엔 없으므로 None
-        if len(text_chunk) >= min_length:
+        # 짧은 문단도 버리지 않고 유지 (chapter/article 없음). _merge_fragments가 이미 선병합함
+        if text_chunk.strip():
             chunks.append({"chapter": None, "article": None, "text": text_chunk})
     
     # 문단 분리가 안 된 경우 (빈 줄이 없는 문서) → 길이 기준으로 강제 분할
@@ -702,7 +758,7 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
         # 마지막 조각 처리 (남은 텍스트가 chunk_size 이하)
         if end >= len(normalized):
             chunk = normalized[start:].strip()
-            if len(chunk) >= min_length:
+            if chunk:   # 짧아도 유지 (마지막 조각 누락 방지)
                 chunks.append({"chapter": chapter, "article": article, "text": chunk})
             break
         
@@ -719,7 +775,7 @@ def _build_chunks(text: str, chapter: str | None, article: str | None, chunk_siz
         if current_table_header and not chunk.startswith(current_table_header.strip()):
             chunk = current_table_header + chunk
 
-        if len(chunk) >= min_length:
+        if chunk.strip():   # 짧아도 유지
             chunks.append({"chapter": chapter, "article": article, "text": chunk})
 
         # 다음 청크를 위해 현재 자르는 지점이 표 내부인지 확인
@@ -768,7 +824,7 @@ def split_by_separator(text: str, separator: str = "---ITEM---", min_length: int
     chunks = []
     for item in raw_items:          # enumerate 제거 — chunk_id 는 smart_split 이 부여
         item = item.strip()
-        if len(item) < min_length:
+        if not item:   # 빈 항목만 skip — 짧아도 버리지 않음
             continue
         chunks.append({"chapter": None, "article": None, "text": item})
     return chunks

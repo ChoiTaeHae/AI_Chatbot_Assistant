@@ -482,7 +482,7 @@ class AdminService:
                         print(f"[AdminService] 이미지 OCR {len(img_texts)}건 추가")
                 except Exception as ocr_err:
                     print(f"[AdminService] 이미지 OCR 실패 (무시): {ocr_err}")
-            raw_chunks = smart_split(document_text, embed_fn=rag_service.embedding.embed_texts)
+            raw_chunks = smart_split(document_text, chunk_size=settings.CRAWL_CHUNK_SIZE, embed_fn=rag_service.embedding.embed_texts)
             if not raw_chunks:
                 # 텍스트·OCR 모두 실패 시 제목 기반 최소 청크 생성 (URL은 임베딩 제외, payload로만 보존)
                 fallback = f"제목: {page.title}"
@@ -492,6 +492,14 @@ class AdminService:
                     fallback += f"\n작성일: {page.published_at}"
                 raw_chunks = [{"chapter": None, "article": None, "path": "", "text": fallback, "embedding_text": fallback}]
                 print(f"[AdminService] 텍스트 추출 실패 → 메타데이터 fallback 청크 사용")
+            # 크롤러가 '제목' 감지용으로 넣은 ○ 마커는 청킹(제목+본문 그룹핑)에만 쓰고
+            # 저장·임베딩 텍스트에선 제거 → 유사도/답변에 영향 없이 깨끗하게 보존.
+            # 줄 맨 앞의 마커만 벗겨, 표의 ○/✕ 같은 실제 내용은 건드리지 않음.
+            _mk = _re.compile(r"(?m)^[ \t]*[○▷][ \t]+")
+            for c in raw_chunks:
+                for _k in ("text", "embedding_text", "path", "chapter", "article"):
+                    if isinstance(c.get(_k), str):
+                        c[_k] = _mk.sub("", c[_k])
             texts = [c["text"] for c in raw_chunks]
             embedding_texts = [c["embedding_text"] for c in raw_chunks]
             chunk_metas = [{"chapter": c["chapter"], "article": c["article"], "path": c["path"]} for c in raw_chunks]
