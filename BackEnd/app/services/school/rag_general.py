@@ -178,6 +178,9 @@ async def answer_rag_general_question_with_metadata(
     is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
     print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, topic={effective_topic}")
 
+    from pathlib import Path
+    matched_files: list[str] = []   # 임베딩 필터가 고른 관련 파일 (제안 확정용)
+
     if is_club_list:
         prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
         answer = await llm_service.answer(prompt, max_tokens=2048)
@@ -186,9 +189,14 @@ async def answer_rag_general_question_with_metadata(
         answer = await llm_service.answer(prompt, max_tokens=1024)
     else:
         from app.services.file_service import AVAILABLE_FILES
-        from pathlib import Path
-        files = AVAILABLE_FILES.get(effective_topic, [])
-        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
+        from app.utils.file_matcher import match_relevant_files
+        # 파일 매칭엔 '이전 주제:' 프리픽스가 낀 llm_question 대신 현재 질문 원본을 쓴다.
+        # → 프리픽스 노이즈 제거 + "기간은?" 같은 파편 후속질문에 같은 파일 반복 제안 방지
+        #   (현재 질문 자체가 그 주제(휴학 등)를 담고 있을 때만 유사도가 올라 제안됨).
+        matched_files = await loop.run_in_executor(
+            None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
+        )
+        files_list = "\n".join(f"- {Path(f).stem}" for f in matched_files) if matched_files else "없음"
         prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
         answer = await llm_service.answer(prompt)
 
@@ -205,14 +213,15 @@ async def answer_rag_general_question_with_metadata(
         answer = answer[:earliest_pos].strip()
         print(f"[RAG_GENERAL] 프롬프트 누출 감지 → '{earliest_marker}' 앞에서 잘라냄")
 
-    # 파일 제안 추출
+    # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정한다.
+    # 작은 로컬 LLM이 <FILES> 태그를 불안정하게 누락해 관련 파일을 못 주던 문제 →
+    # 이미 검증된 임베딩 유사도 판단을 신뢰하고, LLM이 뽑은 태그는 화면에서 제거만 한다.
     import re
     match = re.search(r'<FILES>(.*?)</FILES>', answer)
     if match:
-        files_str = match.group(1)
-        metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
-        answer = answer[:match.start()] + answer[match.end():]
-        answer = answer.strip()
+        answer = (answer[:match.start()] + answer[match.end():]).strip()
+    if matched_files:
+        metadata["files_to_offer"] = [Path(f).stem for f in matched_files]
 
     return answer, metadata
 

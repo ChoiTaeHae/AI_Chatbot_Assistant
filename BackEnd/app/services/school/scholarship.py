@@ -171,19 +171,23 @@ async def answer_scholarship_question(
     print("[SCHOLARSHIP] RAG 검색 완료, LLM 호출")
 
     from app.services.file_service import AVAILABLE_FILES
+    from app.utils.file_matcher import match_relevant_files
     from pathlib import Path
-    files = AVAILABLE_FILES.get("scholarship", [])
+    files = await loop.run_in_executor(
+        None, match_relevant_files, question, AVAILABLE_FILES.get("scholarship", [])
+    )
     files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
     prompt = RAG_SCHOLARSHIP_PROMPT.format(context=context, question=question, files_list=files_list)
     answer = await llm_service.answer(prompt, system_prompt=SCHOLARSHIP_SYSTEM_PROMPT)
 
+    # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정한다.
+    # 작은 로컬 LLM이 <FILES> 태그를 불안정하게 누락하던 문제 → LLM 태그는 화면에서 제거만 한다.
     import re
     match = re.search(r'<FILES>(.*?)</FILES>', answer)
     if match:
-        files_str = match.group(1)
-        metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
-        answer = answer[:match.start()] + answer[match.end():]
-        answer = answer.strip()
+        answer = (answer[:match.start()] + answer[match.end():]).strip()
+    if files:
+        metadata["files_to_offer"] = [Path(f).stem for f in files]
 
     return answer, None, metadata

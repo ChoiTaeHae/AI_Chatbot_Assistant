@@ -188,6 +188,7 @@ class GraduationService:
         개인 이수현황은 미포함. '요건' 질문(both) 및 '다른 학과' 질문에 사용."""
         from pathlib import Path
         from app.services.file_service import AVAILABLE_FILES
+        from app.utils.file_matcher import match_relevant_files
 
         _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
         if rule:
@@ -206,7 +207,10 @@ class GraduationService:
         rag_query = f"{dept_name} 졸업요건 전공 교양 이수학점"
         rag_context, metadata = await self._search_rag(rag_query)
 
-        files = AVAILABLE_FILES.get("graduation", [])
+        loop = asyncio.get_event_loop()
+        files = await loop.run_in_executor(
+            None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
+        )
         files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
         prompt = GRADUATION_OTHER_DEPT_PROMPT.format(
@@ -217,10 +221,12 @@ class GraduationService:
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
+        # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
-            metadata["files_to_offer"] = [f.strip() for f in match.group(1).split(',') if f.strip()]
             result = (result[:match.start()] + result[match.end():]).strip()
+        if files:
+            metadata["files_to_offer"] = [Path(f).stem for f in files]
 
         return result, metadata
 
@@ -230,6 +236,7 @@ class GraduationService:
         영어·자격증·토익·졸업가능여부는 현황으로 판단 안 하고 요건 안내에만 포함(DB 미추적)."""
         from pathlib import Path
         from app.services.file_service import AVAILABLE_FILES
+        from app.utils.file_matcher import match_relevant_files
 
         # 1) 요건 학점 (DB rule)
         _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
@@ -260,7 +267,10 @@ class GraduationService:
                 f"총: {report['total_earned']} / {report['total_required']} (부족 {tt})"
             )
 
-        files = AVAILABLE_FILES.get("graduation", [])
+        loop = asyncio.get_event_loop()
+        files = await loop.run_in_executor(
+            None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
+        )
         files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
         prompt = GRADUATION_MY_DEPT_PROMPT.format(
@@ -269,10 +279,12 @@ class GraduationService:
         )
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
+        # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
-            metadata["files_to_offer"] = [f.strip() for f in match.group(1).split(',') if f.strip()]
             result = (result[:match.start()] + result[match.end():]).strip()
+        if files:
+            metadata["files_to_offer"] = [Path(f).stem for f in files]
 
         return result, metadata
 
@@ -338,8 +350,12 @@ class GraduationService:
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
 
         from app.services.file_service import AVAILABLE_FILES
+        from app.utils.file_matcher import match_relevant_files
         from pathlib import Path
-        files = AVAILABLE_FILES.get("graduation", [])
+        loop = asyncio.get_event_loop()
+        files = await loop.run_in_executor(
+            None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
+        )
         files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
         prompt = self._build_rag_prompt(question, rag_context, files_list)
@@ -347,12 +363,12 @@ class GraduationService:
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
 
+        # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
-            files_str = match.group(1)
-            metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
-            result = result[:match.start()] + result[match.end():]
-            result = result.strip()
+            result = (result[:match.start()] + result[match.end():]).strip()
+        if files:
+            metadata["files_to_offer"] = [Path(f).stem for f in files]
 
         return result, metadata
 
@@ -369,8 +385,12 @@ class GraduationService:
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
 
         from app.services.file_service import AVAILABLE_FILES
+        from app.utils.file_matcher import match_relevant_files
         from pathlib import Path
-        files = AVAILABLE_FILES.get("graduation", [])
+        loop = asyncio.get_event_loop()
+        files = await loop.run_in_executor(
+            None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
+        )
         files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
         prompt = self._build_combined_prompt(question, db_context, rag_context, files_list)
@@ -378,12 +398,12 @@ class GraduationService:
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
+        # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
         match = re.search(r'<FILES>(.*?)</FILES>', result)
         if match:
-            files_str = match.group(1)
-            metadata["files_to_offer"] = [f.strip() for f in files_str.split(',') if f.strip()]
-            result = result[:match.start()] + result[match.end():]
-            result = result.strip()
+            result = (result[:match.start()] + result[match.end():]).strip()
+        if files:
+            metadata["files_to_offer"] = [Path(f).stem for f in files]
 
         return result, metadata
 
