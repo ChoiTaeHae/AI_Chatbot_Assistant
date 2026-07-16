@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION: str = "school_documents"
     RAG_TOP_K: int = 3
 
+    # URL 크롤 문서 청크 최대 크기(자). 상한일 뿐 — 작은 섹션은 자연 크기로 저장됨.
+    # 1000 권장(균일·적당). 낮추면 더 잘게, 800 미만은 파편 발생. 업로드/졸업 표 경로는 무관.
+    CRAWL_CHUNK_SIZE: int = 1000
+
     # 하이브리드 검색 (dense + sparse, bge-m3). True 시 별도 컬렉션(HYBRID_COLLECTION) 사용.
     # 롤백은 이 토글만 False로 → dense-only 기존 컬렉션으로 즉시 복귀.
     HYBRID_SEARCH: bool = False

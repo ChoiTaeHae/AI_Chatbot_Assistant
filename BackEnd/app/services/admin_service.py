@@ -482,7 +482,7 @@ class AdminService:
                         print(f"[AdminService] 이미지 OCR {len(img_texts)}건 추가")
                 except Exception as ocr_err:
                     print(f"[AdminService] 이미지 OCR 실패 (무시): {ocr_err}")
-            raw_chunks = smart_split(document_text, embed_fn=rag_service.embedding.embed_texts)
+            raw_chunks = smart_split(document_text, chunk_size=settings.CRAWL_CHUNK_SIZE, embed_fn=rag_service.embedding.embed_texts)
             if not raw_chunks:
                 # 텍스트·OCR 모두 실패 시 제목 기반 최소 청크 생성 (URL은 임베딩 제외, payload로만 보존)
                 fallback = f"제목: {page.title}"

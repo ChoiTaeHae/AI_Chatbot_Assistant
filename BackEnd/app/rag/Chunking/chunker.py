@@ -179,20 +179,34 @@ def _recursive_structure_split(text: str, sep_idx: int, chunk_size: int) -> list
 def _merge_short_pieces(pieces: list[str], chunk_size: int, min_length: int) -> list[str]:
     """짧은 조각/목록 항목을 인접 조각과 병합 (chunk_size 이내에서).
 
-    - 한쪽이 min_length 미만이거나
-    - 양쪽 다 '작은 조각'(목록 항목 수준)이면 병합
-      → [붙임] 1.2.3.4. 같은 번호 목록이 큰 블록에서 흩어지지 않게 한 덩어리로 유지.
+    - 앞 조각이 이미 '큰 섹션'(>= small)이면 뒤의 작은 형제를 흡수하지 않는다.
+      (예: 거대한 '수료증명서'가 뒤의 재학·성적을 빨아들여 교육비·휴학·제적을 고아로
+       만드는 것 방지 → 작은 형제(증명서 종류)들끼리 한 덩어리로 모이게 둔다)
+    - 앞 조각이 아직 작을 때만: 뒤가 '작은 조각'(목록 항목 수준)이거나 앞이 아주 짧은
+      헤딩 조각(< min_length)이면 병합 → [붙임] 1.2.3.4. 목록이 흩어지지 않게 유지.
     접수방법/지원불가처럼 둘 다 큰 섹션이면 병합하지 않음(과합침 방지)."""
-    small = max(min_length, chunk_size // 6)   # '작은 조각' 기준 (예: chunk_size 1200 → 200자)
+    small = max(min_length, chunk_size // 6)   # '작은 조각'/'큰 섹션' 경계 (예: 1200 → 200자)
     out: list[str] = []
     for p in pieces:
-        if out and len(out[-1]) + len(p) + 1 <= chunk_size and (
-            len(p) < min_length or len(out[-1]) < min_length
-            or (len(p) < small and len(out[-1]) < small)
+        if out and len(out[-1]) + len(p) + 1 <= chunk_size and len(out[-1]) < small and (
+            len(p) < small or len(out[-1]) < min_length
         ):
             out[-1] = out[-1] + "\n" + p
         else:
             out.append(p)
+    # 정리: 위 병합 후에도 남은 아주 짧은 고아(< min_length)는 인접 조각에 흡수
+    i = 0
+    while i < len(out):
+        if len(out) > 1 and len(out[i]) < min_length:
+            if i > 0 and len(out[i - 1]) + len(out[i]) + 1 <= chunk_size:
+                out[i - 1] = out[i - 1] + "\n" + out[i]
+                out.pop(i)
+                continue
+            if i + 1 < len(out) and len(out[i]) + len(out[i + 1]) + 1 <= chunk_size:
+                out[i + 1] = out[i] + "\n" + out[i + 1]
+                out.pop(i)
+                continue
+        i += 1
     return out
 
 
