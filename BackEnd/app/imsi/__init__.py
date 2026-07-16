@@ -1,2 +1,1 @@
-"""Temporary web crawling and ingestion utilities."""
-
+"""웹 공지 페이지 크롤링 유틸리티 (관리자 URL 인제스트에서 사용)."""

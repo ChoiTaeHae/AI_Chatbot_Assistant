@@ -8,7 +8,6 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup, Tag
 
-DEFAULT_NOTICE_URL = "https://tech.endicott.ac.kr/board/read.jsp?id=267227&code=tech0601"
 REQUEST_TIMEOUT_SECONDS = 15
 
 
@@ -50,7 +49,7 @@ class CrawledPage:
         }
 
 
-def fetch_page_html(url: str = DEFAULT_NOTICE_URL) -> str:
+def fetch_page_html(url: str) -> str:
     response = requests.get(
         url,
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -65,11 +64,6 @@ def fetch_page_html(url: str = DEFAULT_NOTICE_URL) -> str:
     response.raise_for_status()
     response.encoding = response.apparent_encoding or response.encoding
     return response.text
-
-
-def crawl_notice_page(url: str = DEFAULT_NOTICE_URL) -> CrawledPage:
-    html = fetch_page_html(url)
-    return parse_notice_page(html, url)
 
 
 def parse_notice_page(html: str, url: str) -> CrawledPage:
@@ -239,17 +233,6 @@ def _extract_view_count(text: str) -> int | None:
 def _clean_text(text: str) -> str:
     #\s+ 대신 [ \t\r\f\v]+ 를 사용하여 엔터(\n)는 보존하고 일반 스페이스바와 탭만 정리
     return re.sub(r"[ \t\r\f\v]+", " ", text.replace("\xa0", " ")).strip(" *")
-
-
-def _dedupe_preserve_order(lines: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for line in lines:
-        if line in seen:
-            continue
-        seen.add(line)
-        result.append(line)
-    return result
 
 
 def _trim_before_article_body(lines: list[str]) -> list[str]:
