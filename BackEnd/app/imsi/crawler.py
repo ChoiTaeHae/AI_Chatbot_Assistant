@@ -76,7 +76,14 @@ def parse_notice_page(html: str, url: str) -> CrawledPage:
     soup = BeautifulSoup(html, "html.parser")
     main = _find_notice_container(soup)
 
-    title = _clean_text(_find_title(main) or _find_title(soup))
+    # 게시판 글(board-read)이면 글 제목을, 정보 페이지면 브레드크럼 페이지명을 제목으로.
+    # (정보 페이지는 본문 소제목(h4)이 여럿이라 _find_title이 엉뚱한 소제목을 제목으로
+    #  잡음 — 예: '주차안내' 페이지가 '정기권 등록 방법'으로. soup.title의
+    #  '… > 페이지명 : 우송대학교'에서 페이지명을 뽑아 이를 방지.)
+    if soup.select_one(".board-read"):
+        title = _clean_text(_find_title(main) or _find_title(soup)) or _page_title_from_breadcrumb(soup)
+    else:
+        title = _page_title_from_breadcrumb(soup) or _clean_text(_find_title(main) or _find_title(soup))
     if not title:
         title = soup.title.get_text(" ", strip=True) if soup.title else url
 
@@ -138,6 +145,18 @@ def _find_title(container: Tag | BeautifulSoup) -> str:
             if len(text) >= 5:
                 return text
     return ""
+
+
+def _page_title_from_breadcrumb(soup: BeautifulSoup) -> str:
+    """soup.title('카테고리 > … > 페이지명 : 우송대학교')에서 페이지명만 추출.
+    정보 페이지의 진짜 제목을 잡기 위함 — 본문 소제목(h4) 오인 방지."""
+    if not getattr(soup, "title", None):
+        return ""
+    raw = soup.title.get_text(" ", strip=True)
+    seg = re.split(r"\s*[:|]\s*", raw)[0]     # ' : 우송대학교' 등 사이트명 접미 제거
+    if ">" in seg:
+        seg = seg.split(">")[-1]              # 브레드크럼 마지막 항목 = 페이지명
+    return _clean_text(seg)
 
 
 def _find_metadata_text(container: Tag | BeautifulSoup) -> str:
