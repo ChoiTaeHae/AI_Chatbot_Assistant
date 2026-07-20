@@ -70,24 +70,41 @@ def smart_split(             # 실제 진입점
         # → 표의 각 행이 자기 키(과명)를 달고 독립 청크가 됨 (여러 과 뭉침/과명 누락 방지)
         raw_chunks = []
         last_dept_chunk = None   # 직전 표 '과' 청크 — 페이지/블록 경계 넘는 연속 행 병합용
+        prev_was_text = False    # 직전 블록이 본문이었나 (표를 그 본문에 붙일지 판단)
         for is_table, block in _find_table_blocks(text):
             if is_table:
                 block_chunks = split_by_table(
                     block, chunk_size=chunk_size, min_length=min_length,
                     carry_chunk=last_dept_chunk,
                 )
-                raw_chunks.extend(block_chunks)
+                # 작은 표(헤더 있는 데이터 그리드 → 통째 1청크)는 직전 본문 청크에 병합:
+                # 공고문의 '1. 선발 인원 및 근무 기준'+불릿+표가 한 청크(섹션 단위)가 된다.
+                # 졸업 과별표는 행 단위 다수 청크(article=과명)로 나와 이 분기에 안 걸림 → 무영향.
+                if (
+                    len(block_chunks) == 1 and prev_was_text and raw_chunks
+                    and not block_chunks[0].get("article")
+                    and len(raw_chunks[-1]["text"]) + len(block_chunks[0]["text"]) + 1 <= chunk_size
+                ):
+                    raw_chunks[-1] = {
+                        **raw_chunks[-1],
+                        "text": f"{raw_chunks[-1]['text']}\n{block_chunks[0]['text']}",
+                    }
+                else:
+                    raw_chunks.extend(block_chunks)
                 # 이번 블록의 마지막 '과' 청크를 다음 블록 병합 대상으로 갱신
                 for c in reversed(block_chunks):
                     if c.get("article"):
                         last_dept_chunk = c
                         break
+                prev_was_text = False
             elif _has_structure(block):
                 # 표 사이의 비표 블록도 헤딩/불릿 구조면 구조 청킹 (접수방법 등 리스트 중간 끊김 방지)
                 # 표 행(split_by_table) 경로는 건드리지 않음 → 졸업 표 청킹 무영향
                 raw_chunks.extend(split_by_structure(block, chunk_size=chunk_size, min_length=min_length))
+                prev_was_text = True
             else:
                 raw_chunks.extend(_chunk_generic(block, chunk_size, overlap, min_length, embed_fn))
+                prev_was_text = True
     elif _has_structure(text):
         # 표는 없지만 헤딩/불릿 구조가 뚜렷한 문서(접수방법 안내 등)
         # → 헤딩+하위 불릿을 논리 단위로 유지하는 재귀 청킹 (리스트 중간 끊김 방지)
@@ -184,11 +201,16 @@ def _merge_short_pieces(pieces: list[str], chunk_size: int, min_length: int) -> 
        만드는 것 방지 → 작은 형제(증명서 종류)들끼리 한 덩어리로 모이게 둔다)
     - 앞 조각이 아직 작을 때만: 뒤가 '작은 조각'(목록 항목 수준)이거나 앞이 아주 짧은
       헤딩 조각(< min_length)이면 병합 → [붙임] 1.2.3.4. 목록이 흩어지지 않게 유지.
+    - 단, '번호 헤딩(1. 2.)으로 시작하는 여러 줄짜리 조각'은 새 섹션의 시작이므로
+      짧아도 앞 조각에 합치지 않는다 (공고문의 '2. 관리 운영', '3. 휴무 운영'이
+      각각 독립 청크로 유지). 한 줄짜리 번호 항목([붙임] 1. 신청서 1부 등)은 목록이므로
+      기존대로 병합 대상.
     접수방법/지원불가처럼 둘 다 큰 섹션이면 병합하지 않음(과합침 방지)."""
     small = max(min_length, chunk_size // 6)   # '작은 조각'/'큰 섹션' 경계 (예: 1200 → 200자)
     out: list[str] = []
     for p in pieces:
-        if out and len(out[-1]) + len(p) + 1 <= chunk_size and len(out[-1]) < small and (
+        is_section_start = bool(re.match(r"^\d{1,2}\.\s(?!\d)", p)) and "\n" in p
+        if (not is_section_start) and out and len(out[-1]) + len(p) + 1 <= chunk_size and len(out[-1]) < small and (
             len(p) < small or len(out[-1]) < min_length
         ):
             out[-1] = out[-1] + "\n" + p
@@ -254,8 +276,15 @@ def _propagate_headings(chunks: list[str]) -> list[str]:
 
 
 def split_by_structure(text: str, chunk_size: int = 1200, min_length: int = 50) -> list[dict]:
-    """구조(헤딩/리스트) 인식 재귀 청킹. 헤딩+하위 불릿을 단위로 유지, 넘치면 하위 레벨로 분할."""
-    pieces = _recursive_structure_split(text.strip(), 0, chunk_size)
+    """구조(헤딩/리스트) 인식 재귀 청킹. 헤딩+하위 불릿을 단위로 유지, 넘치면 하위 레벨로 분할.
+
+    번호 섹션(1. 2. 3.)은 크기와 무관하게 항상 섹션 경계에서 먼저 자른다 —
+    '2. 관리 운영'과 '3. 휴무 운영'이 chunk_size보다 작다고 한 청크로 뭉치지 않고
+    각각 독립 청크(단락 단위)가 되도록. 섹션 내부는 기존 재귀 로직(크기 초과 시 하위 레벨)."""
+    top_parts = [p.strip() for p in re.split(_STRUCTURE_SEPARATORS[0], text.strip()) if p.strip()]
+    pieces: list[str] = []
+    for part in top_parts:
+        pieces.extend(_recursive_structure_split(part, 1, chunk_size))
     merged = _merge_short_pieces(pieces, chunk_size, min_length)
     merged = _propagate_headings(merged)   # 쪼개진 섹션에 제목 전파
     return [{"chapter": None, "article": None, "text": p} for p in merged if p.strip()]
