@@ -113,12 +113,33 @@ def _looks_like_table_row(line: str) -> bool:
     return len(_VALUE_TOKEN_RE.findall(line)) >= 2
 
 
+# 구조 헤딩으로 '시작'하는 줄 — 앞 문장과 병합하면 안 됨(조/장/항 헤딩이 앞줄에 흡수 방지).
+# 예: "제3장 …\n제19조 …"를 붙이면 CHAPTER_PATTERN이 조문까지 장으로 삼켜 본문이 밀림.
+_STRUCT_START_RE = re.compile(
+    r'^\s*(?:'
+    r'제\s*\d+\s*(?:조|장|절|관|항|호)(?:의\s*\d+)?'   # 제N조/제N장/제N조의2 …
+    r'|부\s*칙'                                          # 부칙
+    r'|\[별표'                                            # [별표 …]
+    r'|[①-⑳]'                                            # ①②③ …
+    r'|\d{1,2}\.\s'                                       # 1. 2.
+    r'|[가-힣]\.\s'                                       # 가. 나.
+    r'|\(\d+\)'                                           # (1) (2)
+    r'|[○◯■□▣▷]'                                        # 구조 마커
+    r')'
+)
+
+
+def _starts_with_structure(line: str) -> bool:
+    """줄이 구조 헤딩(제N조·제N장·부칙·①·1.·가.·[별표]·마커)으로 시작하는지."""
+    return bool(_STRUCT_START_RE.match(line))
+
+
 def _fix_pdf_line_breaks(text: str) -> str:
-    """PDF 추출 시 단어 중간에 끊긴 줄바꿈 복구. 표 행은 붙이지 않아 구조·값을 보존."""
+    """PDF 추출 시 단어 중간에 끊긴 줄바꿈 복구. 표 행·구조 헤딩 줄은 붙이지 않아 구조를 보존."""
     # 1) 단어에 '붙은' 하이픈만 복구: "수강신-\n청" → "수강신청".
     #    표의 " - "(값 없음)은 앞이 공백이라 매칭 안 돼 그대로 보존됨.
     text = re.sub(r'(?<=[가-힣a-zA-Z])-\n(?=[가-힣a-zA-Z])', '', text)
-    # 2) 문장 중간 줄바꿈 이어붙임 — 단, 앞/뒤가 표 행이면 행 구조를 지키려 건너뜀.
+    # 2) 문장 중간 줄바꿈 이어붙임 — 단, 앞/뒤가 표 행이거나 다음 줄이 구조 헤딩이면 건너뜀.
     lines = text.split('\n')
     if not lines:
         return text
@@ -126,7 +147,8 @@ def _fix_pdf_line_breaks(text: str) -> str:
     for cur in lines[1:]:
         prev = out[-1]
         if (prev and cur and re.search(r'[가-힣a-zA-Z]$', prev) and re.match(r'[가-힣a-z]', cur)
-                and not _looks_like_table_row(prev) and not _looks_like_table_row(cur)):
+                and not _looks_like_table_row(prev) and not _looks_like_table_row(cur)
+                and not _starts_with_structure(cur)):   # 조/장/항 헤딩은 앞줄과 안 붙임
             out[-1] = prev + ' ' + cur       # 문장 줄바꿈 → 공백으로 이어붙임
         else:
             out.append(cur)
