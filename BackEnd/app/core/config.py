@@ -19,8 +19,20 @@ class Settings(BaseSettings):
     KAKAO_API_KEY: str = ""
 
     # LLM
+    # 답변 생성 백엔드: "local"(로컬 Bllossom GGUF) | "vertex"(Vertex AI Gemini)
+    LLM_PROVIDER: str = "local"
     MODEL_PATH: str = "./llm/bllossom-8b-Q8_0.gguf"
     DEVICE: str = "cuda"
+
+    # Gemini — LLM_PROVIDER=vertex 일 때 사용.
+    # 인증: GEMINI_API_KEY 있으면 API 키 방식(Gemini Developer API),
+    #       없으면 서비스계정(Vertex AI)로 폴백.
+    GEMINI_API_KEY: str = ""          # API 키 (.env에만, 커밋 금지)
+    GEMINI_MODEL: str = "gemini-2.0-flash-001"
+    # 아래는 서비스계정(Vertex) 방식일 때만 필요
+    GCP_PROJECT_ID: str = ""
+    GCP_LOCATION: str = "us-central1"
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""
 
     # Embedding
     EMBEDDING_MODEL: str = "BAAI/bge-m3"

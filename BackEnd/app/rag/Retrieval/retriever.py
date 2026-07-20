@@ -1,5 +1,5 @@
 from app.core.config import settings
-from app.rag.Embedding import BaaiEmbedding
+from app.rag.Embedding import BaaiEmbedding, baai_embedding
 from app.rag.Retrieval.qdrant_store import (
     QdrantVectorStore,
     SearchResult,
@@ -24,7 +24,7 @@ class Retriever:
         embedding: BaaiEmbedding | None = None,
         vector_store: QdrantVectorStore | None = None,
     ) -> None:
-        self.embedding = embedding or BaaiEmbedding()
+        self.embedding = embedding or baai_embedding   # 전역 싱글턴 공유 (모델 1회 로드)
         self.vector_store = vector_store or QdrantVectorStore()
         self.reranker = BgeReranker()
 

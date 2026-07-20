@@ -1,5 +1,5 @@
 ﻿from contextlib import asynccontextmanager
-
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,7 +17,16 @@ from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 from app.services.file_service import refresh_available_files
 from app.agents.topic_router import topic_router
+class _HealthCheckFilter(logging.Filter):
+    """uvicorn access 로그에서 /health 폴링을 숨김 (프론트 주기 핑 도배 방지)."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn.access args = (client_addr, method, path, http_version, status_code)
+        if isinstance(args, tuple) and len(args) >= 3:
+            return not str(args[2]).startswith("/health")
+        return True
 
+logging.getLogger("uvicorn.access").addFilter(_HealthCheckFilter())
 
 async def _load_topics() -> list[dict]:
     """DB에서 활성 topic 목록 반환."""
