@@ -179,3 +179,33 @@ class TopicUpdateRequest(BaseModel):
     sentences: Optional[list[str]] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+# ── 학사일정 관리 관련 ──────────────────────────────────────
+class ScheduleItem(BaseModel):
+    id: int
+    academic_year: int
+    track: str
+    event: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    raw: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduleCreateRequest(BaseModel):
+    academic_year: int
+    track: str = "학부"
+    event: str
+    start_date: date
+    end_date: Optional[date] = None   # 미지정이면 하루짜리(start=end)
+
+
+class ScheduleUpdateRequest(BaseModel):
+    academic_year: Optional[int] = None
+    track: Optional[str] = None
+    event: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None

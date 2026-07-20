@@ -10,6 +10,9 @@ from app.schemas.admins import (
     TopicItem,
     TopicCreateRequest,
     TopicUpdateRequest,
+    ScheduleItem,
+    ScheduleCreateRequest,
+    ScheduleUpdateRequest,
 )
 from app.services.admin_service import admin_service
 
@@ -115,6 +118,69 @@ async def crawl_document(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── 학사일정 관리 ──────────────────────────────────────────────────
+
+@router.post("/schedule/crawl", summary="학사일정 URL 크롤링 및 DB 적재")
+async def crawl_schedule(
+    url: str = Form(...),
+    keep_recent_years: int = Form(2),
+    db: AsyncSession = Depends(get_db),
+):
+    """학사일정 페이지(haksa_list.jsp 등)를 크롤·파싱해 academic_schedule에 적재.
+    임베딩이 없어 가볍기 때문에 백그라운드 job 없이 바로 처리하고 적재 건수를 반환한다.
+    같은 URL 재크롤 시 기존 데이터를 교체(멱등)."""
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="유효하지 않은 URL 형식입니다.")
+    try:
+        from app.services.school.schedule import schedule_service
+        count = await schedule_service.ingest_from_url(url, db, keep_recent_years=keep_recent_years)
+        return {
+            "success": True,
+            "url": url,
+            "count": count,
+            "message": f"학사일정 {count}건 적재 완료.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"학사일정 크롤링 실패: {e}")
+
+
+@router.get("/schedule", response_model=list[ScheduleItem], summary="학사일정 목록 조회")
+async def list_schedules(
+    track: str = None,
+    academic_year: int = None,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.school.schedule import schedule_service
+    return await schedule_service.list_schedules(db, track=track or None, academic_year=academic_year or None)
+
+
+@router.post("/schedule", response_model=ScheduleItem, summary="학사일정 추가")
+async def create_schedule(body: ScheduleCreateRequest, db: AsyncSession = Depends(get_db)):
+    from app.services.school.schedule import schedule_service
+    return await schedule_service.create_schedule(db, body.model_dump())
+
+
+@router.patch("/schedule/{schedule_id}", response_model=ScheduleItem, summary="학사일정 수정")
+async def update_schedule(schedule_id: int, body: ScheduleUpdateRequest, db: AsyncSession = Depends(get_db)):
+    from app.services.school.schedule import schedule_service
+    try:
+        return await schedule_service.update_schedule(db, schedule_id, body.model_dump(exclude_unset=True))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/schedule/{schedule_id}", summary="학사일정 삭제")
+async def delete_schedule(schedule_id: int, db: AsyncSession = Depends(get_db)):
+    from app.services.school.schedule import schedule_service
+    try:
+        await schedule_service.delete_schedule(db, schedule_id)
+        return {"success": True, "id": schedule_id}
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/documents/status/{job_id}", summary="업로드 처리 상태 확인")
