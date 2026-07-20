@@ -194,14 +194,40 @@ class FastLoader:
         def pad(r):
             return list(r) + [""] * (ncol - len(r))
 
-        header = pad(clean_rows[0])
-        lines = [
-            "| " + " | ".join(fmt(c) for c in header) + " |",
-            "| " + " | ".join("---" for _ in header) + " |",
-        ]
-        for r in clean_rows[1:]:
-            lines.append("| " + " | ".join(fmt(c) for c in pad(r)) + " |")
-        return "\n".join(lines)
+        # pdfplumber가 페이지 전체를 표로 잡으면 제목·섹션헤딩·불릿까지 '첫 칸만 채워진
+        # 전폭(全幅) 행'으로 딸려 들어온다. 이들은 데이터가 아니라 본문이므로 평문 줄로
+        # 되돌리고, 연속된 진짜 데이터 행만 마크다운 표로 만든다.
+        # (안 그러면 '1. 선발 인원' 같은 헤딩이 표 행으로 청킹돼 문서가 행 단위로 파편화됨)
+        # 첫 칸이 빈 연속행(| | 값 |)은 표의 이어지는 행이므로 본문으로 취급하지 않는다.
+        def _is_text_row(r) -> bool:
+            cells = [fmt(c) for c in pad(r)]
+            filled = [i for i, c in enumerate(cells) if c]
+            return len(filled) == 1 and filled[0] == 0
+
+        out: list[str] = []
+        run: list[list] = []          # 연속된 데이터 행 버퍼
+
+        def flush():
+            if not run:
+                return
+            if len(run) == 1:         # 데이터 행 하나뿐이면 표로 만들 것 없이 평문으로
+                out.append(" ".join(c for c in (fmt(x) for x in pad(run[0])) if c))
+            else:
+                hdr = pad(run[0])
+                out.append("| " + " | ".join(fmt(c) for c in hdr) + " |")
+                out.append("| " + " | ".join("---" for _ in hdr) + " |")
+                for r in run[1:]:
+                    out.append("| " + " | ".join(fmt(c) for c in pad(r)) + " |")
+            run.clear()
+
+        for r in clean_rows:
+            if _is_text_row(r):
+                flush()
+                out.append(fmt(pad(r)[0]))
+            else:
+                run.append(r)
+        flush()
+        return "\n".join(out)
 
     def _load_docx(self, path: Path) -> str:    #Word 전용 함수
         from docx import Document
