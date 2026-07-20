@@ -2,7 +2,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.rag.Chunking import smart_split
-from app.rag.Embedding import BaaiEmbedding
+from app.rag.Embedding import BaaiEmbedding, baai_embedding
 from app.rag.Loader import DoclingLoader
 from app.rag.Loader.fast_loader import FastLoader
 from app.rag.Retrieval import QdrantVectorStore, Retriever, SearchResult
@@ -36,7 +36,7 @@ class RagService:
     @property
     def embedding(self) -> BaaiEmbedding:
         if self._embedding is None:
-            self._embedding = BaaiEmbedding()
+            self._embedding = baai_embedding   # 전역 싱글턴 공유 (모델 1회 로드)
         return self._embedding
 
     @property

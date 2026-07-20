@@ -293,6 +293,31 @@ class Tuition(Base):
 
 
 # ==========================================
+# 17-2. 학사일정 테이블 (academic_schedule)
+# ==========================================
+# 학사일정 페이지(haksa_list.jsp)를 크롤링·파싱해 (날짜범위, 이벤트) 단위로 구조화 저장.
+# RAG(벡터) 대신 DB로 두는 이유: "지금 무슨 기간?"·"수강신청 언제?" 같은 날짜 비교 질의는
+# 오늘 날짜와 start/end를 직접 비교해야 정확하기 때문(8B RAG는 날짜 계산에 취약).
+class AcademicSchedule(Base):
+    __tablename__ = "academic_schedule"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    academic_year = Column(Integer, nullable=False)                 # 학년도 (표 caption 연도, 예: 2026)
+    track         = Column(String(10), nullable=False, server_default="학부")  # 학부 / 대학원
+    event         = Column(String(300), nullable=False)             # 이벤트명 (콜론 뒤)
+    start_date    = Column(Date, nullable=True)                     # 시작일 (파싱 실패 시 NULL)
+    end_date      = Column(Date, nullable=True)                     # 종료일 (단일일이면 start=end)
+    raw           = Column(String(100), nullable=True)              # 원본 날짜 문자열 "6/29~3" (디버그·재현용)
+    source_url    = Column(String(500), nullable=True)             # 재크롤 idempotent 삭제 기준
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_academic_schedule_dates", "start_date", "end_date"),
+        Index("ix_academic_schedule_track", "track"),
+    )
+
+
+# ==========================================
 # 18. Topic 테이블 (topic)
 # ==========================================
 class Topic(Base):

@@ -12,7 +12,7 @@ from app.models.DB_Table import (
 )
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
-from app.rag.Embedding import BaaiEmbedding
+from app.rag.Embedding import BaaiEmbedding, baai_embedding
 from app.prompts import (
     GRADUATION_DB_PROMPT, GRADUATION_RAG_PROMPT, GRADUATION_COMBINED_PROMPT,
     GRADUATION_OTHER_DEPT_PROMPT, GRADUATION_MY_DEPT_PROMPT,
@@ -94,7 +94,7 @@ class _GraduationClassifier:
     @property
     def embedding(self) -> BaaiEmbedding:
         if self._embedding is None:
-            self._embedding = BaaiEmbedding()
+            self._embedding = baai_embedding   # 전역 싱글턴 공유 (모델 1회 로드)
         return self._embedding
 
     def _warmup(self) -> None:
@@ -328,10 +328,10 @@ class GraduationService:
             categories.append(
                 {"name": "일반", "earned": report["earned_general"], "required": report["req_general"]}
             )
-        # 다전공(중점전공): 트랙 요건이 있는 학과만 표시 (전공 하위 요건)
+        # 트랙(다전공): 트랙 요건이 있는 학과만 표시 (전공·교양과 나란한 독립 이수구분)
         if report.get("req_track") is not None:
             categories.append(
-                {"name": "다전공", "earned": report["earned_track"], "required": report["req_track"]}
+                {"name": "트랙", "earned": report["earned_track"], "required": report["req_track"]}
             )
         return {
             "available": True,
@@ -546,13 +546,14 @@ class GraduationService:
         earned_major   = (passed_credits.get("전공필수", 0.0) + passed_credits.get("전공선택", 0.0))
         earned_liberal = (passed_credits.get("교양필수", 0.0) + passed_credits.get("교양선택", 0.0))
         earned_general = passed_credits.get("일반", 0.0)
-        total_earned   = earned_major + earned_liberal + earned_general
 
-        # 다전공(중점전공/트랙): 전공의 하위 요건 → 총학점엔 별도 가산하지 않음(전공에 이미 포함).
-        # 이수학점은 category "중점전공" 집계로 계산 (과목이 그렇게 분류돼야 채워짐).
-        # req_track이 None인 학과는 트랙 요건이 없음.
+        # 트랙(다전공): 전공·교양과 나란한 '독립 이수구분'. category "트랙" 집계로 계산.
+        # req_track이 None인 학과는 트랙 요건 없음(트랙 과목 없으면 earned_track=0).
         req_track    = rule.min_credits_track
-        earned_track = passed_credits.get("중점전공", 0.0)
+        earned_track = passed_credits.get("트랙", 0.0)
+
+        # 총 이수학점 = 전공+교양+일반+트랙 (모든 이수구분 학점 합산 — 트랙도 포함해야 증발 안 함)
+        total_earned = earned_major + earned_liberal + earned_general + earned_track
 
         # 학점 충족 여부 확인
         if earned_major < rule.min_credits_major:
@@ -571,10 +572,10 @@ class GraduationService:
             is_graduated = False
             insufficient_details.append(f"총학점 {rule.min_credits_total - total_earned}학점 부족")
 
-        # 다전공(중점전공) 부족 판정 — 트랙 요건이 있는 학과만
+        # 트랙 부족 판정 — 트랙 요건이 있는 학과만
         if req_track is not None and earned_track < req_track:
             is_graduated = False
-            insufficient_details.append(f"다전공(중점전공) {req_track - earned_track}학점 부족")
+            insufficient_details.append(f"트랙 {req_track - earned_track}학점 부족")
 
         # 영어 인증 확인
         english_cert_passed = await self._has_english_cert(db, student_id)
@@ -616,6 +617,15 @@ class GraduationService:
         dept_name = report.get("dept_name", "")
         english_status = "취득 완료" if report.get("english_cert_passed") else "미취득"
 
+        # 트랙(다전공): 요건이 있는 학과만 표시
+        track_line = ""
+        if report.get("req_track") is not None:
+            track_short = max(0, report["req_track"] - report["earned_track"])
+            track_line = (
+                f"트랙 학점: 현재 {report['earned_track']}학점 이수, "
+                f"졸업에 필요한 학점 {report['req_track']}학점, 아직 부족한 학점 {track_short}학점\n"
+            )
+
         return (
             f"[학생 졸업요건 조회 결과 - 아래 수치는 정확한 DB 데이터임]\n"
             f"학과: {dept_name}\n"
@@ -623,6 +633,7 @@ class GraduationService:
             f"전공 학점: 현재 {report['earned_major']}학점 이수, 졸업에 필요한 학점 {report['req_major']}학점, 아직 부족한 학점 {major_short}학점\n"
             f"교양 학점: 현재 {report['earned_liberal']}학점 이수, 졸업에 필요한 학점 {report['req_liberal']}학점, 아직 부족한 학점 {liberal_short}학점\n"
             f"일반 학점: 현재 {report['earned_general']}학점 이수, 졸업에 필요한 학점 {report['req_general']}학점, 아직 부족한 학점 {general_short}학점\n"
+            f"{track_line}"
             f"총 이수 학점: 현재 {report['total_earned']}학점 이수, 졸업에 필요한 총 학점 {report['total_required']}학점, 아직 부족한 학점 {total_short}학점\n"
             f"영어 공인성적: {english_status}\n"
         )

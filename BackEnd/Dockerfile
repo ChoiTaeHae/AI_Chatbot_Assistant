@@ -30,6 +30,9 @@ RUN grep -v -E "pywin32|llama-cpp-python|^torch|^torchvision" requirements_lock.
 # llama-cpp-python 의존성
 RUN pip install --no-cache-dir diskcache
 
+# Vertex AI (Gemini) SDK — LLM_PROVIDER=vertex 일 때 답변 생성에 사용 (의존성 포함 설치)
+RUN pip install --no-cache-dir google-genai
+
 # CUDA 링커 경로 등록 (빌드 시점에 stub 라이브러리 인식)
 RUN echo "/usr/local/cuda/lib64" >> /etc/ld.so.conf.d/cuda.conf && \
     echo "/usr/local/cuda/lib64/stubs" >> /etc/ld.so.conf.d/cuda-stubs.conf && \

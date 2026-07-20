@@ -7,7 +7,7 @@ route_with_score()는 (topic_name, handler_type, score, all_scores) 튜플을 �
   - handler_type: DB Topic.handler_type (agent_graph 라우팅용)
   - score: 코사인 유사도
 """
-from app.rag.Embedding import BaaiEmbedding
+from app.rag.Embedding import BaaiEmbedding, baai_embedding
 
 SIMILARITY_THRESHOLD = 0.40
 
@@ -33,7 +33,7 @@ class TopicRouter:
     @property
     def embedding(self) -> BaaiEmbedding:
         if self._embedding is None:
-            self._embedding = BaaiEmbedding()
+            self._embedding = baai_embedding   # 전역 싱글턴 공유 (모델 1회 로드)
         return self._embedding
 
     def warmup(self, topic_data: list[dict]) -> None:

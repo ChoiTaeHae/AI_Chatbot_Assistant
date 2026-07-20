@@ -1,3 +1,3 @@
-from app.rag.Embedding.baai_embedding import BaaiEmbedding
+from app.rag.Embedding.baai_embedding import BaaiEmbedding, baai_embedding
 
-__all__ = ["BaaiEmbedding"]
+__all__ = ["BaaiEmbedding", "baai_embedding"]

@@ -23,6 +23,7 @@ from app.services.llm_service import llm_service
 from app.prompts import GENERAL_HANDLER_PROMPT
 from app.services.school.campus import CampusService
 from app.services.school.graduation import graduation_service
+from app.services.school.schedule import schedule_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query
 from app.services.school.scholarship import answer_scholarship_question
 from app.services.rag_service import rag_service
@@ -39,7 +40,7 @@ _SWITCH_MARGIN = 0.15
 
 # prev_topic이 RAG 토픽(_proto_vecs)이 아니라 핸들러명으로 저장되는 경우
 # (graduation/campus/general/scholarship 핸들러의 topic은 DB RAG 토픽이 아님)
-_NON_RAG_HANDLERS = {"campus", "graduation", "scholarship", "general"}
+_NON_RAG_HANDLERS = {"campus", "graduation", "scholarship", "schedule", "general"}
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
@@ -373,6 +374,22 @@ async def _handle_graduation(state: AgentState) -> dict:
     }, "graduation", state["question"])
 
 
+async def _handle_schedule(state: AgentState) -> dict:
+    await _log(state["db"], state["student_id"], "schedule")
+    # 학사일정 분기(날짜·이벤트 파싱)는 '현재 질문' 기준으로만 해야 한다. 이전 주제 프리픽스를
+    # 넣으면 엉뚱한 이벤트/날짜로 오인될 수 있어 원 질문만 넘긴다(graduation과 동일 원칙).
+    answer, metadata = await schedule_service.answer_schedule_with_metadata(
+        question=state["question"], db=state["db"]
+    )
+    answer = _append_contact_info(answer, metadata)
+    return {
+        "answer": answer,
+        "source": metadata.get("source"),
+        "source_file": metadata.get("source_file"),
+        "topic": metadata.get("topic") or "schedule",
+    }
+
+
 async def _handle_scholarship(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "scholarship")
     prev_prefix = _build_prev_prefix(state)
@@ -476,6 +493,7 @@ _HANDLER_MAP = {
     "campus":      "handle_campus",
     "graduation":  "handle_graduation",
     "scholarship": "handle_scholarship",
+    "schedule":    "handle_schedule",
     "rag":         "handle_rag_general",
     "general":     "handle_general",
 }
@@ -525,6 +543,7 @@ def _build_graph():
     g.add_node("embedding_classify", _embedding_classify)
     g.add_node("handle_campus",     _handle_campus)
     g.add_node("handle_graduation", _handle_graduation)
+    g.add_node("handle_schedule",   _handle_schedule)
     g.add_node("handle_scholarship",_handle_scholarship)
     g.add_node("handle_rag_general",_handle_rag_general)
     g.add_node("handle_general",    _handle_general)
@@ -545,12 +564,13 @@ def _build_graph():
         "campus":      "handle_campus",
         "graduation":  "handle_graduation",
         "scholarship": "handle_scholarship",
+        "schedule":    "handle_schedule",
         "rag":         "handle_rag_general",
         "general":     "handle_general",
     })
 
     for handler in [
-        "handle_campus", "handle_graduation", "handle_scholarship",
+        "handle_campus", "handle_graduation", "handle_schedule", "handle_scholarship",
         "handle_rag_general", "handle_general",
     ]:
         g.add_edge(handler, END)

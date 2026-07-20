@@ -32,8 +32,7 @@ class BaaiEmbedding:
             self._model = BGEM3FlagModel(
                 self.model_name,
                 use_fp16=(actual_device == "cuda"),     # GPU면 fp16으로 메모리 절약, CPU면 False
-                device=self.device,
-
+                device=actual_device,                   # VRAM 부족 시 CPU fallback이 실제로 적용되도록
             )
             print("[Embedding] BGE-M3 로딩 완료")
 
@@ -101,3 +100,8 @@ class BaaiEmbedding:
             sparse_vectors.append((indices, values))
 
         return dense_vectors, sparse_vectors
+
+
+# 전역 싱글턴 — 모든 서비스(rag_service·topic_router·graduation·retriever)가 이걸 공유해
+# BGE-M3를 딱 한 번만 로드한다. (인스턴스 여러 개 = 모델 중복 로드 + VRAM 경합 + 재로딩)
+baai_embedding = BaaiEmbedding()

@@ -4,49 +4,83 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-# Windows: llama-cpp-python이 CUDA DLL을 찾을 수 있도록 torch lib 경로 추가
-if sys.platform == "win32":
-    import torch as _torch
-    os.add_dll_directory(os.path.join(os.path.dirname(_torch.__file__), "lib"))
-
-from llama_cpp import Llama
-
 from app.core.config import settings
 from app.prompts import SYSTEM_PROMPT
 
-# 전용 스레드풀 (llama-cpp는 단일 스레드에서 실행)
-_executor = ThreadPoolExecutor(max_workers=1)
+# 로컬 llama-cpp는 단일 스레드 실행(GPU 직렬) → worker 1.
+# Vertex는 네트워크 호출이라 병렬 가능 → worker 여러 개(동시성 확보).
+_local_executor = ThreadPoolExecutor(max_workers=1)
+_vertex_executor = ThreadPoolExecutor(max_workers=8)
 
 
 class LlmService:
-    def __init__(self):
-        self.model: Llama | None = None
+    """답변 생성 LLM. settings.LLM_PROVIDER 로 local(Bllossom) ↔ vertex(Gemini) 전환."""
 
+    def __init__(self):
+        self.provider = (settings.LLM_PROVIDER or "local").lower()
+        self.model = None            # 로컬 Llama
+        self.vertex_client = None    # Vertex genai client
+
+    # ── 로딩 ──────────────────────────────────────────────────
     def load_model(self):
         if settings.DEV_MODE:
             print("DEV_MODE: LLM 로딩 스킵")
             return
+        if self.provider == "vertex":
+            self._init_vertex()
+        else:
+            self._load_local()
 
+    def _load_local(self):
+        # Windows: llama-cpp가 CUDA DLL을 찾을 수 있도록 torch lib 경로 추가
+        if sys.platform == "win32":
+            import torch as _torch
+            os.add_dll_directory(os.path.join(os.path.dirname(_torch.__file__), "lib"))
+        from llama_cpp import Llama
         print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.model = Llama(
             model_path=settings.MODEL_PATH,
-
             n_gpu_layers=25,
             n_ctx=4096,
             n_batch=128,
-
             verbose=False,
         )
-        print("모델 로딩 완료! (llama-cpp-python, GPU 15레이어)")
+        print("모델 로딩 완료! (로컬 Bllossom, llama-cpp-python)")
 
-    def _generate(self, question: str, max_tokens: int = 512, system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str:
+    def _init_vertex(self):
+        from google import genai
+        # API 키가 있으면 Vertex Express 모드(vertexai=True + api_key), 없으면 서비스계정(Vertex AI)
+        # ★ vertexai=True 필수 — 없으면 AI Studio(generativelanguage) 경로로 새서 데이터가
+        #   학습에 쓰이고 403 API_KEY_SERVICE_BLOCKED가 남. True면 같은 키라도 Vertex 경로로 감.
+        #   Express 모드는 project/location 불필요(api_key가 라우팅). 콘솔 생성 코드와 동일.
+        if settings.GEMINI_API_KEY:
+            self.vertex_client = genai.Client(vertexai=True, api_key=settings.GEMINI_API_KEY)
+            print(f"[LLM] Vertex Gemini(Express·API키) 준비 완료: {settings.GEMINI_MODEL}")
+        else:
+            if settings.GOOGLE_APPLICATION_CREDENTIALS:
+                os.environ.setdefault(
+                    "GOOGLE_APPLICATION_CREDENTIALS", settings.GOOGLE_APPLICATION_CREDENTIALS
+                )
+            self.vertex_client = genai.Client(
+                vertexai=True,
+                project=settings.GCP_PROJECT_ID,
+                location=settings.GCP_LOCATION,
+            )
+            print(f"[LLM] Vertex Gemini(서비스계정) 준비 완료: {settings.GEMINI_MODEL} @ {settings.GCP_LOCATION}")
+
+    # ── 생성 ──────────────────────────────────────────────────
+    def _generate(self, question: str, max_tokens: int = 512,
+                  system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str:
         if settings.DEV_MODE:
             return f"[DEV_MODE] 질문 수신: {question}"
+        if self.provider == "vertex":
+            return self._generate_vertex(question, max_tokens, system_prompt, temperature)
+        return self._generate_local(question, max_tokens, system_prompt, temperature)
 
+    def _generate_local(self, question, max_tokens, system_prompt, temperature) -> str:
         try:
             t0 = time.time()
-            print("[LLM] 추론 시작")
-
+            print("[LLM] 로컬 추론 시작")
             response = self.model.create_chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -54,24 +88,46 @@ class LlmService:
                 ],
                 max_tokens=max_tokens,
                 temperature=temperature,
-
                 top_p=0.9,
                 repeat_penalty=1.1,
             )
- 
             result = response["choices"][0]["message"]["content"]
             usage = response.get("usage", {})
-            print(f"[LLM] 생성 완료 | 출력 토큰: {usage.get('completion_tokens', '?')} | 생성: {time.time()-t0:.1f}s")
+            print(f"[LLM] 생성 완료 | 출력 토큰: {usage.get('completion_tokens', '?')} | {time.time()-t0:.1f}s")
             return result
-
         except Exception as e:
-            print(f"[LLM] 추론 오류: {type(e).__name__}: {e}")
+            print(f"[LLM] 로컬 추론 오류: {type(e).__name__}: {e}")
             raise
 
-    async def answer(self, question: str, max_tokens: int = 512, system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str: #답변 최대 토큰수 지정
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_executor, self._generate, question, max_tokens, system_prompt, temperature)
+    def _generate_vertex(self, question, max_tokens, system_prompt, temperature) -> str:
+        from google.genai import types
+        try:
+            t0 = time.time()
+            print("[LLM] Vertex Gemini 추론 시작")
+            resp = self.vertex_client.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=question,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            result = (resp.text or "").strip()
+            print(f"[LLM] Vertex 생성 완료 | {time.time()-t0:.1f}s")
+            return result
+        except Exception as e:
+            print(f"[LLM] Vertex 추론 오류: {type(e).__name__}: {e}")
+            raise
 
+    # ── 비동기 인터페이스 (호출부 변경 없음) ──────────────────
+    async def answer(self, question: str, max_tokens: int = 512,
+                     system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str:
+        loop = asyncio.get_event_loop()
+        executor = _vertex_executor if self.provider == "vertex" else _local_executor
+        return await loop.run_in_executor(
+            executor, self._generate, question, max_tokens, system_prompt, temperature
+        )
 
 
 llm_service = LlmService()
