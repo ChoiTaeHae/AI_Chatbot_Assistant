@@ -1,5 +1,6 @@
 import asyncio
 import math
+import re
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
@@ -33,6 +34,54 @@ async def _is_semantic_drift(original: str, rewritten: str) -> bool:
         # 검사 실패 시 재작성을 막지 않음 (검색 자체를 못하는 것보단 나음)
         print(f"[RAG_GENERAL] 드리프트 검사 실패(무시): {e}")
         return False
+
+
+# 주제를 식별하지 못하는 일반어 — 아래 주제어 검사에서 제외한다.
+# (접두 일치로 비교하므로 '얼마야'는 '얼마', '신청은'은 '신청'으로 걸러진다)
+_GENERIC_TERMS = (
+    "신청", "방법", "알려줘", "어떻게", "언제", "얼마", "기간", "일정", "안내", "문의",
+    "절차", "서류", "가능", "필요", "준비", "무엇", "무슨", "어디", "해줘", "되나요",
+    "인가요", "있어", "있나요", "하나요", "까지", "부터", "궁금", "확인", "조건", "기준",
+    "대해서", "관련", "이야", "이에요", "예요",
+    # 지시대명사 — 이전 주제를 가리키는 말이라 주제어가 아니다("그건 얼마야?")
+    "그건", "그거", "그것", "이건", "이거", "이것", "저건", "저거", "저것",
+    "거기", "여기", "그때", "그럼", "그러면",
+)
+# 서술어(동사·형용사) 어미 — 주제어가 아니므로 제외한다.
+# 예: '내야해'(언제까지 내야해?)를 주제어로 오인하면 정상적인 맥락 보충까지 폐기된다.
+_PREDICATE_SUFFIXES = ("해", "해요", "야해", "줘", "세요", "나요", "어요", "아요", "야", "다")
+_TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
+
+
+def _distinctive_terms(question: str) -> list[str]:
+    """질문에서 '주제를 식별하는' 토큰만 추출 (일반어·서술어 제외).
+
+    비어 있으면 = 주제어 없는 모호한 후속 질문("기간은?") → 이전 맥락 보충이 정상이다.
+    (애매하면 비우는 쪽이 안전 — 검사가 skip되어 재작성을 막지 않는다)"""
+    terms = []
+    for tok in _TOKEN_RE.findall(question or ""):
+        if len(tok) < 2:
+            continue
+        if any(tok.startswith(g) for g in _GENERIC_TERMS):
+            continue
+        if any(tok.endswith(s) for s in _PREDICATE_SUFFIXES):
+            continue
+        terms.append(tok)
+    return terms
+
+
+def _keeps_topic(question: str, rewritten: str) -> bool:
+    """재작성이 현재 질문의 주제어를 하나라도 유지하는지.
+
+    프롬프트에 '현재 질문에 뚜렷한 주제어가 있으면 이전 질문을 무시하라'는 규칙이 있지만
+    8B가 자주 어겨 이전 주제로 통째로 갈아탄다(실측: '휴학 신청 방법'→'공결 신청 방법',
+    '학칙 알려줘'→'수강신청 방법'). 임베딩 드리프트 가드는 기준문이 '이전+현재'라
+    이 경우를 못 잡으므로, 주제어 유지 여부를 코드로 확정 검사한다."""
+    terms = _distinctive_terms(question)
+    if not terms:
+        return True                      # 모호한 후속 질문 → 검사 skip
+    rw = (rewritten or "").replace(" ", "")
+    return any(t in rw for t in terms)
 
 
 def _clean_rewrite_output(raw: str | None) -> str:
@@ -76,6 +125,13 @@ async def _rewrite_query(question: str, prev_question: str | None = None) -> str
     if not rewritten or rewritten == question:
         print(f"[RAG_GENERAL] 질문 재작성 실패/빈출력 → 원본 사용: '{question}'")
         return question
+    # 주제어 가드: 현재 질문에 뚜렷한 주제어가 있는데 재작성이 그걸 잃었으면(= 이전 주제로
+    # 갈아탄 것) 원본 사용. 아래 드리프트 가드는 기준문에 이전 질문이 섞여 있어 이 경우를
+    # 못 잡으므로, 그보다 먼저 확정적으로 차단한다.
+    if not _keeps_topic(question, rewritten):
+        print(f"[RAG_GENERAL] 재작성이 주제어 이탈 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
+        return question
+
     # 드리프트 가드: 재작성이 원문과 의미가 너무 멀어지면(예: 공결→전과) 원본 사용
     # 맥락 통합 시엔 주제어가 이전 질문에서 오므로 이전+현재를 합친 텍스트와 비교
     drift_ref = f"{prev_question} {question}" if prev_question else question
