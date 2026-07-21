@@ -22,6 +22,7 @@ class AgentState(TypedDict):
     file_offer: dict | None
     file_download: dict | None
     map_card: dict | None
+    dept_card: dict | None   # 학과/학부/단과대 안내 카드 (말풍선 안 렌더)
     next_pending_context: dict | None
     source: str | None
     source_file: str | None

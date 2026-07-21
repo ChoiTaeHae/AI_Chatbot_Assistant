@@ -35,6 +35,8 @@ class Department(Base):
     aliases = Column(JSONB)                                     # 학과명 별칭/약칭 매칭용 (예: ["컴공","컴퓨터공학"])
     college_id = Column(Integer, ForeignKey("college.id"))      # 단과대학
     division_id = Column(Integer, ForeignKey("division.id"))    # 학부(모집단위), 직속이면 NULL
+    homepage_url = Column(String, nullable=True)                # 학과 홈페이지 — 상세 소개는 원본(학교 사이트)으로 넘긴다
+    phone = Column(String, nullable=True)                       # 학과 대표 전화 (팩스 제외, 여러 개면 쉼표)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -22,6 +22,7 @@ from app.models.DB_Table import ChatLog
 from app.services.llm_service import llm_service
 from app.prompts import GENERAL_HANDLER_PROMPT
 from app.services.school.campus import CampusService
+from app.services.school.department import answer_department_question
 from app.services.school.graduation import graduation_service
 from app.services.school.schedule import schedule_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query
@@ -357,6 +358,21 @@ async def _handle_campus(state: AgentState) -> dict:
     }
 
 
+async def _handle_department(state: AgentState) -> dict:
+    """학과/학부/단과대 안내 — DB 조회(RAG 미사용). 상세 소개는 홈페이지 링크로 넘긴다."""
+    await _log(state["db"], state["student_id"], "college_department")
+    # 학과 탐지는 '현재 질문' 기준이어야 한다. 이전 주제 프리픽스를 섞으면 "간호학과 어디야"
+    # 뒤의 "컴공은?"에서 프리픽스의 간호학과가 더 긴 매칭으로 이겨버린다 (graduation과 동일 원칙).
+    result = await answer_department_question(state["question"], state["db"])
+    return {
+        "answer": result["answer"],
+        "dept_card": result["dept_card"],
+        "source": "database",
+        "source_file": None,
+        "topic": "college_department",
+    }
+
+
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
     # 졸업 분기(학과 감지·유형 분류)는 반드시 '현재 질문' 기준이어야 한다.
@@ -494,6 +510,7 @@ _HANDLER_MAP = {
     "graduation":  "handle_graduation",
     "scholarship": "handle_scholarship",
     "schedule":    "handle_schedule",
+    "department":  "handle_department",
     "rag":         "handle_rag_general",
     "general":     "handle_general",
 }
@@ -545,6 +562,7 @@ def _build_graph():
     g.add_node("handle_graduation", _handle_graduation)
     g.add_node("handle_schedule",   _handle_schedule)
     g.add_node("handle_scholarship",_handle_scholarship)
+    g.add_node("handle_department", _handle_department)
     g.add_node("handle_rag_general",_handle_rag_general)
     g.add_node("handle_general",    _handle_general)
 
@@ -565,13 +583,14 @@ def _build_graph():
         "graduation":  "handle_graduation",
         "scholarship": "handle_scholarship",
         "schedule":    "handle_schedule",
+        "department":  "handle_department",
         "rag":         "handle_rag_general",
         "general":     "handle_general",
     })
 
     for handler in [
         "handle_campus", "handle_graduation", "handle_schedule", "handle_scholarship",
-        "handle_rag_general", "handle_general",
+        "handle_department", "handle_rag_general", "handle_general",
     ]:
         g.add_edge(handler, END)
 
@@ -586,6 +605,7 @@ class AgentResult:
     file_offer: dict | None = None
     file_download: dict | None = None
     map_card: dict | None = None
+    dept_card: dict | None = None
     pending_context: dict | None = None
     intent: str | None = None
     topic: str | None = None
@@ -623,6 +643,7 @@ class AgentGraph:
             "file_offer": None,
             "file_download": None,
             "map_card": None,
+            "dept_card": None,
             "next_pending_context": None,
             "source": None,
             "source_file": None,
@@ -638,6 +659,7 @@ class AgentGraph:
             file_offer=result.get("file_offer"),
             file_download=result.get("file_download"),
             map_card=result.get("map_card"),
+            dept_card=result.get("dept_card"),
             pending_context=result.get("next_pending_context"),
             intent=result.get("intent"),
             topic=result.get("topic"),
