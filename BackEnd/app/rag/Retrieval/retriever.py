@@ -8,12 +8,22 @@ from app.rag.Retrieval.Reranker import BgeReranker
 
 # reranker score 임계값 - Sigmoid 적용, 절대평가 0~1 (0.4 이상을 유의미한 문서로 판단)
 SCORE_THRESHOLD = 0.4
-# 최대 반환 청크 수 - LLM 컨텍스트 초과 방지
+# 최대 반환 청크 수(합치기 '후' 기준) - LLM 컨텍스트 초과 방지
 MAX_CHUNKS = 5
+# 합치기 '전' 상한 — 같은 문서 청크는 아래에서 1개로 합쳐지므로 넉넉히 잡는다.
+# (MAX_CHUNKS로 합치기 전에 자르면 문서 보강분이 도로 잘려나감)
+MAX_PRE_MERGE = 12
+# 같은 문서 보강 시 추가로 끌어올 최대 청크 수 (긴 규정 문서가 통째로 유입되는 것 방지)
+SAME_DOC_MAX = 6
 
 # 같은 source URL의 청크를 합칠 때 최대 글자 수
 # (너무 길면 LLM 컨텍스트 초과 에러 발생 및 리랭커 점수 폭락 → 2000자로 제한)
 MAX_MERGED_LENGTH = 2000
+
+# 최종 컨텍스트 '전체' 글자 수 상한.
+# 문서당 상한(2000)만 있으면 문서 5개일 때 최대 1만 자가 되어 로컬 모델 n_ctx(4096 토큰)를
+# 넘긴다(한글은 대략 1.5자/토큰). 프롬프트 규칙·질문·생성 토큰 몫을 남겨 4000자로 제한한다.
+MAX_TOTAL_CONTEXT = 4000
 
 
 class Retriever:
@@ -164,20 +174,69 @@ class Retriever:
         filtered_results = [r for r in reranked_results if r.score >= SCORE_THRESHOLD]
         
         # 임계값 통과가 적으면 상위 청크로 보강 (커버리지 확보 — 기한 등 흩어진 정보 누락 방지)
-        # 무관한 조각(0.00x)이 컨텍스트를 낭비하는 것 방지. 전부 미달이면 빈 컨텍스트로
-        # 반환되어 rag_general의 "자료 못 찾음" 가드로 빠진다.
         MIN_FALLBACK = 5
-
         FALLBACK_MIN_SCORE = 0.15
 
-        if len(filtered_results) < MIN_FALLBACK and reranked_results:
-            fallback = [r for r in reranked_results[:MIN_FALLBACK] if r.score >= FALLBACK_MIN_SCORE]
-            added = [r for r in fallback if r not in filtered_results]
-            filtered_results = filtered_results + added
-            print(f"[Retriever] 임계값 통과 {len(filtered_results) - len(added)}개 → 상위 {MIN_FALLBACK}개로 보강 (top score={reranked_results[0].score:.3f})")
+        # 청크 동일성은 (source, chunk_index)로 판정한다.
+        # 벡터 결과와 리랭크 결과는 값이 다른 별개 객체라 객체 비교(in)로는 중복 제거가 안 된다.
+        def _key(r):
+            return (r.metadata.get("source"), r.metadata.get("chunk_index"))
 
-        # LLM 컨텍스트 보호를 위해 최대 반환 개수 제한
-        filtered_results = filtered_results[:MAX_CHUNKS]
+        seen = {_key(r) for r in filtered_results}
+        rr_by_key = {_key(r): r for r in reranked_results}   # 벡터순으로 채울 때도 리랭크 점수 유지
+
+        # 리랭커가 '확신한'(임계값 통과) 청크가 하나라도 있는지 — 아래 벡터 보강의 발동 조건.
+        # 전부 미달이면 해당 주제 문서가 코퍼스에 아예 없는 경우가 대부분이라(장학금·주차 등),
+        # 억지로 채우면 무관 문서가 LLM에 들어가 환각을 유발한다 → 채우지 않고 '못 찾음'으로 둔다.
+        has_confident = bool(filtered_results)
+
+        if len(filtered_results) < MIN_FALLBACK and reranked_results:
+            passed = len(filtered_results)
+
+            # (1) 리랭크 상위로 보강
+            for r in reranked_results[:MIN_FALLBACK]:
+                if len(filtered_results) >= MIN_FALLBACK:
+                    break
+                if r.score >= FALLBACK_MIN_SCORE and _key(r) not in seen:
+                    filtered_results.append(r); seen.add(_key(r))
+
+            # (2) 그래도 부족하면 '벡터 검색 순위'로 채운다.
+            #     ko-reranker가 문서의 제목/개요 청크만 상위로 올리고 정작 답이 있는 섹션을
+            #     0.0x로 깔아뭉개는 사례가 있는데(기숙사 간사 신청: 정답 청크 0.064),
+            #     그때 임베딩 순위는 정확했다(같은 청크가 벡터 6위).
+            if has_confident and len(filtered_results) < MIN_FALLBACK:
+                for r in results:                       # results = 벡터 검색 원래 순서
+                    if len(filtered_results) >= MIN_FALLBACK:
+                        break
+                    k = _key(r)
+                    if k not in seen:
+                        filtered_results.append(rr_by_key.get(k, r)); seen.add(k)
+                print("[Retriever] 리랭커 보강 부족 → 벡터 순위로 채움")
+
+            print(f"[Retriever] 임계값 통과 {passed}개 → {len(filtered_results)}개로 보강 (top score={reranked_results[0].score:.3f})")
+
+        # 3-2. 같은 문서 보강 — 1등이 확신 있는 문서면 그 문서의 나머지 청크도 후보에서 끌어온다.
+        # 리랭커가 공고의 '개요'만 올리고 '신청 방법' 섹션을 떨어뜨리는 경우를 복원하기 위함.
+        # (같은 source는 아래 _merge_same_article에서 chunk_index 순으로 하나로 합쳐진다)
+        if filtered_results:
+            top = max(filtered_results, key=lambda r: r.score)
+            top_src = top.metadata.get("source")
+            if top_src and top.score >= SCORE_THRESHOLD:
+                siblings = [r for r in reranked_results
+                            if r.metadata.get("source") == top_src and _key(r) not in seen]
+                # 상한을 넘으면 '문서 앞쪽'이 아니라 '관련도 높은 순'으로 고른다.
+                # (위치순이면 뒤쪽에 있는 정답 섹션이 잘려나감)
+                siblings.sort(key=lambda r: r.score, reverse=True)
+                picked = siblings[:SAME_DOC_MAX]
+                # 고른 뒤에는 문서 원래 순서로 되돌려야 합칠 때 문맥이 이어진다.
+                picked.sort(key=lambda r: r.metadata.get("chunk_index", 0))
+                for r in picked:
+                    filtered_results.append(r); seen.add(_key(r))
+                if picked:
+                    print(f"[Retriever] 같은 문서 보강: '{top_src}' +{len(picked)}개 (관련도순 선별)")
+
+        # 합치기 '전' 상한 (같은 문서 청크는 합쳐져 1개가 되므로 MAX_CHUNKS보다 넉넉히)
+        filtered_results = filtered_results[:MAX_PRE_MERGE]
 
         # ★ 디버그: threshold 통과 후 살아남은 청크의 chunk_index만 따로 출력
         survived_indices = [r.metadata.get("chunk_index", "?") for r in filtered_results]
@@ -189,6 +248,23 @@ class Retriever:
 
         # 5. 합치기 실행 (이어지는 문맥 복원)
         final_results = self._merge_same_article(filtered_results)
+
+        # 합친 '후' 최종 개수 제한 — 문서 단위로 MAX_CHUNKS개
+        final_results = final_results[:MAX_CHUNKS]
+
+        # 전체 길이 예산 — 점수 높은 문서부터 담고 예산을 넘으면 이후 문서는 버린다.
+        # (문서를 중간에 자르면 답이 잘릴 수 있어 문서 단위로 통째 제외. 최상위 1개는 항상 유지)
+        if final_results:
+            budget, kept = MAX_TOTAL_CONTEXT, []
+            for r in final_results:                     # _merge_same_article가 score 내림차순 반환
+                if kept and len(r.text) > budget:
+                    continue
+                kept.append(r)
+                budget -= len(r.text)
+            if len(kept) < len(final_results):
+                print(f"[Retriever] 컨텍스트 예산 초과 → {len(final_results)}개 중 {len(kept)}개 유지 "
+                      f"(총 {sum(len(r.text) for r in kept)}자 / 상한 {MAX_TOTAL_CONTEXT})")
+            final_results = kept
 
         # 명시적으로 limit이 들어온 경우 처리
         if limit is not None:

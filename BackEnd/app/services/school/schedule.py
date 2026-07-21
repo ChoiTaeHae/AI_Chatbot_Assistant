@@ -102,6 +102,33 @@ class ScheduleService:
         await db.delete(row)
         await db.commit()
 
+    # ── 관리자: 날짜-게이트 키워드 설정 ────────────────────────────
+    async def get_gate_config(self, db: AsyncSession) -> dict:
+        from app.models.DB_Table import AppConfig
+        from app.agents.agent_graph import DEFAULT_DATE_INTENT, DEFAULT_EVENT_KWS
+        row = (await db.execute(select(AppConfig).where(AppConfig.key == "schedule_gate"))).scalar_one_or_none()
+        val = (row.value if row else None) or {}
+        return {
+            "date_intent": val.get("date_intent") or DEFAULT_DATE_INTENT,
+            "event_keywords": val.get("event_keywords") or DEFAULT_EVENT_KWS,
+        }
+
+    async def update_gate_config(self, db: AsyncSession, date_intent: list[str], event_keywords: list[str]) -> dict:
+        """게이트 키워드 저장 + 런타임 즉시 반영(재시작 불필요)."""
+        from app.models.DB_Table import AppConfig
+        from app.agents.agent_graph import set_schedule_gate
+        di = [k.strip() for k in (date_intent or []) if k and k.strip()]
+        ek = [k.strip() for k in (event_keywords or []) if k and k.strip()]
+        value = {"date_intent": di, "event_keywords": ek}
+        row = (await db.execute(select(AppConfig).where(AppConfig.key == "schedule_gate"))).scalar_one_or_none()
+        if row:
+            row.value = value
+        else:
+            db.add(AppConfig(key="schedule_gate", value=value))
+        await db.commit()
+        set_schedule_gate(di, ek)   # 라이브 프로세스 게이트 즉시 교체
+        return value
+
     # ── 챗봇 진입점 ────────────────────────────────────────────────
     async def answer_schedule_with_metadata(self, question: str, db: AsyncSession) -> tuple[str, dict]:
         track = "대학원" if "대학원" in question else "학부"
@@ -111,6 +138,19 @@ class ScheduleService:
         metadata = {"source": "academic_schedule", "source_file": None, "topic": "schedule", "url": None}
         if not rows:
             return ("해당 학사일정을 찾지 못했어요. 관리자에게 학사일정 등록을 요청해 주세요.", metadata)
+
+        # 프론트 미니 달력 카드용 — 선별된 일정을 구조화해서 함께 반환(일정이 걸친 '주'만 렌더)
+        metadata["schedule_card"] = {
+            "today": today.isoformat(),
+            "events": [
+                {
+                    "event": r.event,
+                    "start_date": r.start_date.isoformat() if r.start_date else None,
+                    "end_date": (r.end_date or r.start_date).isoformat() if (r.end_date or r.start_date) else None,
+                }
+                for r in rows if r.start_date
+            ],
+        }
 
         context = "\n".join(f"- {r.event}: {_fmt_range(r.start_date, r.end_date)}" for r in rows)
         prompt = SCHEDULE_PROMPT.format(
@@ -127,19 +167,26 @@ class ScheduleService:
         keywords = self._extract_keywords(question)
         base = select(AcademicSchedule).where(AcademicSchedule.track == track)
 
-        # 이벤트 키워드가 있으면 → 그 이벤트들 (다가오는 것 우선, 과거는 뒤로)
+        # 이벤트 키워드가 있으면 → 그 이벤트들. 단 '이전 학년도'는 제외(현재 학년도는 통째로 유지).
+        # → 지난 날짜 질문도 현재 학년도 안에서는 답할 수 있고, 오래된 연도(2025 등) 노이즈는 사라진다.
+        # 현재 학년도 데이터에는 다음 해 초 일정까지 포함돼 있어, 하반기에 "1학기 수강신청"을 물어도
+        # (다음 해 초 일정) 자연스럽게 나온다. 정렬은 다가오는 것 우선 → 최근 과거 순.
         if keywords:
+            current_ay = today.year if today.month >= 3 else today.year - 1
             # 공백 무시 매칭: '1학기 수강 신청' 이벤트도 '수강신청' 키워드로 잡히게
             norm_event = func.replace(AcademicSchedule.event, " ", "")
             conds = [norm_event.ilike(f"%{k}%") for k in keywords]
             matched = (await db.execute(
-                base.where(or_(*conds)).order_by(AcademicSchedule.start_date)
+                base.where(or_(*conds))
+                    .where(AcademicSchedule.academic_year >= current_ay)   # 이전 학년도 제외
+                    .order_by(AcademicSchedule.start_date)
             )).scalars().all()
             if not matched:
                 return []
             upcoming = [r for r in matched if r.end_date and r.end_date >= today]
             past = [r for r in matched if not (r.end_date and r.end_date >= today)]
-            return (upcoming + past)[: self._MAX_ITEMS]
+            # 다가오는 것(가까운 순) + 최근 과거(최근 순)
+            return (upcoming + list(reversed(past)))[: self._MAX_ITEMS]
 
         # 키워드 없음(예: "지금 무슨 기간이야?", "이번 학사일정") → 오늘 진행 중 + 다가오는
         return await self._active_and_upcoming(base, today, db)

@@ -209,3 +209,9 @@ class ScheduleUpdateRequest(BaseModel):
     event: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+
+
+class ScheduleGateConfig(BaseModel):
+    # 학사일정 날짜-게이트 키워드 (어드민 편집)
+    date_intent: list[str] = []       # "언제", "며칠", "언제까지" 등
+    event_keywords: list[str] = []    # "수강신청", "성적", "휴학" 등

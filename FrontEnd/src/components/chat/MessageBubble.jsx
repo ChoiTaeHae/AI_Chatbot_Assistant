@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import MascotAvatar from '../common/MascotAvatar'
+import ScheduleCard from './ScheduleCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
 
 const API_BASE = 'http://localhost:8000'
@@ -435,6 +436,10 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
             </div>
           )}
 
+
+          {/* 학사일정 미니 달력 카드 (일정이 걸친 주만) */}
+          {message.scheduleCard && <ScheduleCard card={message.scheduleCard} />}
+
           {/* 학과/학부/단과대 안내 카드 — 소개 본문은 담지 않고 소속 정보 + 홈페이지 링크만 */}
           {message.deptCard && (
             <div
@@ -507,6 +512,7 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
               )}
             </div>
           )}
+
 
           {/* 파일 다운로드 링크 */}
           {message.fileDownload && (

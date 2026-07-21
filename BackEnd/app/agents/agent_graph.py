@@ -49,6 +49,46 @@ def _is_campus_question(q: str) -> bool:
     return bool(_BUILDING_CODE_RE.search(q))
 
 
+# 학사일정 '날짜 질문' fast-path — 날짜 의도(언제/며칠/언제까지…) + 학사 이벤트 키워드면
+# 임베딩 tug-of-war 없이 schedule로 확정 라우팅한다. 성적·휴학처럼 grades/leave/graduation과
+# 심하게 겹치는 단어도, "언제/기간이 언제까지" 같은 날짜 의도가 붙으면 답은 항상 달력(DB)이 맞다.
+# 날짜 의도가 없으면(조회 "성적 알려줘", 절차 "휴학 어떻게") 걸리지 않아 기존 토픽이 유지된다.
+#
+# ★ 키워드는 DB(app_config, key="schedule_gate")에서 로드해 어드민이 편집 가능. 아래는 기본값(시딩용).
+#   set_schedule_gate()로 런타임 교체되고, 어드민 저장 시 즉시 반영(재시작 불필요).
+DEFAULT_DATE_INTENT = ['언제', '며칠', '몇월', '몇일', '날짜', '언제까지', '언제부터']
+DEFAULT_EVENT_KWS = [
+    '수강신청', '수강정정', '수강변경', '수강철회', '수강취소',
+    '개강', '종강', '개학', '방학', '휴학', '복학', '자퇴', '전과', '재입학',
+    '등록기간', '분납',
+    '성적정정', '성적입력', '성적공고', '이의신청', '성적',
+    '중간고사', '기말고사', '정기평가', '수시평가', '시험기간',
+    '보강', '계절학기', '여름학기', '겨울학기',
+    '입학식', '졸업식', '학위수여식', '종합시험', '전공배정', '복수전공', '부전공',
+]
+
+# 런타임 캐시 (공백 제거 비교 기준)
+_gate_date_intent = tuple(k.replace(' ', '') for k in DEFAULT_DATE_INTENT)
+_gate_event_kws = tuple(k.replace(' ', '') for k in DEFAULT_EVENT_KWS)
+
+
+def set_schedule_gate(date_intent: list[str] | None, event_keywords: list[str] | None) -> None:
+    """DB 설정으로 게이트 키워드를 런타임 교체. 빈 값이면 기본값 유지."""
+    global _gate_date_intent, _gate_event_kws
+    di = [k.replace(' ', '') for k in (date_intent or []) if k and k.strip()]
+    ek = [k.replace(' ', '') for k in (event_keywords or []) if k and k.strip()]
+    _gate_date_intent = tuple(di) if di else tuple(k.replace(' ', '') for k in DEFAULT_DATE_INTENT)
+    _gate_event_kws = tuple(ek) if ek else tuple(k.replace(' ', '') for k in DEFAULT_EVENT_KWS)
+    print(f"[Graph] 학사일정 게이트 갱신: 날짜의도 {len(_gate_date_intent)}개 / 이벤트 {len(_gate_event_kws)}개")
+
+
+def _is_schedule_date_question(q: str) -> bool:
+    qn = q.replace(' ', '')
+    if not any(d in qn for d in _gate_date_intent):
+        return False
+    return any(kw in qn for kw in _gate_event_kws)
+
+
 def _with_file_offer(updates: dict, topic: str, question: str = "") -> dict:
     files_to_offer = updates.pop("files_to_offer", [])
     if not files_to_offer:
@@ -339,10 +379,13 @@ async def _embedding_classify(state: AgentState) -> dict:
 
 
 async def _keyword_classify(state: AgentState) -> dict:
-    """건물 코드 정규식 기반 campus 분류 (0ms)"""
+    """규칙 기반 fast-path 분류 (0ms) — campus 건물코드 / 학사일정 날짜질문"""
     if _is_campus_question(state["question"]):
         print("[Graph] 키워드 분류 → campus")
         return {"intent": "campus"}
+    if _is_schedule_date_question(state["question"]):
+        print("[Graph] 키워드 분류 → schedule (날짜 질문 fast-path)")
+        return {"intent": "schedule", "topic": "schedule"}
     return {"intent": None}
 
 
@@ -403,6 +446,7 @@ async def _handle_schedule(state: AgentState) -> dict:
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "schedule",
+        "schedule_card": metadata.get("schedule_card"),
     }
 
 
@@ -525,7 +569,12 @@ def _route_pre_check(state: AgentState) -> str:
 
 
 def _route_keyword(state: AgentState) -> str:
-    return "campus" if state.get("intent") == "campus" else "embed"
+    it = state.get("intent")
+    if it == "campus":
+        return "campus"
+    if it == "schedule":
+        return "schedule"
+    return "embed"
 
 
 def _route_chitchat_gate(state: AgentState) -> str:
@@ -570,8 +619,9 @@ def _build_graph():
 
     g.add_conditional_edges("pre_check", _route_pre_check, _HANDLER_MAP)
     g.add_conditional_edges("keyword_classify", _route_keyword, {
-        "campus": "handle_campus",
-        "embed":  "chitchat_gate",
+        "campus":   "handle_campus",
+        "schedule": "handle_schedule",
+        "embed":    "chitchat_gate",
     })
     g.add_conditional_edges("chitchat_gate", _route_chitchat_gate, {
         "general":  "handle_general",
@@ -605,6 +655,7 @@ class AgentResult:
     file_offer: dict | None = None
     file_download: dict | None = None
     map_card: dict | None = None
+    schedule_card: dict | None = None
     dept_card: dict | None = None
     pending_context: dict | None = None
     intent: str | None = None
@@ -643,6 +694,7 @@ class AgentGraph:
             "file_offer": None,
             "file_download": None,
             "map_card": None,
+            "schedule_card": None,
             "dept_card": None,
             "next_pending_context": None,
             "source": None,
@@ -659,6 +711,7 @@ class AgentGraph:
             file_offer=result.get("file_offer"),
             file_download=result.get("file_download"),
             map_card=result.get("map_card"),
+            schedule_card=result.get("schedule_card"),
             dept_card=result.get("dept_card"),
             pending_context=result.get("next_pending_context"),
             intent=result.get("intent"),
