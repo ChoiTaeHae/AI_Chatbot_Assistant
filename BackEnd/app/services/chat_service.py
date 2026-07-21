@@ -108,6 +108,7 @@ class ChatService:
             file_download=result.file_download,
             map_card=result.map_card,
             schedule_card=getattr(result, "schedule_card", None),
+            dept_card=result.dept_card,
             pending_context=result.pending_context,
             rewritten_query=getattr(result, "rewritten_query", None),
         )

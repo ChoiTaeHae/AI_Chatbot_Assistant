@@ -436,8 +436,83 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
             </div>
           )}
 
+
           {/* 학사일정 미니 달력 카드 (일정이 걸친 주만) */}
           {message.scheduleCard && <ScheduleCard card={message.scheduleCard} />}
+
+          {/* 학과/학부/단과대 안내 카드 — 소개 본문은 담지 않고 소속 정보 + 홈페이지 링크만 */}
+          {message.deptCard && (
+            <div
+              className="rounded-xl border border-[#005956]/20 overflow-hidden"
+              style={{ marginTop: '14px' }}
+            >
+              <div className="flex items-center gap-2 bg-[#f0f9f8]" style={{ padding: '10px 14px' }}>
+                <div className="shrink-0 rounded-lg bg-[#005956] flex items-center justify-center" style={{ width: '32px', height: '32px' }}>
+                  <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-[#005956] truncate">{message.deptCard.title}</p>
+                  <p className="text-xs text-slate-500 truncate">{message.deptCard.subtitle}</p>
+                </div>
+              </div>
+
+              {/* 형제 학과 / 소속 학과 목록 */}
+              {message.deptCard.items?.length > 0 && (
+                <div className="bg-white" style={{ padding: '10px 14px' }}>
+                  <p className="text-slate-400" style={{ fontSize: '11px', marginBottom: '5px' }}>
+                    {message.deptCard.items_label}
+                  </p>
+                  <div className="flex flex-wrap" style={{ gap: '4px' }}>
+                    {message.deptCard.items.map((it) => (
+                      <span
+                        key={it}
+                        className="rounded-full bg-slate-100 text-slate-600"
+                        style={{ fontSize: '11px', padding: '2px 8px' }}
+                      >
+                        {it}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 학과 사무실 전화 — 모바일에서 눌러서 바로 걸 수 있게 tel: 링크 */}
+              {message.deptCard.phone && (
+                <div className="bg-white border-t border-slate-100" style={{ padding: '8px 14px' }}>
+                  <p className="flex items-center gap-1.5 text-slate-500" style={{ fontSize: '11px' }}>
+                    <span>📞</span>
+                    {message.deptCard.phone.split(',').map((num, i) => (
+                      <span key={num}>
+                        {i > 0 && <span className="text-slate-300" style={{ margin: '0 4px' }}>·</span>}
+                        <a href={`tel:${num.trim()}`} className="text-slate-600 hover:text-[#005956]" style={{ textDecoration: 'none' }}>
+                          {num.trim()}
+                        </a>
+                      </span>
+                    ))}
+                  </p>
+                </div>
+              )}
+
+              {/* 학과 홈페이지 링크 (DB에 주소가 채워진 학과만) */}
+              {message.deptCard.homepage_url && (
+                <a
+                  href={message.deptCard.homepage_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 text-xs font-medium text-[#005956] hover:bg-[#e4f4f3] transition bg-white border-t border-slate-100"
+                  style={{ padding: '8px', textDecoration: 'none' }}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                  </svg>
+                  학과 홈페이지 바로가기
+                </a>
+              )}
+            </div>
+          )}
+
 
           {/* 파일 다운로드 링크 */}
           {message.fileDownload && (
