@@ -4,6 +4,8 @@ import { fetchScheduleMonth, fetchScheduleUpcoming } from '../../api/schedule'
 const WD = ['일', '월', '화', '수', '목', '금', '토']
 // 주 한 줄 높이(px) — 팝업을 absolute로 띄울 때 top 계산에 쓰므로 고정값이어야 한다.
 const ROW_H = 30
+// 달력 펼침 여부 저장 키 — 사이드바가 좁아 기본은 접힘(다가오는 일정만 표시)
+const OPEN_KEY = 'wsu.scheduleWidget.open'
 
 const T = {
   ko: { title: '학사일정', upcoming: '다가오는 일정', none: '등록된 학사일정이 없어요' },
@@ -43,7 +45,20 @@ export default function ScheduleWidget({ lang = 'ko' }) {
   const [upcoming, setUpcoming] = useState([])
   const [todayISO, setTodayISO] = useState(toISO(new Date()))
   const [sel, setSel] = useState(null)   // { iso, weekIdx, colIdx }
+  // 달력 펼침 — 접혀 있어도 '다가오는 일정'은 계속 보이므로 위젯 가치는 유지된다.
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(OPEN_KEY) === '1' } catch { return false }
+  })
   const calRef = useRef(null)
+
+  function toggleOpen() {
+    setOpen(prev => {
+      const next = !prev
+      try { localStorage.setItem(OPEN_KEY, next ? '1' : '0') } catch { /* 저장 실패는 무시 */ }
+      if (!next) setSel(null)          // 접을 때 상세 팝업도 닫기
+      return next
+    })
+  }
 
   // 달력 바깥을 클릭하면 상세 팝업 닫기
   // (팝업을 연 클릭 자체는 달력 안에서 발생하므로 contains 검사에 걸려 즉시 닫히지 않는다)
@@ -58,20 +73,21 @@ export default function ScheduleWidget({ lang = 'ko' }) {
 
   // 다가오는 일정 — 항상 고정 표시 (월 이동과 무관)
   useEffect(() => {
-    fetchScheduleUpcoming(3)
+    fetchScheduleUpcoming(2)
       .then(d => { setUpcoming(d.events || []); if (d.today) setTodayISO(d.today) })
       .catch(() => setUpcoming([]))
   }, [])
 
   // 월별 일정 — 달력 점 표시용
   useEffect(() => {
+    if (!open) return            // 접혀 있으면 달력을 안 그리므로 조회도 생략
     let alive = true
     setSel(null)   // 월 이동 시 팝업 닫기
     fetchScheduleMonth(cursor.getFullYear(), cursor.getMonth() + 1)
       .then(d => { if (alive) setEvents(d.events || []) })
       .catch(() => { if (alive) setEvents([]) })
     return () => { alive = false }
-  }, [cursor])
+  }, [cursor, open])
 
   const weeks = useMemo(() => buildWeeks(cursor.getFullYear(), cursor.getMonth()), [cursor])
 
@@ -86,9 +102,16 @@ export default function ScheduleWidget({ lang = 'ko' }) {
   return (
     <section className="border border-slate-200 rounded-xl bg-white shrink-0 overflow-hidden" style={{ marginTop: '14px' }}>
       <div style={{ padding: '12px' }}>
-        {/* 헤더: 제목 + 월 이동 */}
-        <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
-          <span className="text-xs font-bold text-slate-800">📅 {t.title}</span>
+        {/* 헤더: 제목(=접기/펼치기 토글) + 월 이동(펼쳤을 때만) */}
+        <div className="flex items-center justify-between" style={{ marginBottom: open ? '8px' : '6px' }}>
+          <button onClick={toggleOpen} className="flex items-center hover:opacity-70 transition" style={{ gap: '3px' }}>
+            <span className="text-xs font-bold text-slate-800">📅 {t.title}</span>
+            <svg className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+              style={{ width: '11px', height: '11px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+          {open && (
           <div className="flex items-center" style={{ gap: '2px' }}>
             <button onClick={() => setCursor(c => new Date(c.getFullYear(), c.getMonth() - 1, 1))}
               className="rounded text-slate-400 hover:text-[#005956] hover:bg-slate-50 transition"
@@ -100,9 +123,12 @@ export default function ScheduleWidget({ lang = 'ko' }) {
               className="rounded text-slate-400 hover:text-[#005956] hover:bg-slate-50 transition"
               style={{ width: '18px', height: '18px', fontSize: '13px', lineHeight: 1 }} aria-label="다음 달">›</button>
           </div>
+          )}
         </div>
 
-        {/* 요일 */}
+        {/* 요일 + 달력 — 펼쳤을 때만 (사이드바 세로 공간 확보) */}
+        {open && (
+        <>
         <div className="grid grid-cols-7">
           {WD.map((w, i) => (
             <div key={w} className={`text-center ${i === 0 ? 'text-red-300' : i === 6 ? 'text-blue-300' : 'text-slate-300'}`}
@@ -186,9 +212,11 @@ export default function ScheduleWidget({ lang = 'ko' }) {
             </div>
           )}
         </div>
+        </>
+        )}
 
-        {/* 다가오는 일정 — 항상 고정 */}
-        <div className="border-t border-slate-100" style={{ marginTop: '8px', paddingTop: '8px' }}>
+        {/* 다가오는 일정 — 접혀 있어도 항상 표시 (위젯의 핵심 정보) */}
+        <div className={open ? 'border-t border-slate-100' : ''} style={{ marginTop: open ? '8px' : '0', paddingTop: open ? '8px' : '0' }}>
           <p className="text-slate-400" style={{ fontSize: '10px', fontWeight: 700, marginBottom: '5px' }}>{t.upcoming}</p>
           {upcoming.length === 0 ? (
             <p className="text-slate-300" style={{ fontSize: '11px' }}>{t.none}</p>
