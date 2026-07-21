@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getWeekDining, getMySessions, getGraduationReport, deleteSession, checkBackendHealth } from '../../api/chat'
+import ScheduleWidget from './ScheduleWidget'
 
 const T = {
   ko: { newChat: '새 대화', meal: '학생식당', recent: '최근 대화', all: '전체', empty: '아직 대화가 없어요', noMeal: '이번 주 학식 정보가 없어요', credit: '학점 진행률', toGrad: '졸업까지', earned: '총 이수',
@@ -373,6 +374,9 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
             )}
           </div>
         </section>
+
+        {/* 학사일정 (달력 + 다가오는 일정) */}
+        <ScheduleWidget lang={lang} />
 
         {/* 최근 대화 + topic 필터 */}
         <div className="flex flex-col min-h-0 flex-1" style={{ marginTop: '16px' }}>
