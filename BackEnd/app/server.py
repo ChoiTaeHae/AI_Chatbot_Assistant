@@ -50,6 +50,24 @@ async def _load_topics() -> list[dict]:
         ]
 
 
+async def _load_schedule_gate() -> None:
+    """학사일정 게이트 키워드를 app_config(key=schedule_gate)에서 로드. 없으면 기본값 시딩."""
+    from sqlalchemy import select
+    from app.core.Database import AsyncSessionLocal   # expire_on_commit=False → commit 후 lazy IO 없음
+    from app.models.DB_Table import AppConfig
+    from app.agents.agent_graph import set_schedule_gate, DEFAULT_DATE_INTENT, DEFAULT_EVENT_KWS
+
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(select(AppConfig).where(AppConfig.key == "schedule_gate"))).scalar_one_or_none()
+        if row is None:
+            cfg = {"date_intent": DEFAULT_DATE_INTENT, "event_keywords": DEFAULT_EVENT_KWS}
+            session.add(AppConfig(key="schedule_gate", value=cfg))
+            await session.commit()
+        else:
+            cfg = dict(row.value or {})
+    set_schedule_gate(cfg.get("date_intent"), cfg.get("event_keywords"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DB 연결 (async 방식)
@@ -104,6 +122,12 @@ async def lifespan(app: FastAPI):
         print("topic 라우터 워밍업 완료")
     except Exception as e:
         print(f"topic 라우터 워밍업 실패 (무시): {e}")
+
+    # 학사일정 날짜-게이트 키워드 로드 (app_config, 어드민 편집분 반영)
+    try:
+        await _load_schedule_gate()
+    except Exception as e:
+        print(f"[Server] 학사일정 게이트 로드 실패 (기본값 사용): {e}")
 
     yield
     # 서버 종료 시

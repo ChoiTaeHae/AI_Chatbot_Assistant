@@ -22,6 +22,7 @@ class AgentState(TypedDict):
     file_offer: dict | None
     file_download: dict | None
     map_card: dict | None
+    schedule_card: dict | None       # 학사일정 미니 달력 카드 { today, events: [...] }
     next_pending_context: dict | None
     source: str | None
     source_file: str | None

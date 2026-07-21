@@ -318,6 +318,19 @@ class AcademicSchedule(Base):
 
 
 # ==========================================
+# 17-3. 앱 설정 (app_config) — 어드민 편집용 key-value
+# ==========================================
+# 코드 하드코딩 대신 DB로 빼서 어드민이 편집 가능하게 하는 범용 설정.
+# 예: key="schedule_gate" → {"date_intent": [...], "event_keywords": [...]}
+class AppConfig(Base):
+    __tablename__ = "app_config"
+
+    key        = Column(String(100), primary_key=True)
+    value      = Column(JSON, nullable=False, server_default="{}")
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+# ==========================================
 # 18. Topic 테이블 (topic)
 # ==========================================
 class Topic(Base):

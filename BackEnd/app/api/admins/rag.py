@@ -13,6 +13,7 @@ from app.schemas.admins import (
     ScheduleItem,
     ScheduleCreateRequest,
     ScheduleUpdateRequest,
+    ScheduleGateConfig,
 )
 from app.services.admin_service import admin_service
 
@@ -181,6 +182,18 @@ async def delete_schedule(schedule_id: int, db: AsyncSession = Depends(get_db)):
         return {"success": True, "id": schedule_id}
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/schedule/gate", response_model=ScheduleGateConfig, summary="학사일정 날짜-게이트 키워드 조회")
+async def get_schedule_gate(db: AsyncSession = Depends(get_db)):
+    from app.services.school.schedule import schedule_service
+    return await schedule_service.get_gate_config(db)
+
+
+@router.put("/schedule/gate", response_model=ScheduleGateConfig, summary="학사일정 날짜-게이트 키워드 저장(즉시 반영)")
+async def put_schedule_gate(body: ScheduleGateConfig, db: AsyncSession = Depends(get_db)):
+    from app.services.school.schedule import schedule_service
+    return await schedule_service.update_gate_config(db, body.date_intent, body.event_keywords)
 
 
 @router.get("/documents/status/{job_id}", summary="업로드 처리 상태 확인")

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import MascotAvatar from '../common/MascotAvatar'
+import ScheduleCard from './ScheduleCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
 
 const API_BASE = 'http://localhost:8000'
@@ -434,6 +435,9 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
               )}
             </div>
           )}
+
+          {/* 학사일정 미니 달력 카드 (일정이 걸친 주만) */}
+          {message.scheduleCard && <ScheduleCard card={message.scheduleCard} />}
 
           {/* 파일 다운로드 링크 */}
           {message.fileDownload && (

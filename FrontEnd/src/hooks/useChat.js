@@ -52,6 +52,7 @@ export function useChat(lang = 'ko') {
         fileOffer: data.file_offer || null,
         fileDownload: data.file_download || null,
         mapCard: data.map_card || null,
+        scheduleCard: data.schedule_card || null,
       }
       // [DEV-ONLY] rewrite가 있으면 사용자 메시지에 붙여 rewrite 피드백 패널 표시
       setMessages((prev) => {
@@ -121,6 +122,7 @@ export function useChat(lang = 'ko') {
         fileOffer: data.file_offer || null,
         fileDownload: data.file_download || null,
         mapCard: data.map_card || null,
+        scheduleCard: data.schedule_card || null,
       }
       setMessages((prev) => [...prev, aiMsg])
     } catch (err) {
