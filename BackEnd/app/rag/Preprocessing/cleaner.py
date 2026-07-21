@@ -91,10 +91,22 @@ def _collapse_whitespace(text: str) -> str:
     text = re.sub(r'[ \t]{2,}', ' ', text)
     return text.strip()
 
+# 줄 맨 앞 마커(▶ 신청기한 등)는 장식이 아니라 섹션 헤딩 표시다. 청커가
+# _STRUCTURE_SEPARATORS/_LINE_HEADING_RE로 바로 이 마커를 찾아 섹션 경계를 잡으므로
+# 여기서 지우면 공고문이 섹션이 아니라 글자 수로 잘린다(제목만 든 고아 청크 발생).
+# 청커가 아는 마커(○)로 통일해 보존하고, 문장 중간의 같은 기호만 장식으로 보고 제거한다.
+_MARKER_CHARS = '□■○●◎◆◇▶▷►▲△▼▽★☆'
+_LEAD_MARKER_RE = re.compile(rf'(?m)^([ \t]*)[{_MARKER_CHARS}][ \t]*')
+_INLINE_MARKER_RE = re.compile(rf'[{_MARKER_CHARS}]')
+_LEAD_SENTINEL = '\x00'   # 본문에 나올 수 없는 문자 — 줄머리 마커 임시 보호용
+
+
 def _remove_special_chars(text: str) -> str:
-    """의미없는 특수문자 제거"""
-    # 체크박스/불릿 마커 → 제거
-    text = re.sub(r'[□■○●◎◆◇▶▷►▲△▼▽★☆]', '', text)
+    """의미없는 특수문자 제거 (줄 맨 앞 섹션 마커는 ○로 보존)"""
+    # 체크박스/불릿 마커 → 줄머리는 보존, 그 외는 제거
+    text = _LEAD_MARKER_RE.sub(lambda m: m.group(1) + _LEAD_SENTINEL, text)
+    text = _INLINE_MARKER_RE.sub('', text)
+    text = text.replace(_LEAD_SENTINEL, '○ ')
     # 구분선 (----, ====, ····) → 제거
     text = re.sub(r'^[\-=·_]{3,}\s*$', '', text, flags=re.MULTILINE)
     # 화살표 기호

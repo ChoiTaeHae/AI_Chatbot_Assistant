@@ -275,16 +275,42 @@ def _propagate_headings(chunks: list[str]) -> list[str]:
     return out
 
 
+_NUM_SEP_IDX = 0      # r"(?=\n\s*\d{1,2}\.\s(?!\d))"  — 1. 2. 3.
+_MARKER_SEP_IDX = 5   # r"(?=\n\s*[○◯■□▣]\s)"          — ○ ■ 섹션 마커
+
+
+def _detect_top_level(text: str) -> int:
+    """이 문서의 최상위 구분자가 번호(1.)인지 마커(○)인지 판별.
+
+    _STRUCTURE_SEPARATORS는 '1.'을 항상 최상위로 가정하지만, 공고문 중엔 '○ 신청기한'
+    같은 마커가 최상위이고 1./2.가 그 아래 항목인 문서가 있다(국가장학금 2유형 공고).
+    이때 번호부터 자르면 '신청기한'·'문의'가 앞 번호 항목 꼬리에 붙어버린다.
+
+    마커를 최상위로 올리는 조건은 보수적으로 둔다 — 마커 섹션이 3개 이상이고, 첫 마커가
+    첫 번호 항목보다 앞설 때만. '가장 먼저 나오는 구분자가 최상위'로 넓게 잡으면 문서
+    앞머리의 <소제목>에 걸려 기존에 잘 잘리던 번호 공고문이 깨진다(실측: 9청크 → 5청크).
+    """
+    marker_sep = _STRUCTURE_SEPARATORS[_MARKER_SEP_IDX]
+    m_marker = re.search(marker_sep, text)
+    if not m_marker or len(re.findall(marker_sep, text)) < 3:
+        return _NUM_SEP_IDX
+    m_num = re.search(_STRUCTURE_SEPARATORS[_NUM_SEP_IDX], text)
+    if m_num and m_num.start() < m_marker.start():
+        return _NUM_SEP_IDX
+    return _MARKER_SEP_IDX
+
+
 def split_by_structure(text: str, chunk_size: int = 1200, min_length: int = 50) -> list[dict]:
     """구조(헤딩/리스트) 인식 재귀 청킹. 헤딩+하위 불릿을 단위로 유지, 넘치면 하위 레벨로 분할.
 
-    번호 섹션(1. 2. 3.)은 크기와 무관하게 항상 섹션 경계에서 먼저 자른다 —
-    '2. 관리 운영'과 '3. 휴무 운영'이 chunk_size보다 작다고 한 청크로 뭉치지 않고
-    각각 독립 청크(단락 단위)가 되도록. 섹션 내부는 기존 재귀 로직(크기 초과 시 하위 레벨)."""
-    top_parts = [p.strip() for p in re.split(_STRUCTURE_SEPARATORS[0], text.strip()) if p.strip()]
+    최상위 섹션(번호 또는 ○ 마커 — _detect_top_level이 판별)은 크기와 무관하게 항상
+    섹션 경계에서 먼저 자른다 — '2. 관리 운영'과 '3. 휴무 운영'이 chunk_size보다 작다고
+    한 청크로 뭉치지 않고 각각 독립 청크가 되도록. 섹션 내부는 기존 재귀 로직."""
+    top = _detect_top_level(text)
+    top_parts = [p.strip() for p in re.split(_STRUCTURE_SEPARATORS[top], text.strip()) if p.strip()]
     pieces: list[str] = []
     for part in top_parts:
-        pieces.extend(_recursive_structure_split(part, 1, chunk_size))
+        pieces.extend(_recursive_structure_split(part, top + 1, chunk_size))
     merged = _merge_short_pieces(pieces, chunk_size, min_length)
     merged = _propagate_headings(merged)   # 쪼개진 섹션에 제목 전파
     return [{"chapter": None, "article": None, "text": p} for p in merged if p.strip()]
