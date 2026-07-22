@@ -32,6 +32,34 @@ class ChatService:
 
         await db.flush()
 
+        # 파일 제안 '예/아니오' 버튼은 대화가 아니라 버튼 동작이다. 이 턴을 대화 메시지로
+        # 저장하면 '네'가 다음 질문의 '이전 질문'이 되어 검색어 재작성을 오염시킨다
+        # (예: '신청 가능해?' + 이전 '네' → '신청 방법'으로 변질). 파일 전송은 요청 파라미터
+        # (pending_file/file_confirm)로 처리되어 DB 기록이 필요 없으므로 이 턴은 저장하지 않는다.
+        # 프론트도 같은 이유로 사용자 말풍선을 만들지 않는다(useChat.js confirmFile).
+        if request.pending_file and request.file_confirm is not None and not request.pending_context:
+            from app.agents.agent_graph import agent_graph
+            result = await agent_graph.run(
+                question=request.question,
+                student_id=current_user.id,
+                db=db,
+                pending_file=request.pending_file,
+                pending_context=request.pending_context,
+                prev_context=None,
+                file_confirm=request.file_confirm,
+            )
+            await db.commit()   # 세션 생성분만 커밋 (메시지는 저장 안 함)
+            return ChatResponse(
+                answer=result.answer,
+                session_id=session.id,
+                message_id=None,
+                file_offer=result.file_offer,
+                file_download=result.file_download,
+                map_card=result.map_card,
+                dept_card=result.dept_card,
+                pending_context=result.pending_context,
+            )
+
         user_msg = ChatMessage(
             session_id=session.id,
             student_id=current_user.id,

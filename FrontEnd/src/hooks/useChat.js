@@ -82,14 +82,9 @@ export function useChat(lang = 'ko') {
     setIsLoading(true)
     const currentPendingFile = fileOffer
 
-    // 사용자 버튼 클릭을 채팅 메시지로 표시
-    const userMsg = {
-      id: Date.now(),
-      role: 'user',
-      content: confirmed ? '네, 주세요!' : '아니요, 괜찮습니다.',
-      time: getTime(),
-    }
-    setMessages((prev) => [...prev, userMsg])
+    // 버튼 클릭은 대화가 아니라 동작이라 사용자 말풍선을 만들지 않는다.
+    // ('네, 주세요!'를 대화로 남기면 다음 질문의 '이전 질문'이 되어 검색어 재작성을
+    //  오염시킨다 — 예: '신청 가능해?' + 이전 '네, 주세요!' → 엉뚱한 검색어)
     setPendingFile(null)
 
     try {
