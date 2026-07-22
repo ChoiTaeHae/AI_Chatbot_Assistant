@@ -84,6 +84,58 @@ def _keeps_topic(question: str, rewritten: str) -> bool:
     return any(t in rw for t in terms)
 
 
+# ── 검색어 딕셔너리 ────────────────────────────────────────────────
+# 학생이 쓰는 말 → 문서에 실제 존재하는 공식 용어.
+# 문서에 없는 용어를 덧붙이면 오히려 검색이 망가지므로(실측: '간사 뽑는거 언제야'에
+# '조교 모집'을 더하자 0.336 → 0.000) 점수로 검증된 매핑만 등록한다.
+# DB(app_config, key="search_synonyms")에서 로드하며 아래는 시딩용 기본값.
+DEFAULT_SEARCH_SYNONYMS: dict[str, list[str]] = {
+    "학칙": ["학생규칙"],     # 실측 0.014 → 0.642
+    "공결": ["출석인정"],     # 실측 0.051 → 0.994
+}
+
+_search_synonyms: dict[str, list[str]] = dict(DEFAULT_SEARCH_SYNONYMS)
+
+
+def set_search_synonyms(mapping: dict | None) -> None:
+    """DB 설정으로 딕셔너리를 런타임 교체. 값이 비면 기본값을 유지한다."""
+    global _search_synonyms
+    cleaned: dict[str, list[str]] = {}
+    for key, val in (mapping or {}).items():
+        term = str(key).strip()
+        if not term:
+            continue
+        officials = [str(v).strip() for v in (val if isinstance(val, list) else [val]) if str(v).strip()]
+        if officials:
+            cleaned[term] = officials
+    _search_synonyms = cleaned or dict(DEFAULT_SEARCH_SYNONYMS)
+    print(f"[RAG_GENERAL] 검색어 딕셔너리 {len(_search_synonyms)}개 로드")
+
+
+def expand_search_query(query: str) -> str:
+    """질문에 구어 용어가 있으면 공식 용어를 뒤에 덧붙인다(치환이 아니라 추가).
+
+    - 치환하지 않는 이유: 원 질문의 표현도 검색에 함께 반영되어야 안전하다.
+    - 공식 용어가 이미 질문에 있으면 중복 추가하지 않는다.
+    - 매핑이 없으면 원문 그대로 반환하므로 대부분의 질문에는 아무 영향이 없다.
+    """
+    if not query:
+        return query
+    qn = query.replace(" ", "")
+    additions: list[str] = []
+    for term, officials in _search_synonyms.items():
+        if term.replace(" ", "") not in qn:
+            continue
+        for official in officials:
+            if official.replace(" ", "") not in qn and official not in additions:
+                additions.append(official)
+    if not additions:
+        return query
+    expanded = f"{query} {' '.join(additions)}"
+    print(f"[RAG_GENERAL] 검색어 확장: '{query}' → '{expanded}'")
+    return expanded
+
+
 def _clean_rewrite_output(raw: str | None) -> str:
     """LLM 재작성 출력 정리.
     - 빈/None 출력 안전 처리 (빈 문자열 반환)
@@ -223,6 +275,16 @@ async def answer_rag_general_question_with_metadata(
     # → 후속(hoisted)은 재작성 쿼리("휴학 기간")로 리랭킹하고, 1차 질문은 기존대로 구어체 원본으로.
     rerank_question = search_query if hoisted else question
 
+    # 파인튜닝 로그는 '확장 전' 재작성 결과를 남긴다 — 딕셔너리 확장은 검색용 보조일 뿐이라
+    # 재작성 품질 라벨에 섞이면 안 된다.
+    rewritten_for_log = search_query
+
+    # 검색어 딕셔너리 확장 — 임베딩 검색과 리랭킹 양쪽에 적용한다.
+    # (문서명이 '학생규칙'인데 질문이 '학칙'인 것처럼 표기가 다른 경우를 잡기 위함.
+    #  답변 생성 프롬프트에는 원 질문이 들어가므로 사용자가 보는 내용은 바뀌지 않는다)
+    search_query = expand_search_query(search_query)
+    rerank_question = expand_search_query(rerank_question)
+
     loop = asyncio.get_event_loop()
     context, metadata = await loop.run_in_executor(
         None,
@@ -233,7 +295,7 @@ async def answer_rag_general_question_with_metadata(
     )
 
     # 파인튜닝 데이터용: 실제로 재작성된 경우에만 기록 (원본과 같으면 no-op이므로 None)
-    metadata["rewritten_query"] = search_query if search_query != question else None
+    metadata["rewritten_query"] = rewritten_for_log if rewritten_for_log != question else None
 
     # 검색 결과가 없으면 LLM 호출 스킵 — 근거 없는 답변(환각) 생성 방지.
     # 다만 그냥 끝내지 않고 다운로드 파일을 먼저 확인한다: 신청 매뉴얼처럼 화면 캡처
