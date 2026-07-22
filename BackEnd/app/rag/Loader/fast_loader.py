@@ -183,12 +183,19 @@ class FastLoader:
         def fmt(c):
             return (c or "").replace("\n", " ").replace("|", "／").strip()
 
+        # 1열 셀은 표 값이 아니라 본문 덩어리라 줄바꿈을 살린다 (fmt와 다른 점).
+        def box_fmt(c):
+            return (c or "").replace("|", "／").strip()
+
         ncol = max(len(r) for r in clean_rows)
 
         # 1열 '표'는 데이터 표가 아니라 강조 박스(테두리만 있는 안내문) →
         # 마크다운 표로 만들지 않고 평문으로 반환 (셀 전체가 article로 오염되는 것 방지)
+        # 셀 안 줄바꿈은 반드시 보존할 것: 페이지 테두리를 표로 오인하면 섹션 하나가
+        # 통째로 한 셀에 들어오는데, fmt()로 \n을 공백으로 만들면 '1.~7.' 항목이 한 줄로
+        # 뭉쳐 청커가 섹션 경계를 못 찾고 글자 수로만 자른다(제목만 든 고아 청크 발생).
         if ncol <= 1:
-            cells = [fmt(r[0]) for r in clean_rows if r and fmt(r[0])]
+            cells = [box_fmt(r[0]) for r in clean_rows if r and box_fmt(r[0])]
             return "\n\n".join(cells)
 
         def pad(r):
