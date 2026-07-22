@@ -1406,10 +1406,11 @@ export default function AdminPage() {
                     <tbody>
                       {(files[filesTopic] || []).map((f) => (
                         <tr key={f.name} className="border-b border-slate-50 hover:bg-slate-50 transition group">
-                          <td className="font-medium text-slate-700" style={{ padding: '12px' }}>
+                          {/* width:100% → 파일명 칸이 남는 폭을 모두 차지 (크기·액션은 내용폭만) */}
+                          <td className="font-medium text-slate-700" style={{ padding: '12px', width: '100%' }}>
                             <div className="flex items-center" style={{ gap: '8px' }}>
                               {/* 확장자 아이콘 */}
-                              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
+                              <span className={`shrink-0 text-xs font-bold px-1.5 py-0.5 rounded-md ${
                                 f.name.endsWith('.pdf') ? 'bg-red-100 text-red-600' :
                                 f.name.endsWith('.docx') || f.name.endsWith('.hwp') || f.name.endsWith('.hwpx') ? 'bg-blue-100 text-blue-600' :
                                 f.name.endsWith('.xlsx') ? 'bg-green-100 text-green-600' :
@@ -1418,10 +1419,12 @@ export default function AdminPage() {
                               }`}>
                                 {f.name.split('.').pop().toUpperCase()}
                               </span>
-                              <span className="truncate max-w-xs">{f.name}</span>
+                              {/* 학사 파일명은 앞부분이 비슷해 짧게 자르면 구분이 안 된다(안산시 공고 3종 등).
+                                  자르기는 유지하되 상한을 넓힘 — 실제 파일명 대부분이 이 안에 들어온다. */}
+                              <span className="truncate max-w-2xl">{f.name}</span>
                             </div>
                           </td>
-                          <td className="text-slate-400 text-xs" style={{ padding: '12px' }}>
+                          <td className="text-slate-400 text-xs whitespace-nowrap" style={{ padding: '12px' }}>
                             {f.size < 1024 ? `${f.size} B` :
                              f.size < 1024 * 1024 ? `${(f.size / 1024).toFixed(1)} KB` :
                              `${(f.size / 1024 / 1024).toFixed(1)} MB`}
