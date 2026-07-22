@@ -80,13 +80,21 @@ class LlmService:
     def _generate_local(self, question, max_tokens, system_prompt, temperature) -> str:
         try:
             t0 = time.time()
+            # n_ctx(4096)는 프롬프트와 생성의 '합계'다. RAG 컨텍스트가 길면 요청한 max_tokens를
+            # 다 쓸 수 없으므로 남는 만큼으로 줄인다. 이 클램프가 있어야 호출부가 넉넉히
+            # 요청해도(짧은 컨텍스트일 때 긴 답변을 받으려고) 컨텍스트 초과로 깨지지 않는다.
+            n_ctx = self.model.n_ctx()
+            used = len(self.model.tokenize(f"{system_prompt}\n{question}".encode("utf-8")))
+            capped = max(128, min(max_tokens, n_ctx - used - 64))   # 64 = 채팅 템플릿 마커 여유
+            if capped < max_tokens:
+                print(f"[LLM] max_tokens {max_tokens} → {capped} (프롬프트 {used}토큰 / n_ctx {n_ctx})")
             print("[LLM] 로컬 추론 시작")
             response = self.model.create_chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": question},
                 ],
-                max_tokens=max_tokens,
+                max_tokens=capped,
                 temperature=temperature,
                 top_p=0.9,
                 repeat_penalty=1.1,

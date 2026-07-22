@@ -70,6 +70,42 @@ def _distinctive_terms(question: str) -> list[str]:
     return terms
 
 
+# 재작성이 새로 만들어 내면 안 되는 '행위' 개념.
+#
+# 실측: 'F스포렉스'(헬스장·수영장 시설 이름)가 'F스포렉스 신청 방법'으로 재작성되자,
+# 검색은 얇게(173자) 맞았고 LLM이 신청 대상·자격 요건·구비서류·"매월 15일까지(연장 불가)"를
+# 통째로 지어냈다. 바로 다음 질문('F스포렉스에 대해서 알려줘')은 같은 문서로 정확히 답했다.
+# → 질문 프레임이 근거에 없는 개념을 요구하면 8B는 빈칸을 메운다. 프롬프트에 이미
+#   "문서에 없는 내용은 추측하지 않는다"가 있는데도 그랬다. 그래서 프레임 자체를 막는다.
+#
+# 값은 '원문에 그 개념이 있었다고 인정할 표현들'이다. 구어체를 넉넉히 넣어 둔 이유는,
+# '어떻게' → '방법' 같은 구어체→공식용어 변환이 재작성의 본래 임무라 막으면 안 되기 때문.
+# (넓게 인정할수록 가드가 관대해지므로 안전한 방향이다)
+_ACTION_CONCEPTS: dict[str, tuple[str, ...]] = {
+    # '어디서'도 방법을 묻는 씨앗으로 인정한다 — '증명서 어디서 떼' → '증명서 발급 방법'은
+    # 정당한 변환인데 폐기됐다(실측). 반대로 '뭐야/얼마야'는 넣지 않는다: '졸업 요건 뭐야'가
+    # '졸업 요건 확인 방법'이 되면 질문의 성격 자체가 바뀌므로 막아야 한다.
+    "방법": ("방법", "어떻게", "어케", "하는법", "하려면", "어디"),
+    "신청": ("신청", "접수", "지원", "넣", "내려"),
+    "절차": ("절차", "과정", "순서", "어떻게", "하려면", "어디"),
+    "발급": ("발급", "떼", "받"),
+}
+
+
+def _invents_action(question: str, rewritten: str, prev_question: str | None) -> str | None:
+    """재작성이 원문·이전질문 어디에도 없던 '행위' 개념을 만들어 냈으면 그 개념명을 반환.
+
+    이전 질문까지 근거로 인정한다 — 맥락 통합('언제까지 제출해야해?' + 이전 '휴학 어떻게
+    신청해?' → '휴학 신청 서류 제출 기한')에서 '신청'은 이전 질문에서 온 정당한 개념이다.
+    """
+    src = f"{prev_question or ''} {question}".replace(" ", "")
+    rw = (rewritten or "").replace(" ", "")
+    for concept, aliases in _ACTION_CONCEPTS.items():
+        if concept in rw and not any(a in src for a in aliases):
+            return concept
+    return None
+
+
 def _keeps_topic(question: str, rewritten: str) -> bool:
     """재작성이 현재 질문의 주제어를 하나라도 유지하는지.
 
@@ -184,6 +220,13 @@ async def _rewrite_query(question: str, prev_question: str | None = None) -> str
         print(f"[RAG_GENERAL] 재작성이 주제어 이탈 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
         return question
 
+    # 행위 개념 날조 가드: 원문·이전질문에 없던 '신청/방법/절차/발급'을 재작성이 만들어 냈으면
+    # 폐기한다. 이 프레임이 붙으면 근거에 없는 절차·기한을 LLM이 발명한다(F스포렉스 사례).
+    invented = _invents_action(question, rewritten, prev_question)
+    if invented:
+        print(f"[RAG_GENERAL] 재작성이 없던 '{invented}' 개념 날조 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
+        return question
+
     # 드리프트 가드: 재작성이 원문과 의미가 너무 멀어지면(예: 공결→전과) 원본 사용
     # 맥락 통합 시엔 주제어가 이전 질문에서 오므로 이전+현재를 합친 텍스트와 비교
     drift_ref = f"{prev_question} {question}" if prev_question else question
@@ -247,12 +290,14 @@ async def answer_rag_general_question_with_metadata(
     context_question: str | None = None,
     prev_question: str | None = None,
     search_query: str | None = None,
+    db=None,
 ) -> tuple[str, dict]:
     """RAG 검색 후 LLM 답변 생성.
 
     topic: agent_graph에서 DB 라우팅으로 결정된 topic_name.
            None이면 전체 검색 (TopicRouter 미분류 — 분류 문장 보강 필요).
     prev_question: topic이 유지된 후속 질문일 때만 전달 — rewrite에 맥락 통합.
+    db: 있으면 학사일정 보강에 사용(AsyncSession). 없으면 보강을 건너뛴다.
     """
     print("[RAG_GENERAL] RAG 검색 시작")
 
@@ -294,8 +339,53 @@ async def answer_rag_general_question_with_metadata(
         effective_topic,
     )
 
+    # ── 재작성 실패 폴백 ────────────────────────────────────────────
+    # 재작성이 고유명사를 훼손하면 검색이 통째로 죽는다. 실측된 두 유형:
+    #   희석  'F스포렉스' → 'F스포렉스 신청 방법'  (6자 질문에 일반어가 붙어 임베딩이 끌려감) → 0건
+    #   탈자  '대전화병원 응급실 전화번호' → '대전병원 ...'  (고유명사에서 한 글자 누락)
+    # 기존 가드로는 못 막는다: _keeps_topic은 '유지'만 보고 '추가'는 안 보며, any()라서
+    # 고유명사가 죽어도 흔한 말('응급실') 하나가 살아남으면 통과한다.
+    #
+    # 재작성이 좋은지 미리 추측하는 대신 결과로 판정한다 — 0건이면 원문으로 다시 찾는다.
+    # 검색어 딕셔너리와 같은 원칙(추측 대신 실측)이고, 실패했을 때만 검색이 1회 추가되므로
+    # 정상 경로의 비용은 0이다. 확장(expand)만으로 달라진 경우는 재시도해도 같으므로 제외한다.
+    if not context and rewritten_for_log and rewritten_for_log != question:
+        print(f"[RAG_GENERAL] 재작성 검색 0건 → 원문으로 재시도: '{rewritten_for_log}' ↛ '{question}'")
+        context, metadata = await loop.run_in_executor(
+            None,
+            _search_rag,
+            expand_search_query(question),   # 딕셔너리는 점수 검증된 매핑뿐이라 원문에도 안전
+            question,
+            effective_topic,
+        )
+        if context:
+            print("[RAG_GENERAL] ✅ 원문 재검색 성공 — 재작성 결과 폐기")
+            metadata["rewrite_fallback"] = True
+
     # 파인튜닝 데이터용: 실제로 재작성된 경우에만 기록 (원본과 같으면 no-op이므로 None)
     metadata["rewritten_query"] = rewritten_for_log if rewritten_for_log != question else None
+
+    # ── 학사일정 보강 ────────────────────────────────────────────────
+    # 절차·서류는 RAG 문서에, 실제 날짜는 academic_schedule 테이블에만 있다. 토픽 라우팅은
+    # 배타적 선택이라 leave로 가면 날짜가, schedule로 가면 절차 설명이 통째로 빠진다.
+    # → 날짜를 묻는 질문이면 라우팅 결과와 무관하게 해당 일정을 컨텍스트에 얹어 준다.
+    #   (DB 조회 1회. LLM·임베딩 호출 없음)
+    #
+    # 판단에는 원 질문과 재작성 쿼리를 합쳐 쓴다: "언제까지 제출해야해?"는 원문에 이벤트어가
+    # 없고, 재작성("휴학 서류 제출 기한")에는 날짜어가 빠질 수 있어 한쪽만 보면 놓친다.
+    if db is not None:
+        sched_q = f"{question} {rewritten_for_log}" if rewritten_for_log else question
+        try:
+            from app.services.school.schedule import schedule_service
+            sched_rows = await schedule_service.collect_related(sched_q, db)
+            if sched_rows:
+                # 헤드라인을 질문의 구체 키워드에 맞춰 고르도록 함께 넘긴다
+                sched_kws = schedule_service._extract_keywords(sched_q)
+                context = (context or "") + schedule_service.build_context_block(sched_rows, sched_kws)
+                metadata["schedule_card"] = schedule_service.build_card(sched_rows)
+                print(f"[RAG_GENERAL] 학사일정 보강 {len(sched_rows)}건 추가")
+        except Exception as e:
+            print(f"[RAG_GENERAL] 학사일정 보강 실패(무시): {e}")
 
     # 검색 결과가 없으면 LLM 호출 스킵 — 근거 없는 답변(환각) 생성 방지.
     # 다만 그냥 끝내지 않고 다운로드 파일을 먼저 확인한다: 신청 매뉴얼처럼 화면 캡처
@@ -366,7 +456,10 @@ async def answer_rag_general_question_with_metadata(
         )
         files_list = "\n".join(f"- {Path(f).stem}" for f in matched_files) if matched_files else "없음"
         prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
-        answer = await llm_service.answer(prompt)
+        # 기본값 512로는 휴학 구분별 구비서류처럼 항목이 많은 답변이 문장 중간에서 잘렸다.
+        # (동아리 목록 2048 / 상세 1024인데 정작 가장 긴 답이 나오는 일반 RAG가 제일 작았다)
+        # 실제 상한은 _generate_local이 n_ctx 남는 만큼으로 다시 줄이므로 넉넉히 요청해도 안전하다.
+        answer = await llm_service.answer(prompt, max_tokens=1024)
 
     # 모델이 프롬프트 레이블을 이어서 출력하는 경우 가장 앞에 나온 위치에서 잘라내기
     _STOP_MARKERS = ["[참고 문서]", "[사용자 질문]", "[답변]", "[이전 질문]", "[이전 답변]", "[다운로드 가능 파일 목록]"]

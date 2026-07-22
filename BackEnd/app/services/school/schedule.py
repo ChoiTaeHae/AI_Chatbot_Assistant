@@ -35,10 +35,139 @@ def _fmt_range(s: date | None, e: date | None) -> str:
     return f"{s.year}년 {s.month}월 {s.day}일 ~ {e.year}년 {e.month}월 {e.day}일"
 
 
+def _fmt_range_full(s: date, e: date | None) -> str:
+    """연도를 항상 붙이는 범위 문자열 — LLM 컨텍스트 전용.
+
+    _fmt_range는 같은 해면 연도를 생략한다(사용자에게 보여줄 땐 그게 자연스럽다).
+    그러나 컨텍스트에서는 치명적이다: 같은 이름의 일정이 학년도별로 여러 건 들어오는데
+    ('1학기 일반휴학 신청 기간'이 2026·2027 두 건) 연도가 없으면 서로 구분되지 않고,
+    프롬프트가 요구하는 '오늘 기준 진행 중/다가오는 판단'에 필요한 정보 자체가 사라진다.
+    코드가 DB에서 정확히 뽑아 둔 날짜를 문자열로 만들면서 도로 버리는 셈이라 반드시 붙인다.
+    """
+    e = e or s
+    if e == s:
+        return f"{s.year}년 {s.month}월 {s.day}일"
+    if e.year == s.year:
+        return f"{s.year}년 {s.month}월 {s.day}일 ~ {e.month}월 {e.day}일"
+    return f"{s.year}년 {s.month}월 {s.day}일 ~ {e.year}년 {e.month}월 {e.day}일"
+
+
+def _dedup(rows: list) -> list:
+    """같은 (이름, 시작일, 종료일) 행을 접는다. 순서 유지, 먼저 온 것을 남긴다.
+
+    적재 가드(ingest_from_url)가 생겼어도 읽는 쪽에도 둔다:
+      - 가드 이전에 쌓인 과거 데이터가 그대로 남아 있다
+      - 학년도 라벨만 다른 중복(같은 행사가 AY2025·AY2026 두 벌)은 적재 키로는
+        서로 다른 행이라 가드를 통과한다
+    학년도를 키에서 빼는 이유가 이것이다 — 사용자에게는 날짜가 같으면 같은 일정이다.
+    컨텍스트에 같은 줄이 두 번 들어가면 모델이 데이터 오류로 받아들인다.
+    """
+    seen, out = set(), []
+    for r in rows:
+        key = (r.event, r.start_date, r.end_date)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
+# 컨텍스트 말머리가 답변에 그대로 새어 나온 것을 떼어내는 패턴.
+# 프롬프트로 "말머리는 쓰지 말라"고 해도 8B는 불안정하게 흘린다 — 실측에서 '성적' 질문은
+# 문장화했지만 '휴학' 질문은 '다음 일정:'째로 복사했다. rag_general의 _STOP_MARKERS와 같은
+# 성격의 안전망이다(그쪽엔 있는데 schedule 핸들러엔 없었다).
+# 강조 기호는 콜론 앞뒤 어디에도 올 수 있다(**다음 일정**: / **다음 일정:**) — 양쪽 다 흡수한다.
+_LABEL_LEAK_RE = re.compile(
+    r"^[ \t]*[*_]{0,2}\s*(?:다음 일정|진행 중|전체 목록)\s*[*_]{0,2}\s*:\s*[*_]{0,2}[ \t]*", re.M
+)
+
+
+def _strip_context_labels(answer: str) -> str:
+    """답변에 남은 '다음 일정:' 류 말머리 제거. 내용은 보존한다."""
+    cleaned = _LABEL_LEAK_RE.sub("", answer)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _narrow_by_specific_keyword(rows: list, keywords: list[str]) -> list:
+    """가장 구체적인(긴) 키워드에 맞는 행만 남긴다 — 헤드라인 선정 전용.
+
+    조회는 키워드 OR 매칭이라 '성적 이의신청'을 물으면 '성적입력 및 성적공고'까지 딸려 온다.
+    전체 목록에 남는 건 유용하지만(관련 일정 안내), 헤드라인까지 그중 가장 가까운 것으로
+    잡으면 질문과 다른 일정을 답으로 내놓는다.
+    실측: '성적 이의신청 언제야' → 헤드라인이 '성적입력 및 성적공고 기간'이 됐다.
+    """
+    for kw in sorted(keywords, key=len, reverse=True):
+        hit = [r for r in rows if kw in (r.event or "").replace(" ", "")]
+        if hit:
+            return hit
+    return rows
+
+
+def _headline(rows: list, today: date, keywords: list[str] | None = None) -> str:
+    """컨텍스트 맨 위에 놓을 '핵심 한 줄' — 어느 일정을 답으로 삼을지 코드가 정한다.
+
+    모델에 '종료된 것 말고 다가오는 것을 골라라'까지 맡기면 규칙 하나를 흘린다.
+    실측: 종료된 일정이 섞이자 "2학기 일반휴학 신청 기간은 종료되었어요."로 끝내고,
+    바로 윗줄에 있던 다가오는 일정(2027년 1월)을 빠뜨려 '언제야'라는 질문에 답하지 못했다.
+    → 고르는 일 자체를 코드가 끝내고 모델은 옮겨 적게 한다. (이 서비스의 기본 원칙)
+
+    rows는 시작일 오름차순이라 처음 만나는 것이 가장 가까운 일정이다.
+    """
+    pool = _narrow_by_specific_keyword(rows, keywords) if keywords else rows
+    ongoing = next((r for r in pool if r.start_date and r.start_date <= today
+                    and (r.end_date or r.start_date) >= today), None)
+    if ongoing:
+        return f"진행 중: {ongoing.event} — {_fmt_range_full(ongoing.start_date, ongoing.end_date)}"
+    upcoming = next((r for r in pool if r.start_date and r.start_date > today), None)
+    if upcoming:
+        return f"다음 일정: {upcoming.event} — {_fmt_range_full(upcoming.start_date, upcoming.end_date)}"
+    return "다음 일정: 없음 (조회된 일정이 모두 지났습니다)"
+
+
+def _schedule_lines(rows: list, today: date) -> str:
+    """'- 이름: 2026년 7월 13일 ~ 7월 17일 (종료됨)' 목록. 전용 답변/보강 공용.
+
+    종료 표시를 코드가 직접 붙인다 — 8B 모델에 날짜 비교를 맡기지 않는다는 이 서비스의
+    설계 원칙과 같은 이유다.
+    """
+    lines = []
+    for r in rows:
+        if not r.start_date:
+            continue
+        end = r.end_date or r.start_date
+        mark = " (종료됨)" if end < today else ""
+        lines.append(f"- {r.event}: {_fmt_range_full(r.start_date, r.end_date)}{mark}")
+    return "\n".join(lines)
+
+
+# ── 타 토픽 보강용 날짜 의도어 ────────────────────────────────────────
+# 절차·서류 설명은 RAG 문서에, 실제 날짜는 이 테이블에만 있다. 토픽 라우팅은 배타적
+# 선택이라 어느 쪽으로 가든 반쪽 답이 되므로, schedule을 '가져가는 토픽'이 아니라
+# 'RAG 답변에 날짜를 얹어 주는 보강 레이어'로도 쓴다.
+#
+# agent_graph의 게이트 날짜 의도어보다 넓다. 게이트는 토픽을 통째로 가로채는 판단이라
+# 오탐 비용이 크지만, 여기는 문장 몇 줄을 덧붙일 뿐이라 놓치는 쪽이 더 아프다.
+_AUG_DATE_INTENT = ("언제", "며칠", "몇월", "몇일", "날짜", "기간", "기한", "마감", "일정", "스케줄")
+
+
+def has_date_intent(question: str) -> bool:
+    """질문에 날짜를 묻는 의도가 있는가 (보강 여부 판단용)."""
+    qn = question.replace(" ", "")
+    return any(k in qn for k in _AUG_DATE_INTENT)
+
+
 class ScheduleService:
 
-    # LLM 프롬프트 폭주 방지 — 컨텍스트에 넣을 최대 일정 수
-    _MAX_ITEMS = 12
+    # LLM 프롬프트 폭주 방지 — 컨텍스트에 넣을 최대 일정 수.
+    # 지난 일정은 "방금 끝났다"를 확인시켜 주는 용도라 소수면 충분하다. 많이 넣을수록
+    # 모델이 종료된 날짜를 답으로 고를 위험만 커지고, 답변도 나열 벽이 된다.
+    # (예: '성적 이의신청 언제야' → 11건 중 5건이 지난 일정이었다)
+    _MAX_ITEMS = 8
+    _MAX_PAST_ITEMS = 2
+
+    # 보강으로 덧붙일 때의 상한. RAG 컨텍스트(최대 4000자) 위에 얹히므로
+    # 로컬 모델 n_ctx(4096) 여유를 남기려고 답변 전용(_MAX_ITEMS)보다 적게 잡는다.
+    _AUG_MAX_ITEMS = 5
 
     # ── 관리자: URL 크롤 → 적재 ────────────────────────────────────
     async def ingest_from_url(self, url: str, db: AsyncSession, keep_recent_years: int = 2) -> int:
@@ -51,11 +180,35 @@ class ScheduleService:
         # source_url은 사용자가 입력한 url 그대로 → 같은 입력 재크롤 시 멱등 삭제
         rows = parse_schedule_html(html, url, keep_recent_years=keep_recent_years)
 
+        # 이 URL의 기존 행을 먼저 지운다 → 아래 '기존 키' 조회에 자기 자신의 옛 행이 안 섞인다.
         await db.execute(delete(AcademicSchedule).where(AcademicSchedule.source_url == url))
-        db.add_all([AcademicSchedule(**r) for r in rows])
+
+        # ── 유니크 가드 ────────────────────────────────────────────
+        # source_url 단위 교체(위 delete)는 '같은 URL 재크롤'만 멱등하게 만든다. 서로 다른
+        # URL 두 개에 같은 일정이 실려 있으면 그대로 두 벌 쌓인다(실제로 14쌍이 쌓였었다).
+        # 중복 원인이 여러 갈래(페이지가 같은 일정을 두 번 실음 / 표 셀 분할로 같은 범위를
+        # 두 조각으로 파싱)라 파싱 경로를 각각 고치는 대신 결과 키로 한 번에 막는다.
+        # 정책은 '먼저 들어온 것이 이긴다' — 나중 URL의 같은 일정은 건너뛴다.
+        existing = set((await db.execute(select(
+            AcademicSchedule.track, AcademicSchedule.academic_year, AcademicSchedule.event,
+            AcademicSchedule.start_date, AcademicSchedule.end_date,
+        ))).all())
+
+        fresh, skipped = [], 0
+        for r in rows:
+            key = (r.get("track"), r.get("academic_year"), r.get("event"),
+                   r.get("start_date"), r.get("end_date"))
+            if key in existing:
+                skipped += 1
+                continue
+            existing.add(key)
+            fresh.append(AcademicSchedule(**r))
+
+        db.add_all(fresh)
         await db.commit()
-        print(f"[Schedule] '{url}' 학사일정 {len(rows)}건 적재")
-        return len(rows)
+        dup_note = f" (중복 {skipped}건 건너뜀)" if skipped else ""
+        print(f"[Schedule] '{url}' 학사일정 {len(fresh)}건 적재{dup_note}")
+        return len(fresh)
 
     # ── 관리자: CRUD (달력 상세수정) ───────────────────────────────
     async def list_schedules(self, db: AsyncSession, track: str | None = None,
@@ -137,22 +290,16 @@ class ScheduleService:
 
         metadata = {"source": "academic_schedule", "source_file": None, "topic": "schedule", "url": None}
         if not rows:
+            # 라우팅이 schedule로 잘못 온 경우(예: '성적' 같은 넓은 이벤트어)도 여기로 떨어진다.
+            # 호출부(agent_graph)가 RAG로 폴백할 수 있도록 '매칭 없음'을 표시해 둔다.
+            metadata["no_match"] = True
             return ("해당 학사일정을 찾지 못했어요. 관리자에게 학사일정 등록을 요청해 주세요.", metadata)
 
         # 프론트 미니 달력 카드용 — 선별된 일정을 구조화해서 함께 반환(일정이 걸친 '주'만 렌더)
-        metadata["schedule_card"] = {
-            "today": today.isoformat(),
-            "events": [
-                {
-                    "event": r.event,
-                    "start_date": r.start_date.isoformat() if r.start_date else None,
-                    "end_date": (r.end_date or r.start_date).isoformat() if (r.end_date or r.start_date) else None,
-                }
-                for r in rows if r.start_date
-            ],
-        }
+        metadata["schedule_card"] = self.build_card(rows)
 
-        context = "\n".join(f"- {r.event}: {_fmt_range(r.start_date, r.end_date)}" for r in rows)
+        head = _headline(rows, today, self._extract_keywords(question))
+        context = f"{head}\n\n전체 목록:\n{_schedule_lines(rows, today)}"
         prompt = SCHEDULE_PROMPT.format(
             today=f"{today.year}년 {today.month}월 {today.day}일",
             context=context,
@@ -160,7 +307,9 @@ class ScheduleService:
         )
         # 날짜가 흔들리면 안 되므로 결정론적으로(temp 0.0) 문장화만 시킨다.
         answer = await llm_service.answer(prompt, max_tokens=512, temperature=0.0)
-        return (answer.strip() or context), metadata
+        answer = _strip_context_labels(answer)
+        # 답변이 비면 목록만이라도 보여준다(헤드라인 줄은 말머리라 제외).
+        return (answer or _schedule_lines(rows, today)), metadata
 
     # ── 날짜/키워드 선별 (정확도 핵심, 코드로 처리) ──────────────────
     async def _select_rows(self, question: str, track: str, today: date, db: AsyncSession) -> list:
@@ -172,24 +321,78 @@ class ScheduleService:
         # 현재 학년도 데이터에는 다음 해 초 일정까지 포함돼 있어, 하반기에 "1학기 수강신청"을 물어도
         # (다음 해 초 일정) 자연스럽게 나온다. 정렬은 다가오는 것 우선 → 최근 과거 순.
         if keywords:
-            current_ay = today.year if today.month >= 3 else today.year - 1
-            # 공백 무시 매칭: '1학기 수강 신청' 이벤트도 '수강신청' 키워드로 잡히게
-            norm_event = func.replace(AcademicSchedule.event, " ", "")
-            conds = [norm_event.ilike(f"%{k}%") for k in keywords]
-            matched = (await db.execute(
-                base.where(or_(*conds))
-                    .where(AcademicSchedule.academic_year >= current_ay)   # 이전 학년도 제외
-                    .order_by(AcademicSchedule.start_date)
-            )).scalars().all()
-            if not matched:
-                return []
-            upcoming = [r for r in matched if r.end_date and r.end_date >= today]
-            past = [r for r in matched if not (r.end_date and r.end_date >= today)]
-            # 다가오는 것(가까운 순) + 최근 과거(최근 순)
-            return (upcoming + list(reversed(past)))[: self._MAX_ITEMS]
+            return (await self._query_by_keywords(keywords, track, today, db))[: self._MAX_ITEMS]
 
         # 키워드 없음(예: "지금 무슨 기간이야?", "이번 학사일정") → 오늘 진행 중 + 다가오는
         return await self._active_and_upcoming(base, today, db)
+
+    async def _query_by_keywords(self, keywords: list[str], track: str, today: date, db: AsyncSession) -> list:
+        """이벤트 키워드로 조회 → 다가오는 것(가까운 순) + 최근 과거(최근 순, _MAX_PAST_ITEMS까지)."""
+        current_ay = today.year if today.month >= 3 else today.year - 1
+        # 공백 무시 매칭: '1학기 수강 신청' 이벤트도 '수강신청' 키워드로 잡히게
+        norm_event = func.replace(AcademicSchedule.event, " ", "")
+        conds = [norm_event.ilike(f"%{k}%") for k in keywords]
+        matched = (await db.execute(
+            select(AcademicSchedule)
+                .where(AcademicSchedule.track == track)
+                .where(or_(*conds))
+                .where(AcademicSchedule.academic_year >= current_ay)   # 이전 학년도 제외
+                .order_by(AcademicSchedule.start_date)
+        )).scalars().all()
+        matched = _dedup(matched)
+        upcoming = [r for r in matched if r.end_date and r.end_date >= today]
+        past = [r for r in matched if not (r.end_date and r.end_date >= today)]
+        return upcoming + list(reversed(past))[: self._MAX_PAST_ITEMS]
+
+    # ── 타 토픽 보강 (schedule을 배타적 토픽이 아니라 '레이어'로 쓰는 진입점) ──
+    async def collect_related(self, question: str, db: AsyncSession) -> list:
+        """다른 토픽 답변에 덧붙일 관련 학사일정. 조건이 안 맞으면 빈 리스트.
+
+        두 조건을 모두 만족할 때만 보강한다:
+          1) 날짜 의도가 있을 것       — '휴학 사유가 뭐야'에 날짜가 끼어들면 안 된다
+          2) 이벤트 키워드가 잡힐 것    — 없으면 '다가오는 일정' 덤프가 되어 노이즈
+
+        (2) 때문에 answer_schedule_with_metadata와 달리 _active_and_upcoming 폴백을
+        쓰지 않는다. 폴백을 두면 날짜를 언급한 무관한 질문마다 이번 주 일정이 따라붙는다.
+        """
+        if not has_date_intent(question):
+            return []
+        keywords = self._extract_keywords(question)
+        if not keywords:
+            return []
+        track = "대학원" if "대학원" in question else "학부"
+        rows = await self._query_by_keywords(keywords, track, _today(), db)
+        return rows[: self._AUG_MAX_ITEMS]
+
+    def build_context_block(self, rows: list, keywords: list[str] | None = None) -> str:
+        """RAG 컨텍스트 뒤에 덧붙일 학사일정 블록.
+
+        전용 답변과 달리 이 블록은 RAG_GENERAL_PROMPT에 섞여 들어가고 거기엔 날짜 관련
+        지침이 전혀 없다. 그래서 오늘 날짜를 블록 머리에 직접 적어 둔다
+        (SCHEDULE_PROMPT는 today를 따로 받지만 여기는 그럴 자리가 없다).
+        """
+        if not rows:
+            return ""
+        today = _today()
+        body = _schedule_lines(rows, today)
+        if not body:
+            return ""
+        head = f"[관련 학사일정] (오늘: {today.year}년 {today.month}월 {today.day}일)"
+        # RAG 경로에도 헤드라인을 넣는다. 여긴 프롬프트에 날짜 지침이 없어서, 안 넣으면
+        # 모델이 목록 중 종료된 항목을 답으로 골라도 막을 방법이 없다.
+        return f"\n\n{head}\n{_headline(rows, today, keywords)}\n{body}"
+
+    def build_card(self, rows: list) -> dict | None:
+        """프론트 미니 달력 카드 — 전용 답변/보강 양쪽에서 같은 포맷을 쓴다."""
+        events = [
+            {
+                "event": r.event,
+                "start_date": r.start_date.isoformat(),
+                "end_date": (r.end_date or r.start_date).isoformat(),
+            }
+            for r in rows if r.start_date
+        ]
+        return {"today": _today().isoformat(), "events": events} if events else None
 
     async def _active_and_upcoming(self, base, today: date, db: AsyncSession) -> list:
         active = (await db.execute(
@@ -201,7 +404,7 @@ class ScheduleService:
             base.where(AcademicSchedule.start_date > today)
                 .order_by(AcademicSchedule.start_date).limit(6)
         )).scalars().all()
-        return (list(active) + list(upcoming))[: self._MAX_ITEMS]
+        return _dedup(list(active) + list(upcoming))[: self._MAX_ITEMS]
 
     # 학사일정 대표 키워드 — 질문에 등장하면 이벤트 필터로 사용(공백 제거 비교)
     _EVENT_KEYWORDS = [
