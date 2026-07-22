@@ -235,8 +235,35 @@ async def answer_rag_general_question_with_metadata(
     # 파인튜닝 데이터용: 실제로 재작성된 경우에만 기록 (원본과 같으면 no-op이므로 None)
     metadata["rewritten_query"] = search_query if search_query != question else None
 
-    # 검색 결과가 없으면 LLM 호출 스킵 — 근거 없는 답변(환각) 생성 방지
+    # 검색 결과가 없으면 LLM 호출 스킵 — 근거 없는 답변(환각) 생성 방지.
+    # 다만 그냥 끝내지 않고 다운로드 파일을 먼저 확인한다: 신청 매뉴얼처럼 화면 캡처
+    # 위주라 텍스트로 옮기면 뜻이 깨지는 자료는 일부러 Qdrant에 넣지 않는데, 그러면
+    # 검색은 항상 0건이라 예전엔 파일이 있어도 "자료 없음"으로 끝나버렸다.
+    # 파일 목록은 document_file 테이블(AVAILABLE_FILES)에서 오므로 RAG 색인과 무관하다.
     if not context:
+        from pathlib import Path
+        from app.services.file_service import AVAILABLE_FILES
+        from app.utils.file_matcher import match_relevant_files
+
+        fallback_files = await loop.run_in_executor(
+            None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
+        )
+        if fallback_files:
+            print(f"[RAG_GENERAL] ⚠️ 검색 결과 0건 → 관련 파일 {len(fallback_files)}개로 안내")
+            stems = [Path(f).stem for f in fallback_files]
+            metadata["files_to_offer"] = stems
+            # 파일명을 답변에 적어준다: '예/아니요' 단계에선 화면에 파일명이 안 보이고
+            # (파일 선택 버튼은 '예'를 누른 다음에야 뜬다) 뭘 받는지 모르고 눌러야 하기 때문.
+            file_lines = "\n".join(f"- {s}" for s in stems)
+            return (
+                "질문하신 내용은 챗봇이 글로 정리해 둔 자료에는 없지만, 관련 안내 파일이 준비되어 있어요.\n\n"
+                "요약본이 아니라 원본 자료라서 내용이 빠짐없이 담겨 있어요. "
+                "파일을 직접 확인하시는 것이 가장 정확합니다.\n\n"
+                f"{file_lines}\n\n"
+                "파일 드릴까요? 아래 '예'를 누르시면 바로 받으실 수 있어요.",
+                metadata,
+            )
+
         print("[RAG_GENERAL] ⚠️ 검색 결과 0건 → LLM 호출 스킵, 안내 응답 반환")
         return (
             "죄송해요, 해당 내용에 대한 자료를 찾지 못했어요. "
