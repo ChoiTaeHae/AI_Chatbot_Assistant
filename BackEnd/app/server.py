@@ -69,6 +69,24 @@ async def _load_schedule_gate() -> None:
     set_schedule_gate(cfg.get("date_intent"), cfg.get("event_keywords"))
 
 
+async def _load_search_synonyms() -> None:
+    """검색어 딕셔너리를 app_config(key=search_synonyms)에서 로드. 없으면 기본값 시딩."""
+    from sqlalchemy import select
+    from app.core.Database import AsyncSessionLocal
+    from app.models.DB_Table import AppConfig
+    from app.services.school.rag_general import set_search_synonyms, DEFAULT_SEARCH_SYNONYMS
+
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(select(AppConfig).where(AppConfig.key == "search_synonyms"))).scalar_one_or_none()
+        if row is None:
+            cfg = dict(DEFAULT_SEARCH_SYNONYMS)
+            session.add(AppConfig(key="search_synonyms", value=cfg))
+            await session.commit()
+        else:
+            cfg = dict(row.value or {})
+    set_search_synonyms(cfg)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DB 연결 (async 방식)
@@ -129,6 +147,12 @@ async def lifespan(app: FastAPI):
         await _load_schedule_gate()
     except Exception as e:
         print(f"[Server] 학사일정 게이트 로드 실패 (기본값 사용): {e}")
+
+    # 검색어 딕셔너리 로드 (app_config)
+    try:
+        await _load_search_synonyms()
+    except Exception as e:
+        print(f"[Server] 검색어 딕셔너리 로드 실패 (기본값 사용): {e}")
 
     yield
     # 서버 종료 시

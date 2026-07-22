@@ -20,7 +20,11 @@ services:
       # (없으면 컨테이너 재생성마다 쓰기레이어 초기화 → HF 재다운로드로 콜드로딩 20분)
       - ./hf_cache:/root/.cache/huggingface
     environment:
-      - RERANKER_MODEL_PATH=/app/models/ko-reranker
+      # 한국어 최적화 리랭커(dragonkue/bge-reranker-v2-m3-ko).
+      # 기존 ko-reranker 대비 관련 문서 점수는 올리고 무관 문서는 더 낮춰 변별력이 개선됨
+      # (실측: 공결 0.020→0.256, 기숙사비 0.619→0.996, 무관질문 0.128→0.005).
+      # 문제 시 /app/models/ko-reranker 로 되돌리면 된다(폴더 보존 중).
+      - RERANKER_MODEL_PATH=/app/models/bge-reranker-v2-m3-ko
     deploy:
       resources:
         reservations:

@@ -26,6 +26,19 @@ MAX_MERGED_LENGTH = 2000
 MAX_TOTAL_CONTEXT = 4000
 
 
+def _rerank_text(result: SearchResult) -> str:
+    """리랭킹에 넣을 텍스트 — 본문 앞에 '문서명 + 조문(제목)'을 한 줄 붙인다.
+
+    청킹 과정에서 제목이 다른 청크로 떨어져 나가면(예: 공결 세부지침의 별표1 제목이
+    부칙 청크에 갇히고 표·절차 청크는 제목 없이 남음) 본문만으로는 무슨 주제인지 알 수
+    없어 리랭커 점수가 0에 수렴한다. 실측상 제목 한 줄을 붙이면 5~7배 상승했다.
+    (저장·임베딩 텍스트는 그대로 두고 리랭킹 입력에만 사용한다)"""
+    src = (result.metadata.get("source") or "").replace("_", " ").strip()
+    article = (result.metadata.get("article") or "").strip()
+    head = " ".join(x for x in (src, article) if x)
+    return f"{head}\n{result.text}" if head else result.text
+
+
 class Retriever:
     """Embed a question and retrieve relevant chunks from Qdrant."""
 
@@ -134,12 +147,14 @@ class Retriever:
             return []
 
         # 2. ★ 중요: 합치기 "전"에 리랭킹을 수행 (원본 청크 기준 평가)
-        # BGE reranker는 순수 (질문, 본문) 쌍으로 학습됨 — 메타데이터 헤더 없이 본문만 전달
+        # 리랭킹 입력에는 '문서명 + 조문' 한 줄을 앞에 붙인다(_rerank_text).
+        # 순수 본문만 주면, 제목이 다른 청크로 분리된 문서에서 주제어가 사라져 점수가
+        # 0에 수렴한다(공결 세부지침 실측: 0.007 → 제목 부여 시 0.039).
         # 리랭킹 쿼리: 재작성 검색어(question)와 원본 질문(original_question) 둘 다로 채점해
         # 청크별 max를 취한다. 원본이 "공결신청하고싶은데 파일도 같이 줄래?"처럼 노이즈/복합
         # 요청이면 리랭커 점수가 폭락(정답 문서 0.126)하지만, 깔끔한 재작성 키워드로는 0.9+로
         # 살아난다(실측). max라 원본만 쓰던 기존 대비 점수가 내려갈 일이 없어 회귀 위험이 없다.
-        rerank_texts = [result.text for result in results]
+        rerank_texts = [_rerank_text(result) for result in results]
         rerank_queries = [question]
         if original_question and original_question.strip() and original_question != question:
             rerank_queries.append(original_question)
