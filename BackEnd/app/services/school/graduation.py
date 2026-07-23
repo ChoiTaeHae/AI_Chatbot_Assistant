@@ -65,6 +65,15 @@ _GRADUATION_PROTOTYPES: dict[str, list[str]] = {
         "졸업 신청 기간이 언제인가요?",
         "졸업 신청은 어디서 하나요?",
         "졸업 관련 규정을 알고 싶어요",
+        # 편입생·학번별 요건은 '내 현황'(personal/both)이 아니라 '규정 정보' 조회다.
+        # both로 가면 _answer_my_dept가 학생 학과 기준으로만 검색해(RAG 쿼리 고정) 편입생·학번
+        # 문서를 못 찾고 개인 학점현황만 섞여 나온다. document로 보내 원본 질문으로 RAG 검색시킨다.
+        "편입생은 몇 학점을 이수해야 하나요?",
+        "편입생 졸업 이수학점 기준이 어떻게 되나요?",
+        "2025학번 교양 이수학점 기준을 알려주세요",
+        "학번별 졸업 이수학점 기준이 궁금해요",
+        "2020학번 교양 몇 학점 들어야 하나요?",
+        "몇 학번은 교양 몇 학점 들어야 해요?",
     ],
     "both": [
         "졸업하려면 학점이 몇 점 필요해요?",
@@ -188,7 +197,7 @@ class GraduationService:
         개인 이수현황은 미포함. '요건' 질문(both) 및 '다른 학과' 질문에 사용."""
         from pathlib import Path
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files
+        from app.utils.file_matcher import match_relevant_files, strip_files_tag
 
         _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
         if rule:
@@ -236,9 +245,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        match = re.search(r'<FILES>(.*?)</FILES>', result)
-        if match:
-            result = (result[:match.start()] + result[match.end():]).strip()
+        result = strip_files_tag(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -250,7 +257,7 @@ class GraduationService:
         영어·자격증·토익·졸업가능여부는 현황으로 판단 안 하고 요건 안내에만 포함(DB 미추적)."""
         from pathlib import Path
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files
+        from app.utils.file_matcher import match_relevant_files, strip_files_tag
 
         # 1) 요건 학점 (DB rule)
         _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
@@ -299,9 +306,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        match = re.search(r'<FILES>(.*?)</FILES>', result)
-        if match:
-            result = (result[:match.start()] + result[match.end():]).strip()
+        result = strip_files_tag(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -390,7 +395,7 @@ class GraduationService:
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
 
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files
+        from app.utils.file_matcher import match_relevant_files, strip_files_tag
         from pathlib import Path
         loop = asyncio.get_event_loop()
         files = await loop.run_in_executor(
@@ -422,9 +427,7 @@ class GraduationService:
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        match = re.search(r'<FILES>(.*?)</FILES>', result)
-        if match:
-            result = (result[:match.start()] + result[match.end():]).strip()
+        result = strip_files_tag(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -443,7 +446,7 @@ class GraduationService:
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
 
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files
+        from app.utils.file_matcher import match_relevant_files, strip_files_tag
         from pathlib import Path
         loop = asyncio.get_event_loop()
         files = await loop.run_in_executor(
@@ -457,9 +460,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        match = re.search(r'<FILES>(.*?)</FILES>', result)
-        if match:
-            result = (result[:match.start()] + result[match.end():]).strip()
+        result = strip_files_tag(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 

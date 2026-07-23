@@ -10,9 +10,39 @@ topic 전체 파일 목록을 통째로 LLM에게 보여주고 <FILES> 태그로
 절대 기준으로는 오탐/누락을 둘 다 잡기 어렵다. 대신 1등 파일 점수 대비 상대 마진으로
 "1등과 비슷하게 가까운 파일(같은 건의 공고문+신청서 세트 등)"만 남긴다.
 """
+import re
 from pathlib import Path
 
 from app.services.rag_service import rag_service
+
+# 완전한 <FILES>…</FILES> 쌍
+_FILES_PAIR_RE = re.compile(r"<FILES>.*?</FILES>", re.DOTALL)
+# 닫히지 않고 열린 <FILES … (답변이 max_tokens로 잘려 닫는 태그가 안 나온 경우)
+_FILES_OPEN_RE = re.compile(r"<FILES\b.*$", re.DOTALL)
+# 태그 자체가 중간에 잘린 잔해: 답변 끝이 '<', '<F', … '<FILES' 로 끝남
+_FILES_FRAG_RE = re.compile(r"<F(?:I(?:L(?:E(?:S)?)?)?)?$")
+# 위 태그를 떼고 남는 열린 마크다운 링크 잔해: 줄 끝의 '[텍스트](' 또는 '- [텍스트]'
+_DANGLING_LINK_RE = re.compile(r"\n?\s*-?\s*\[[^\]]*\]\(?\s*$")
+
+
+def strip_files_tag(text: str) -> str:
+    """답변에서 <FILES> 태그를 제거한다. 파일 제안은 임베딩 필터로 확정하므로 LLM이 뽑은
+    태그는 화면에서 지우기만 한다.
+
+    기존엔 완전한 쌍만 지워, 답변이 max_tokens로 잘려 '…[휴학신청서류](<FILES>휴' 처럼
+    닫는 태그 없이 끊기면 열린 태그가 그대로 화면에 노출됐다. 세 단계로 정리한다:
+      1) 완전한 쌍 제거
+      2) 닫히지 않은 열린 <FILES… 부터 끝까지 제거
+      3) 태그 시작('<FIL' 등)만 잘려 남은 잔해 제거
+    그리고 태그를 떼고 남는 '[파일명](' 같은 열린 마크다운 링크 잔해도 정리한다.
+    """
+    if not text:
+        return text
+    text = _FILES_PAIR_RE.sub("", text)
+    text = _FILES_OPEN_RE.sub("", text)
+    text = _FILES_FRAG_RE.sub("", text)
+    text = _DANGLING_LINK_RE.sub("", text)
+    return text.strip()
 
 # 아래 세 값은 실제 bge-m3로 여러 케이스(휴학/장학금 등) 코사인 유사도를 측정해 정한 값 — 튜닝 가능.
 _MIN_TOP_SCORE = 0.55   # 1등 파일조차 이 미만이면 확실히 관련된 파일이 없다고 보고 전부 제외
