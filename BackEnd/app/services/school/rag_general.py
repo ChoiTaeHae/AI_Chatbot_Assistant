@@ -4,6 +4,7 @@ import re
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
+from app.rag.Retrieval.retriever import MAX_TOTAL_CONTEXT   # 보강 블록도 같은 예산 안에서 다룬다
 from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT
 
 # 재작성 드리프트 임계값 — 원문과 재작성의 의미 유사도가 이 값 미만이면
@@ -43,13 +44,29 @@ _GENERIC_TERMS = (
     "절차", "서류", "가능", "필요", "준비", "무엇", "무슨", "어디", "해줘", "되나요",
     "인가요", "있어", "있나요", "하나요", "까지", "부터", "궁금", "확인", "조건", "기준",
     "대해서", "관련", "이야", "이에요", "예요",
+    # 속성어 — 주제가 아니라 '주제의 한 속성'을 묻는 말이라 주제어가 아니다.
+    # ('기숙사비 얼마야' 다음의 '비용 얼마야'가 주제어를 가진 새 질문으로 오인되면,
+    #  이전 주제(기숙사)를 못 붙여 맥락 통합이 깨진다.) 실제 질문 2061건에서 진짜 주제어를
+    #  삼키지 않음을 확인한 것만 넣는다. '시간'(→시간표)·'자격'(→자격증)은 접두 일치로
+    #  다른 단어를 통째로 먹어 제외했다.
+    "비용", "금액", "가격", "요금", "위치", "장소", "대상", "연락처", "번호",
+    "종류", "이름", "내용", "전화번호", "홈페이지", "주소",
     # 지시대명사 — 이전 주제를 가리키는 말이라 주제어가 아니다("그건 얼마야?")
     "그건", "그거", "그것", "이건", "이거", "이것", "저건", "저거", "저것",
     "거기", "여기", "그때", "그럼", "그러면",
 )
 # 서술어(동사·형용사) 어미 — 주제어가 아니므로 제외한다.
 # 예: '내야해'(언제까지 내야해?)를 주제어로 오인하면 정상적인 맥락 보충까지 폐기된다.
-_PREDICATE_SUFFIXES = ("해", "해요", "야해", "줘", "세요", "나요", "어요", "아요", "야", "다")
+# 주의: 이 목록은 _is_keyword_query(재작성 생략 판정)에서도 쓰인다. 명사 끝글자와 겹치면
+# 멀쩡한 주제어가 서술어로 오인되므로(예: '지'를 넣으면 '복지'가 죽는다) 충돌 없는 것만 넣는다.
+# '싶어'가 없어 '휴학 신청하고 싶어'가 검색어 형태로 오판됐던 실측을 반영해 보강했다.
+_PREDICATE_SUFFIXES = (
+    "해", "해요", "야해", "줘", "세요", "나요", "어요", "아요", "야", "다",
+    "싶어", "싶다", "싶은", "싶은데", "할래", "될까", "되니", "하니", "인가요", "봐", "어때",
+    # 의문 종결형은 '가요'처럼 뭉뚱그리면 명사와 부딪히므로 정확형만 넣는다.
+    # 여기서 놓쳐도 치명적이지 않다 — 원문으로 검색했다가 0건이면 지연 재작성이 구제한다.
+    "뭔가요", "뭐예요", "뭐죠", "뭔데",
+)
 _TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 
 
@@ -68,6 +85,29 @@ def _distinctive_terms(question: str) -> list[str]:
             continue
         terms.append(tok)
     return terms
+
+
+def _is_keyword_query(question: str) -> bool:
+    """이미 검색어 형태인가 — 재작성해서 얻을 게 없고 훼손 위험만 있는 질문.
+
+    재작성의 임무는 (1) 구어체 정리 (2) 동의어 치환인데, 순수 명사구는 (1)이 할 일이 없고
+    (2)는 검색어 딕셔너리가 더 안전하게 한다(대체가 아닌 추가 + 점수 검증 + 결정론적).
+    반면 손실은 크다 — 실측에서 'F스포렉스'가 두 번 서로 다르게 망가졌다:
+      'F스포렉스 신청 방법'  → 근거에 없는 절차·기한을 LLM이 발명
+      'F스포츠 학점 인정 졸업' → 고유명사 자체가 훼손
+    위험이 대칭이 아니라(스킵=검색이 약해짐 / 훼손=틀린 말이 됨) 호출을 아예 안 하는 쪽이 낫다.
+
+    단, 여기서 걸러도 검색이 0건이면 뒤에서 '지연 재작성'으로 다시 시도하므로,
+    정말 용어 매핑이 필요한 질문은 구제된다.
+    """
+    toks = _TOKEN_RE.findall(question or "")
+    if not toks or len(toks) > 3:
+        return False
+    # 구어체 어미가 있으면 정리할 거리가 있다 ('학칙 알려줘' → '학칙 규정')
+    if any(t.endswith(s) for t in toks for s in _PREDICATE_SUFFIXES):
+        return False
+    # 주제어가 없으면 모호한 후속 질문('기간은?')이라 이전 맥락 통합이 필요하다
+    return bool(_distinctive_terms(question))
 
 
 # 재작성이 새로 만들어 내면 안 되는 '행위' 개념.
@@ -103,6 +143,28 @@ def _invents_action(question: str, rewritten: str, prev_question: str | None) ->
     for concept, aliases in _ACTION_CONCEPTS.items():
         if concept in rw and not any(a in src for a in aliases):
             return concept
+    return None
+
+
+def _borrows_prev_topic(question: str, rewritten: str, prev_question: str | None) -> str | None:
+    """재작성이 '이전 질문에만 있던 주제어'를 현재 질문에 끌어붙였으면 그 단어를 반환.
+
+    _keeps_topic은 현재 주제어가 '유지'됐는지만 본다. 그래서 유지하면서 '더하는' 경우를
+    못 잡는다. 실측: '학칙 알려줘'(이전 '공결') → '공결 학칙'. '학칙'은 살아 있어 통과했지만
+    엉뚱한 공결 문서로 검색됐다.
+
+    구분 기준은 '현재 질문이 스스로 주제를 특정하는가'다(프롬프트에도 있는 규칙):
+      - 현재 질문에 주제어가 없다  → 맥락 통합이 정상이다('언제까지 제출?' + 이전 '휴학...')
+        → 이 함수는 None을 반환해 통과시킨다.
+      - 현재 질문에 주제어가 있는데 이전 주제어까지 새로 붙었다 → 오염이다. 폐기한다.
+    """
+    if not _distinctive_terms(question):
+        return None                              # 주제어 없는 후속 → 맥락 통합 정상
+    cur = question.replace(" ", "")
+    rw = (rewritten or "").replace(" ", "")
+    for t in _distinctive_terms(prev_question or ""):
+        if t in rw and t not in cur:             # 이전에만 있던 주제어가 재작성에 끼어듦
+            return t
     return None
 
 
@@ -191,11 +253,21 @@ def _clean_rewrite_output(raw: str | None) -> str:
     return text.strip()
 
 
-async def _rewrite_query(question: str, prev_question: str | None = None) -> str:
+async def _rewrite_query(question: str, prev_question: str | None = None, force: bool = False) -> str:
     """구어체 질문을 검색용 공식 용어로 변환.
 
     prev_question이 있으면(topic 유지된 후속 질문) 이전 질문의 주제어를 보충해
-    재작성한다 — "기간은 얼마나 돼?"가 엉뚱한 검색어로 변환되는 것을 방지."""
+    재작성한다 — "기간은 얼마나 돼?"가 엉뚱한 검색어로 변환되는 것을 방지.
+
+    force=True면 검색어 형태 판정을 건너뛴다 — '지연 재작성'(원문 검색이 0건이라 뒤늦게
+    재작성을 시도하는 경로) 전용. 그때도 생략하면 아무 일도 일어나지 않는다."""
+    # 이미 검색어 형태면 재작성이 얻을 게 없고 훼손 위험만 있다. 이 판정을 호출부가 아니라
+    # 여기 두는 이유: agent_graph의 후속질문 rewrite 노드도 같은 함수를 쓰는데, 호출부에만
+    # 두었더니 그 경로에서 통째로 우회됐다(실측: 'F스포렉스' → 'F스포렉스 기간' → 검색 0건).
+    if not force and _is_keyword_query(question):
+        print(f"[RAG_GENERAL] 이미 검색어 형태 → 재작성 생략: '{question}'")
+        return question
+
     if prev_question:
         prompt = QUERY_REWRITE_WITH_CONTEXT_PROMPT.format(
             prev_question=prev_question, question=question
@@ -225,6 +297,13 @@ async def _rewrite_query(question: str, prev_question: str | None = None) -> str
     invented = _invents_action(question, rewritten, prev_question)
     if invented:
         print(f"[RAG_GENERAL] 재작성이 없던 '{invented}' 개념 날조 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
+        return question
+
+    # 이전 주제 차용 가드: 현재 질문이 스스로 주제를 특정하는데(주제어 보유) 이전 질문의
+    # 주제어까지 새로 붙었으면 폐기한다. '학칙 알려줘'(이전 '공결') → '공결 학칙' 오염 차단.
+    borrowed = _borrows_prev_topic(question, rewritten, prev_question)
+    if borrowed:
+        print(f"[RAG_GENERAL] 재작성이 이전 주제어 '{borrowed}' 차용 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
         return question
 
     # 드리프트 가드: 재작성이 원문과 의미가 너무 멀어지면(예: 공결→전과) 원본 사용
@@ -309,6 +388,9 @@ async def answer_rag_general_question_with_metadata(
     # search_query가 주어지면(agent_graph의 rewrite 노드가 후속질문을 이미 재작성) 재사용,
     # 없으면(1차 질문) 여기서 구어체→키워드 재작성. (이중 rewrite / 이중 LLM 호출 방지)
     hoisted = search_query is not None
+    # 재작성 생략 판정은 _rewrite_query 안에서 이뤄진다. 여기서 같은 판정을 한 번 더 해 두는 건
+    # hoisted 경로(agent_graph가 이미 재작성)도 '지연 재작성' 대상에 포함시키기 위해서다.
+    skipped_rewrite = _is_keyword_query(question)
     if not hoisted:
         try:
             search_query = await _rewrite_query(question, prev_question=prev_question)
@@ -339,28 +421,39 @@ async def answer_rag_general_question_with_metadata(
         effective_topic,
     )
 
-    # ── 재작성 실패 폴백 ────────────────────────────────────────────
-    # 재작성이 고유명사를 훼손하면 검색이 통째로 죽는다. 실측된 두 유형:
-    #   희석  'F스포렉스' → 'F스포렉스 신청 방법'  (6자 질문에 일반어가 붙어 임베딩이 끌려감) → 0건
-    #   탈자  '대전화병원 응급실 전화번호' → '대전병원 ...'  (고유명사에서 한 글자 누락)
-    # 기존 가드로는 못 막는다: _keeps_topic은 '유지'만 보고 '추가'는 안 보며, any()라서
-    # 고유명사가 죽어도 흔한 말('응급실') 하나가 살아남으면 통과한다.
-    #
-    # 재작성이 좋은지 미리 추측하는 대신 결과로 판정한다 — 0건이면 원문으로 다시 찾는다.
-    # 검색어 딕셔너리와 같은 원칙(추측 대신 실측)이고, 실패했을 때만 검색이 1회 추가되므로
-    # 정상 경로의 비용은 0이다. 확장(expand)만으로 달라진 경우는 재시도해도 같으므로 제외한다.
-    if not context and rewritten_for_log and rewritten_for_log != question:
-        print(f"[RAG_GENERAL] 재작성 검색 0건 → 원문으로 재시도: '{rewritten_for_log}' ↛ '{question}'")
-        context, metadata = await loop.run_in_executor(
-            None,
-            _search_rag,
-            expand_search_query(question),   # 딕셔너리는 점수 검증된 매핑뿐이라 원문에도 안전
-            question,
-            effective_topic,
-        )
-        if context:
-            print("[RAG_GENERAL] ✅ 원문 재검색 성공 — 재작성 결과 폐기")
-            metadata["rewrite_fallback"] = True
+    # ── 통합 폴백: 0건이면 '쓰지 않았던 다른 질의'로 한 번 더 ────────────
+    # 재작성은 좋을 수도 나쁠 수도 있어서 미리 추측하지 않고 결과로 판정한다.
+    #   재작성으로 시작했는데 0건  → 원문으로 (재작성이 질문을 망친 경우)
+    #   원문으로 시작했는데 0건    → 그때 재작성 (진짜 용어 매핑이 필요했던 경우, '지연 재작성')
+    # 이 두 번째 갈래가 _is_keyword_query의 안전장치다 — 재작성을 생략했다가 정말 필요했던
+    # 질문도 구제된다. 실패했을 때만 비용이 들어 정상 경로는 그대로다.
+    if not context:
+        alt: str | None = None
+        if skipped_rewrite:
+            try:
+                # force=True — 생략 판정을 우회해야 실제로 재작성이 일어난다
+                cand = await _rewrite_query(question, prev_question=prev_question, force=True)
+                alt = cand if cand and cand != question else None
+                if alt:
+                    print(f"[RAG_GENERAL] 원문 검색 0건 → 지연 재작성으로 재시도: '{alt}'")
+            except Exception as e:
+                print(f"[RAG_GENERAL] 지연 재작성 실패(무시): {e}")
+        elif rewritten_for_log and rewritten_for_log != question:
+            alt = question
+            print(f"[RAG_GENERAL] 재작성 검색 0건 → 원문으로 재시도: '{rewritten_for_log}' ↛ '{question}'")
+
+        if alt:
+            context, metadata = await loop.run_in_executor(
+                None,
+                _search_rag,
+                expand_search_query(alt),   # 딕셔너리는 점수 검증된 매핑뿐이라 어느 쪽에도 안전
+                alt,
+                effective_topic,
+            )
+            if context:
+                print("[RAG_GENERAL] ✅ 재시도 성공")
+                metadata["query_fallback"] = True
+                rewritten_for_log = alt if skipped_rewrite else rewritten_for_log
 
     # 파인튜닝 데이터용: 실제로 재작성된 경우에만 기록 (원본과 같으면 no-op이므로 None)
     metadata["rewritten_query"] = rewritten_for_log if rewritten_for_log != question else None
@@ -381,7 +474,17 @@ async def answer_rag_general_question_with_metadata(
             if sched_rows:
                 # 헤드라인을 질문의 구체 키워드에 맞춰 고르도록 함께 넘긴다
                 sched_kws = schedule_service._extract_keywords(sched_q)
-                context = (context or "") + schedule_service.build_context_block(sched_rows, sched_kws)
+                block = schedule_service.build_context_block(sched_rows, sched_kws)
+                # 보강 블록은 리트리버가 이미 예산(MAX_TOTAL_CONTEXT)에 맞춰 자른 컨텍스트 '위에'
+                # 얹힌다. 예산 밖에서 그냥 더했더니 프롬프트가 n_ctx를 넘어 요청이 통째로
+                # 실패했다(ValueError: Requested tokens 4120 exceed context window 4096).
+                # → 블록 자리만큼 RAG 컨텍스트를 줄여 총량을 예산 안에 유지한다.
+                room = MAX_TOTAL_CONTEXT - len(block)
+                if context and len(context) > room:
+                    cut = context[:max(0, room)]
+                    context = cut.rsplit("\n", 1)[0] if "\n" in cut else cut
+                    print(f"[RAG_GENERAL] 학사일정 보강 자리 확보 → RAG 컨텍스트 {len(context)}자로 절단")
+                context = (context or "") + block
                 metadata["schedule_card"] = schedule_service.build_card(sched_rows)
                 print(f"[RAG_GENERAL] 학사일정 보강 {len(sched_rows)}건 추가")
         except Exception as e:
@@ -439,27 +542,39 @@ async def answer_rag_general_question_with_metadata(
     from pathlib import Path
     matched_files: list[str] = []   # 임베딩 필터가 고른 관련 파일 (제안 확정용)
 
-    if is_club_list:
-        prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
-        answer = await llm_service.answer(prompt, max_tokens=2048)
-    elif is_club:
-        prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
-        answer = await llm_service.answer(prompt, max_tokens=1024)
-    else:
-        from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files
-        # 파일 매칭엔 '이전 주제:' 프리픽스가 낀 llm_question 대신 현재 질문 원본을 쓴다.
-        # → 프리픽스 노이즈 제거 + "기간은?" 같은 파편 후속질문에 같은 파일 반복 제안 방지
-        #   (현재 질문 자체가 그 주제(휴학 등)를 담고 있을 때만 유사도가 올라 제안됨).
-        matched_files = await loop.run_in_executor(
-            None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
+    # 프롬프트가 n_ctx를 넘으면 llm_service가 ValueError를 던진다. 여기서 받지 않으면
+    # 요청이 500으로 죽어 사용자에게 에러 화면이 나간다 → 안내 문구로 대신한다.
+    # (예산 조정으로 거의 안 생겨야 하지만, 마지막 방어선이다)
+    try:
+        if is_club_list:
+            prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
+            answer = await llm_service.answer(prompt, max_tokens=2048)
+        elif is_club:
+            prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
+            answer = await llm_service.answer(prompt, max_tokens=1024)
+        else:
+            from app.services.file_service import AVAILABLE_FILES
+            from app.utils.file_matcher import match_relevant_files
+            # 파일 매칭엔 '이전 주제:' 프리픽스가 낀 llm_question 대신 현재 질문 원본을 쓴다.
+            # → 프리픽스 노이즈 제거 + "기간은?" 같은 파편 후속질문에 같은 파일 반복 제안 방지
+            #   (현재 질문 자체가 그 주제(휴학 등)를 담고 있을 때만 유사도가 올라 제안됨).
+            matched_files = await loop.run_in_executor(
+                None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
+            )
+            files_list = "\n".join(f"- {Path(f).stem}" for f in matched_files) if matched_files else "없음"
+            prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
+            # 휴학 구분별 구비서류처럼 항목이 많은 답변은 512로도 1024로도 문장 중간에서 잘렸다.
+            # (동아리 목록 2048 / 상세 1024인데 정작 가장 긴 답이 나오는 일반 RAG가 제일 작았다)
+            # 컨텍스트를 3200자로 줄인 뒤 실측 여유가 ~1480토큰이라 1536까지 요청한다.
+            # 실제 상한은 _generate_local이 n_ctx 남는 만큼으로 다시 줄이므로 넉넉히 요청해도 안전하다.
+            answer = await llm_service.answer(prompt, max_tokens=1536)
+    except ValueError as e:
+        print(f"[RAG_GENERAL] ⚠️ 컨텍스트 초과로 생성 불가: {e}")
+        return (
+            "죄송해요, 관련 자료가 너무 많아 한 번에 정리하지 못했어요. "
+            "조금 더 구체적으로(예: 휴학 구분, 학기 등) 질문해 주시면 정확히 안내해 드릴게요.",
+            metadata,
         )
-        files_list = "\n".join(f"- {Path(f).stem}" for f in matched_files) if matched_files else "없음"
-        prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
-        # 기본값 512로는 휴학 구분별 구비서류처럼 항목이 많은 답변이 문장 중간에서 잘렸다.
-        # (동아리 목록 2048 / 상세 1024인데 정작 가장 긴 답이 나오는 일반 RAG가 제일 작았다)
-        # 실제 상한은 _generate_local이 n_ctx 남는 만큼으로 다시 줄이므로 넉넉히 요청해도 안전하다.
-        answer = await llm_service.answer(prompt, max_tokens=1024)
 
     # 모델이 프롬프트 레이블을 이어서 출력하는 경우 가장 앞에 나온 위치에서 잘라내기
     _STOP_MARKERS = ["[참고 문서]", "[사용자 질문]", "[답변]", "[이전 질문]", "[이전 답변]", "[다운로드 가능 파일 목록]"]

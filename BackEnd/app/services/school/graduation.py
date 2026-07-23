@@ -207,6 +207,20 @@ class GraduationService:
         rag_query = f"{dept_name} 졸업요건 전공 교양 이수학점"
         rag_context, metadata = await self._search_rag(rag_query)
 
+        # DB 요건도 없고 서술형 문서도 0건 = 이 학과에 대해 아는 게 없다. 그대로 LLM에 넘기면
+        # 없는 학점·TOEIC 점수를 창작한다(메모리 기록: 호텔경영학과 사례). LLM을 건너뛴다.
+        if rule is None and metadata.get("rag_empty"):
+            print(f"[Graduation] ⚠️ '{dept_name}' DB요건·문서 모두 없음 → LLM 스킵(환각 방지)")
+            return (
+                f"죄송해요, {dept_name}의 졸업요건 자료를 찾지 못했어요. "
+                "학과 사무실이나 학교 홈페이지에서 확인해 주세요.",
+                metadata,
+            )
+        # 요건 수치(DB)는 있는데 서술형 문서만 0건이면, '못 찾음' 문자열이 컨텍스트로 들어가
+        # LLM이 서술형 규정을 창작할 수 있다. 학점 기준만 쓰도록 명시적 '없음' 신호로 바꾼다.
+        if metadata.get("rag_empty"):
+            rag_context = "(서술형 졸업규정 문서 없음 — 위 학점 기준 외에는 추측하지 말 것)"
+
         loop = asyncio.get_event_loop()
         files = await loop.run_in_executor(
             None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
@@ -252,6 +266,11 @@ class GraduationService:
 
         # 2) 서술형 요건 (리랭커 노이즈 방지 위해 깔끔한 학과 키워드로 검색)
         rag_context, metadata = await self._search_rag(f"{dept_name} 졸업요건 전공 교양 이수학점")
+        # 서술형 문서가 0건이면 '못 찾음' 문자열이 컨텍스트로 들어가 LLM이 서술형 규정을
+        # 창작한다. 이 경로는 학점 요건(DB)·개인 현황이 유효하므로 LLM은 호출하되(그 수치는
+        # 보여줘야 한다), 서술형 부분만 명시적 '없음' 신호로 눌러 창작을 막는다.
+        if metadata.get("rag_empty"):
+            rag_context = "(서술형 졸업규정 문서 없음 — 위 학점 기준·이수현황 외에는 추측하지 말 것)"
 
         # 3) 본인 '학점' 이수현황 (영어·졸업가능여부 등은 제외)
         report = await self._check_graduation_status(db, student_id)
@@ -379,6 +398,24 @@ class GraduationService:
         )
         files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
+        # 검색 0건이면 LLM을 호출하지 않는다. "못 찾음" 문자열을 컨텍스트로 받은 LLM이 근거 없이
+        # 절차·수치를 창작하기 때문(rag_general의 동일 가드를 여기에도 세운다).
+        if metadata.get("rag_empty"):
+            print("[Graduation] ⚠️ RAG 0건 → LLM 스킵(환각 방지)")
+            if files:
+                metadata["files_to_offer"] = [Path(f).stem for f in files]
+                stems = "\n".join(f"- {Path(f).stem}" for f in files)
+                return (
+                    "질문하신 내용은 챗봇이 정리해 둔 자료에는 없지만, 관련 안내 파일이 준비되어 있어요.\n\n"
+                    f"{stems}\n\n파일 드릴까요?",
+                    metadata,
+                )
+            return (
+                "죄송해요, 졸업 관련 해당 내용의 공식 자료를 찾지 못했어요. "
+                "조금 더 구체적으로 질문해 주시거나 학과 사무실에 문의해 주세요.",
+                metadata,
+            )
+
         prompt = self._build_rag_prompt(question, rag_context, files_list)
         t2 = time.time()
         result = await llm_service.answer(prompt)
@@ -442,9 +479,12 @@ class GraduationService:
             # (예: "호텔경영학과 졸업요건" → 없는 학점·TOEIC 숫자 지어냄)
             # 리트리버가 이미 MAX_CHUNKS/MAX_MERGED_LENGTH로 상한을 두므로 넉넉히 사용한다.
             return context[:2000], rag_service.primary_metadata(results, topic="graduation")
+        # 검색 0건. 호출부가 LLM 호출을 건너뛰도록 rag_empty 플래그를 남긴다 — 이 신호가 없으면
+        # "관련 공식 문서를 찾지 못했습니다."가 컨텍스트로 LLM에 들어가 빈칸을 창작한다
+        # (실측: '조기졸업' 답변에 근거 없는 '학부모와 상담' 등장, src=None).
         return (
             "관련 공식 문서를 찾지 못했습니다.",
-            {"source": None, "source_file": None, "topic": "graduation"},
+            {"source": None, "source_file": None, "topic": "graduation", "rag_empty": True},
         )
 
     # =============================================
