@@ -597,9 +597,9 @@ async def answer_rag_general_question_with_metadata(
     # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정한다.
     # 작은 로컬 LLM이 <FILES> 태그를 불안정하게 누락해 관련 파일을 못 주던 문제 →
     # 이미 검증된 임베딩 유사도 판단을 신뢰하고, LLM이 뽑은 태그는 화면에서 제거만 한다.
-    # (잘려서 닫히지 않은 열린 태그까지 정리 — strip_files_tag)
-    from app.utils.file_matcher import strip_files_tag
-    answer = strip_files_tag(answer)
+    # (잘린 열린 태그 + 표 구분선 '|--|' 누출까지 정리 — clean_answer)
+    from app.utils.file_matcher import clean_answer
+    answer = clean_answer(answer)
     if matched_files:
         metadata["files_to_offer"] = [Path(f).stem for f in matched_files]
 

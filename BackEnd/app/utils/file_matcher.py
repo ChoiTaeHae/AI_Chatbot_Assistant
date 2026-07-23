@@ -25,6 +25,26 @@ _FILES_FRAG_RE = re.compile(r"<F(?:I(?:L(?:E(?:S)?)?)?)?$")
 _DANGLING_LINK_RE = re.compile(r"\n?\s*-?\s*\[[^\]]*\]\(?\s*$")
 
 
+# 마크다운 표 구분선 — '| --- | --- |', '|:---:|', '|---|' 등. 셀이 대시/콜론/공백뿐인 행.
+# 앞의 개행까지 함께 잡아 줄을 통째로 제거한다(빈 줄이 남으면 표가 두 동강 난다).
+_TABLE_SEP_RE = re.compile(r"\n?[ \t]*\|(?:[ \t]*:?-{2,}:?[ \t]*\|)+[ \t]*(?=\n|$)")
+
+
+def strip_table_separators(text: str) -> str:
+    """마크다운 표의 구분선(| --- | --- |)만 제거한다. 헤더·데이터 행은 그대로 둔다.
+
+    PDF 표를 마크다운으로 변환해 색인하다 보니 청크에 구분선이 그대로 들어있다(기숙사비
+    안내 문서 기준 컨텍스트 하나에 파이프 172개, 구분선 13줄). 구분선은 순수 마크다운 문법이라
+    정보가 0인데, 8B 모델에는 '이 형식을 따라 그려라'는 강한 신호가 돼서 답변에 '|--|'가
+    그대로 새어 나온다(팀원 환경 실측). 값이 든 행은 표 구조 이해에 필요하므로 남기고,
+    정보가 없는 구분선만 지워 따라 그릴 대상을 없앤다.
+    """
+    if not text or "|" not in text:
+        return text
+    cleaned = _TABLE_SEP_RE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", cleaned)
+
+
 def strip_files_tag(text: str) -> str:
     """답변에서 <FILES> 태그를 제거한다. 파일 제안은 임베딩 필터로 확정하므로 LLM이 뽑은
     태그는 화면에서 지우기만 한다.
@@ -43,6 +63,15 @@ def strip_files_tag(text: str) -> str:
     text = _FILES_FRAG_RE.sub("", text)
     text = _DANGLING_LINK_RE.sub("", text)
     return text.strip()
+
+
+def clean_answer(text: str) -> str:
+    """LLM 답변 최종 정리 — 화면에 새면 안 되는 잔해를 한 번에 제거한다.
+
+    컨텍스트 단에서 이미 표 구분선을 지우지만(rag_service), 모델이 스스로 표를 그리려다
+    '|--|'를 뱉는 경우가 있어 답변 쪽에도 같은 안전망을 둔다.
+    """
+    return strip_files_tag(strip_table_separators(text))
 
 # 아래 세 값은 실제 bge-m3로 여러 케이스(휴학/장학금 등) 코사인 유사도를 측정해 정한 값 — 튜닝 가능.
 _MIN_TOP_SCORE = 0.55   # 1등 파일조차 이 미만이면 확실히 관련된 파일이 없다고 보고 전부 제외
