@@ -5,7 +5,7 @@ import re
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 from app.rag.Retrieval.retriever import MAX_TOTAL_CONTEXT   # 보강 블록도 같은 예산 안에서 다룬다
-from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT, SYSTEM_PROMPT
 
 # 재작성 드리프트 임계값 — 원문과 재작성의 의미 유사도가 이 값 미만이면
 # 환각(엉뚱한 주제로 변형)으로 보고 원본 질문을 사용한다. (bge-m3 코사인, 튜닝 가능)
@@ -547,9 +547,13 @@ async def answer_rag_general_question_with_metadata(
     # (예산 조정으로 거의 안 생겨야 하지만, 마지막 방어선이다)
     try:
         if is_club_list:
+            # 컨텍스트를 답변 예산에 맞춰 절단(오버헤드 = 컨텍스트 뺀 프롬프트 + 시스템)
+            context = llm_service.fit_context(context, RAG_CLUB_LIST_PROMPT.format(context="") + SYSTEM_PROMPT)
             prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
             answer = await llm_service.answer(prompt, max_tokens=2048)
         elif is_club:
+            context = llm_service.fit_context(
+                context, RAG_CLUB_DETAIL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT)
             prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
             answer = await llm_service.answer(prompt, max_tokens=1024)
         else:
@@ -562,11 +566,12 @@ async def answer_rag_general_question_with_metadata(
                 None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
             )
             files_list = "\n".join(f"- {Path(f).stem}" for f in matched_files) if matched_files else "없음"
+            # 답변 최소 800토큰을 남기도록 컨텍스트를 동적 절단한다. 고정 상수(MAX_TOTAL_CONTEXT)
+            # 로는 RAG 골격 946토큰을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 오버헤드에
+            # 학사일정 보강 블록·파일목록까지 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
+            overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question, files_list=files_list) + SYSTEM_PROMPT
+            context = llm_service.fit_context(context, overhead)
             prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
-            # 휴학 구분별 구비서류처럼 항목이 많은 답변은 512로도 1024로도 문장 중간에서 잘렸다.
-            # (동아리 목록 2048 / 상세 1024인데 정작 가장 긴 답이 나오는 일반 RAG가 제일 작았다)
-            # 컨텍스트를 3200자로 줄인 뒤 실측 여유가 ~1480토큰이라 1536까지 요청한다.
-            # 실제 상한은 _generate_local이 n_ctx 남는 만큼으로 다시 줄이므로 넉넉히 요청해도 안전하다.
             answer = await llm_service.answer(prompt, max_tokens=1536)
     except ValueError as e:
         print(f"[RAG_GENERAL] ⚠️ 컨텍스트 초과로 생성 불가: {e}")
@@ -592,10 +597,9 @@ async def answer_rag_general_question_with_metadata(
     # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정한다.
     # 작은 로컬 LLM이 <FILES> 태그를 불안정하게 누락해 관련 파일을 못 주던 문제 →
     # 이미 검증된 임베딩 유사도 판단을 신뢰하고, LLM이 뽑은 태그는 화면에서 제거만 한다.
-    import re
-    match = re.search(r'<FILES>(.*?)</FILES>', answer)
-    if match:
-        answer = (answer[:match.start()] + answer[match.end():]).strip()
+    # (잘려서 닫히지 않은 열린 태그까지 정리 — strip_files_tag)
+    from app.utils.file_matcher import strip_files_tag
+    answer = strip_files_tag(answer)
     if matched_files:
         metadata["files_to_offer"] = [Path(f).stem for f in matched_files]
 

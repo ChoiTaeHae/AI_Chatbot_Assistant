@@ -68,6 +68,38 @@ class LlmService:
             )
             print(f"[LLM] Vertex Gemini(서비스계정) 준비 완료: {settings.GEMINI_MODEL} @ {settings.GCP_LOCATION}")
 
+    # ── 컨텍스트 예산 맞추기 ──────────────────────────────────────
+    def fit_context(self, context: str, overhead_text: str,
+                    min_answer_tokens: int = 800, reserve: int = 64) -> str:
+        """답변 생성에 min_answer_tokens가 남도록 context를 앞에서부터 채우고 뒤를 자른다.
+
+        n_ctx(4096)는 프롬프트+답변의 '합계'라, 컨텍스트가 길면 답변이 잘린다. 예산을
+        고정 상수(MAX_TOTAL_CONTEXT)로 잡으면 프롬프트 규칙 크기(RAG 골격만 946토큰)를 반영
+        못 해 어떤 질문은 답변이 61토큰까지 쪼그라들었다. 여기서 '실제 오버헤드'를 토큰으로
+        재서 컨텍스트 상한을 역산한다 — 짧은 프롬프트엔 컨텍스트를 넉넉히, 규칙이 무거운
+        프롬프트엔 알아서 조인다(유동적).
+
+        overhead_text: 컨텍스트를 뺀 프롬프트 전체 + system_prompt (실측 대상).
+        로컬 모델이 아닐 때(vertex는 컨텍스트가 훨씬 큼, DEV_MODE는 모델 없음)는 그대로 반환.
+        """
+        if self.provider == "vertex" or self.model is None or not context:
+            return context
+        n_ctx = self.model.n_ctx()
+        overhead = len(self.model.tokenize(overhead_text.encode("utf-8")))
+        budget = n_ctx - overhead - min_answer_tokens - reserve
+        if budget <= 0:
+            # 규칙+질문만으로 예산을 다 먹은 극단 케이스. 답변 몫을 지키려 컨텍스트를 최소로.
+            budget = max(200, n_ctx - overhead - self._MIN_ANSWER_TOKENS - reserve)
+        ctx_toks = self.model.tokenize(context.encode("utf-8"))
+        if len(ctx_toks) <= budget:
+            return context
+        # 토큰 단위로 자른 뒤 줄 경계로 정리(문장 중간 절단 방지)
+        cut = self.model.detokenize(ctx_toks[:budget]).decode("utf-8", errors="ignore")
+        trimmed = cut.rsplit("\n", 1)[0] if "\n" in cut else cut
+        print(f"[LLM] 컨텍스트 예산 절단: {len(context)}자 → {len(trimmed)}자 "
+              f"(오버헤드 {overhead}토큰, 답변보장 {min_answer_tokens}토큰)")
+        return trimmed
+
     # ── 생성 ──────────────────────────────────────────────────
     def _generate(self, question: str, max_tokens: int = 512,
                   system_prompt: str = SYSTEM_PROMPT, temperature: float = 0.3) -> str:

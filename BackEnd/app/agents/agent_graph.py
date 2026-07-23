@@ -25,7 +25,7 @@ from app.services.school.campus import CampusService
 from app.services.school.department import answer_department_question
 from app.services.school.graduation import graduation_service
 from app.services.school.schedule import schedule_service
-from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query
+from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query, _distinctive_terms
 from app.services.school.scholarship import answer_scholarship_question
 from app.services.rag_service import rag_service
 from app.services.file_service import AVAILABLE_FILES
@@ -67,6 +67,15 @@ DEFAULT_EVENT_KWS = [
     '입학식', '졸업식', '학위수여식', '종합시험', '전공배정', '복수전공', '부전공',
 ]
 
+# 게이트 배제어 — 날짜의도어+이벤트어가 다 있어도, 이 중 하나라도 있으면 게이트를 발동하지
+# 않고 임베딩 라우터로 넘긴다. 게이트 이벤트어에는 휴학·복학처럼 '전용 토픽'이 따로 있는
+# 단어가 많아, '복학 등록금 언제 내'가 통째로 schedule로 확정돼 신청 마감일을 엉뚱하게
+# 답하는 버그가 있었다(실측). 절차·납부·서류를 묻는 질문은 날짜 질문이 아니라 그 토픽의
+# 절차 질문이므로 임베딩이 판단하게 한다.
+#   포함: 등록금·납부(등록금 절차), 서류·제출·신청서(서류), 방법·절차·어떻게(절차)
+#   제외: 취소·철회 — event_kw '수강취소/수강철회'와 부분 매칭돼 정당한 일정 질문을 막는다.
+GATE_EXCLUDE = ('등록금', '납부', '서류', '제출', '신청서', '방법', '절차', '어떻게')
+
 # 런타임 캐시 (공백 제거 비교 기준)
 _gate_date_intent = tuple(k.replace(' ', '') for k in DEFAULT_DATE_INTENT)
 _gate_event_kws = tuple(k.replace(' ', '') for k in DEFAULT_EVENT_KWS)
@@ -84,6 +93,8 @@ def set_schedule_gate(date_intent: list[str] | None, event_keywords: list[str] |
 
 def _is_schedule_date_question(q: str) -> bool:
     qn = q.replace(' ', '')
+    if any(x in qn for x in GATE_EXCLUDE):   # 절차·납부·서류 질문이면 날짜 fast-path 금지
+        return False
     if not any(d in qn for d in _gate_date_intent):
         return False
     return any(kw in qn for kw in _gate_event_kws)
@@ -332,7 +343,13 @@ async def _embedding_classify(state: AgentState) -> dict:
         # ※ 기존 블록 2와 통합함 — 블록 2의 '이전 topic 유지' return은 prev_handler가 falsy일
         #    때만 도달해 실제로는 늘 새 topic(handler_type)을 반환하던 죽은/오해 코드라 제거.
         #    실질 stickiness는 이 블록 하나로 충분(margin 판정 중복 제거).
-        if score < _HIGH_CONFIDENCE and prev_topic:
+        # 현재 질문에 뚜렷한 주제어가 있으면 = 스스로 주제를 특정하는 '완결된 새 질문'이므로
+        # stickiness를 건너뛴다. stickiness는 '기간은?' 같은 주제어 없는 파편 후속질문을 이전
+        # 맥락으로 잇기 위한 것인데, 'WS인증 어학 기준'(주제어 WS인증)처럼 완결된 질문이 우연히
+        # 이전 topic과 임베딩이 가까우면(공결 absence=0.424) 엉뚱하게 갇혔다(실측: graduation
+        # 0.553이 1등인데 absence로 강제). 주제어 유무로 파편/완결을 가른다(rewrite 가드와 동일 원리).
+        has_own_topic = bool(_distinctive_terms(state["question"]))
+        if score < _HIGH_CONFIDENCE and prev_topic and not has_own_topic:
             prev_cmp_score = all_scores.get(prev_topic) or 0.0
             if score - prev_cmp_score < _SWITCH_MARGIN:
                 prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
