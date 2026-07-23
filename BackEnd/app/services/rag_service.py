@@ -184,8 +184,12 @@ class RagService:
             topic=topic,
             original_question=original_question,
         )
+        # 표 구분선(| --- |)은 정보가 없는 마크다운 문법인데, 8B에는 '이 형식을 따라 그려라'는
+        # 신호가 돼 답변에 '|--|'가 새어 나온다. LLM에 주기 전에 지워 따라 그릴 대상을 없앤다.
+        # (헤더·데이터 행은 표 구조 이해에 필요하므로 그대로 둔다)
+        from app.utils.file_matcher import strip_table_separators
         context = "\n\n".join(
-            f"[source={self.format_source(result)}, score={result.score:.3f}]\n{result.text}"
+            f"[source={self.format_source(result)}, score={result.score:.3f}]\n{strip_table_separators(result.text)}"
             for result in results
             if result.text
         )

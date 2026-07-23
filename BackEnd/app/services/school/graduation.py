@@ -235,7 +235,7 @@ class GraduationService:
         개인 이수현황은 미포함. '요건' 질문(both) 및 '다른 학과' 질문에 사용."""
         from pathlib import Path
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files, strip_files_tag
+        from app.utils.file_matcher import match_relevant_files, clean_answer
 
         _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
         if rule:
@@ -285,7 +285,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        result = strip_files_tag(result)
+        result = clean_answer(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -297,7 +297,7 @@ class GraduationService:
         영어·자격증·토익·졸업가능여부는 현황으로 판단 안 하고 요건 안내에만 포함(DB 미추적)."""
         from pathlib import Path
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files, strip_files_tag
+        from app.utils.file_matcher import match_relevant_files, clean_answer
 
         # 1) 요건 학점 (DB rule)
         _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
@@ -349,7 +349,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        result = strip_files_tag(result)
+        result = clean_answer(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -438,7 +438,7 @@ class GraduationService:
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
 
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files, strip_files_tag
+        from app.utils.file_matcher import match_relevant_files, clean_answer
         from pathlib import Path
         loop = asyncio.get_event_loop()
         files = await loop.run_in_executor(
@@ -470,7 +470,7 @@ class GraduationService:
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        result = strip_files_tag(result)
+        result = clean_answer(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -489,7 +489,7 @@ class GraduationService:
         db_context = report.get("error") if "error" in report else self._build_db_context(report)
 
         from app.services.file_service import AVAILABLE_FILES
-        from app.utils.file_matcher import match_relevant_files, strip_files_tag
+        from app.utils.file_matcher import match_relevant_files, clean_answer
         from pathlib import Path
         loop = asyncio.get_event_loop()
         files = await loop.run_in_executor(
@@ -503,7 +503,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
 
         # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
-        result = strip_files_tag(result)
+        result = clean_answer(result)
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
