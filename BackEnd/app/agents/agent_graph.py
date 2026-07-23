@@ -440,6 +440,12 @@ async def _handle_schedule(state: AgentState) -> dict:
     answer, metadata = await schedule_service.answer_schedule_with_metadata(
         question=state["question"], db=state["db"]
     )
+    # 매칭 0건 = 라우팅이 잘못 왔거나 학사일정에 없는 내용. 여기서 끝내면 막다른 길이 되므로
+    # RAG로 넘긴다. topic은 비워서(schedule 토픽엔 문서가 없다) 전체 검색으로 돌린다.
+    if metadata.get("no_match"):
+        print("[Graph] 학사일정 매칭 0건 → RAG 폴백")
+        return await _handle_rag_general({**state, "topic": None})
+
     answer = _append_contact_info(answer, metadata)
     return {
         "answer": answer,
@@ -492,6 +498,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         context_question=enriched_question,  # LLM 맥락용 (이전 주제 힌트 포함)
         prev_question=prev_question,         # 후속 질문이면 rewrite에 맥락 통합
         search_query=state.get("search_query"),  # rewrite 노드가 이미 재작성했으면 재사용(이중 rewrite 방지)
+        db=state["db"],                          # 날짜 질문이면 학사일정을 컨텍스트에 보강
     )
     answer = _append_contact_info(answer, metadata)
     return _with_file_offer({
@@ -501,6 +508,7 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "topic": metadata.get("topic") or topic,
         "rewritten_query": metadata.get("rewritten_query"),
         "files_to_offer": metadata.get("files_to_offer", []),
+        "schedule_card": metadata.get("schedule_card"),   # 보강으로 붙은 미니 달력
     }, topic, state["question"])
 
 

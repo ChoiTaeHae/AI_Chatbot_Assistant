@@ -77,16 +77,37 @@ class LlmService:
             return self._generate_vertex(question, max_tokens, system_prompt, temperature)
         return self._generate_local(question, max_tokens, system_prompt, temperature)
 
+    # 답변 생성에 최소한 확보돼야 하는 토큰. 이보다 여유가 없으면 프롬프트가 과대한 것이다.
+    _MIN_ANSWER_TOKENS = 128
+
     def _generate_local(self, question, max_tokens, system_prompt, temperature) -> str:
         try:
             t0 = time.time()
+            # n_ctx(4096)는 프롬프트와 생성의 '합계'다. RAG 컨텍스트가 길면 요청한 max_tokens를
+            # 다 쓸 수 없으므로 남는 만큼으로 줄인다. 이 클램프가 있어야 호출부가 넉넉히
+            # 요청해도(짧은 컨텍스트일 때 긴 답변을 받으려고) 컨텍스트 초과로 깨지지 않는다.
+            n_ctx = self.model.n_ctx()
+            used = len(self.model.tokenize(f"{system_prompt}\n{question}".encode("utf-8")))
+            room = n_ctx - used - 64                                # 64 = 채팅 템플릿 마커 여유
+            if room < self._MIN_ANSWER_TOKENS:
+                # 프롬프트만으로 컨텍스트를 거의 다 먹은 상태. 예전엔 max(128, ...) 하한 때문에
+                # 초과가 강제되어 llama.cpp가 ValueError를 던졌고 요청이 500으로 죽었다.
+                # 여기서 프롬프트를 자르면 규칙('문서에 없는 내용은 추측하지 않는다')이나 질문이
+                # 날아가 근거 없는 답이 나올 수 있으므로, 조용히 망가뜨리지 않고 명시적으로 알린다.
+                raise ValueError(
+                    f"프롬프트가 컨텍스트 창을 초과합니다 ({used}토큰 / n_ctx {n_ctx}). "
+                    f"MAX_TOTAL_CONTEXT를 줄이세요."
+                )
+            capped = min(max_tokens, room)
+            if capped < max_tokens:
+                print(f"[LLM] max_tokens {max_tokens} → {capped} (프롬프트 {used}토큰 / n_ctx {n_ctx})")
             print("[LLM] 로컬 추론 시작")
             response = self.model.create_chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": question},
                 ],
-                max_tokens=max_tokens,
+                max_tokens=capped,
                 temperature=temperature,
                 top_p=0.9,
                 repeat_penalty=1.1,

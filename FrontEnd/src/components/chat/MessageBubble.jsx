@@ -417,7 +417,34 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
                 </div>
               </div>
 
-              {/* 지도 (좌표 있을 때 — OpenStreetMap 무료 임베드) */}
+              {/* 지도 (좌표 있을 때 — OpenStreetMap 무료 임베드).
+                  API 키·SDK 로드가 필요 없어 좌표만 있으면 바로 표시된다.
+                  bbox는 좌표 주변을 좁게 잡아 건물이 크게 보이도록 한 것. */}
+              {message.mapCard.latitude && message.mapCard.longitude && (() => {
+                const lat = Number(message.mapCard.latitude)
+                const lng = Number(message.mapCard.longitude)
+                const dLat = 0.0016, dLng = 0.0022
+                const bbox = [lng - dLng, lat - dLat, lng + dLng, lat + dLat].join('%2C')
+                return (
+                  <>
+                    {/* iframe을 컨테이너보다 크게 잡아 OSM 기본 푸터(문제점 보고·기부 링크 등)를
+                        아래로 밀어 잘라낸다. 출처 표기는 ODbL 의무라 아래에 한 줄로 대체 표시. */}
+                    <div className="relative overflow-hidden bg-slate-100" style={{ height: '190px' }}>
+                      <iframe
+                        title={`${message.mapCard.title} 위치 지도`}
+                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`}
+                        loading="lazy"
+                        className="absolute top-0 left-0 w-full"
+                        style={{ height: '226px', border: 0 }}
+                      />
+                    </div>
+                    <p className="text-slate-300 bg-white text-right" style={{ fontSize: '9px', padding: '2px 8px 0' }}>
+                      © OpenStreetMap
+                    </p>
+                  </>
+                )
+              })()}
+
               {/* 카카오맵 링크 */}
               {message.mapCard.place_url && (
                 <a
