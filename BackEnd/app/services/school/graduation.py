@@ -25,9 +25,17 @@ from app.prompts import (
 _DEPT_CACHE: list[tuple[int, str, list[str]]] | None = None
 
 
+# 학과명에 쓰이는 가운뎃점 변형들 — 입력기·문서마다 다른 코드포인트가 나온다.
+# (DB 학과명은 U+00B7, 규정 문서는 U+2024를 쓰고, 한/글·MS Word 복붙은 U+2027,
+#  일본어 IME가 켜져 있으면 U+30FB/U+FF65가 섞인다. 하나라도 빠지면 그 표기로 물었을 때
+#  학과 인식이 통째로 실패하므로 비교 단계에서 모두 지운다.)
+_SEP_CHARS = "·․‧・･•"          # U+00B7 U+2024 U+2027 U+30FB U+FF65 U+2022
+_NORM_RE = re.compile(r"[\s" + _SEP_CHARS + r"/,]")
+
+
 def _norm(s: str) -> str:
-    """비교용 정규화 — 공백·구분자(·․/,) 제거 + 소문자."""
-    return re.sub(r"[\s·․/,]", "", s or "").lower()
+    """비교용 정규화 — 공백·가운뎃점 변형·구분자(/,) 제거 + 소문자."""
+    return _NORM_RE.sub("", s or "").lower()
 
 
 def detect_department(question: str) -> tuple[int, str] | None:
@@ -43,6 +51,27 @@ def detect_department(question: str) -> tuple[int, str] | None:
             if nt and nt in q and (best is None or len(nt) > best[0]):
                 best = (len(nt), did, name)
     return (best[1], best[2]) if best else None
+
+
+# 질문에 명시된 입학연도(학번) 탐지 — 학과와 같은 원리로 '명시되면 그 기준, 없으면 내 학번'.
+# 요건은 학과 × 입학연도로 DB에 있으므로(43학과 × 2020~2026), 연도를 못 읽으면 남의 학번을
+# 물어도 내 학번 요건이 나온다("2025학년도 컴퓨터공학과 졸업요건"인데 2022 기준 답변).
+#   지원 표기: '2025학번', '2025학년도', '25학번', '25학년도 입학'
+_YEAR_4_RE = re.compile(r"(20\d{2})\s*(?:학번|학년도)")
+_YEAR_2_RE = re.compile(r"(?<!\d)(\d{2})\s*학번")
+
+
+def detect_admission_year(question: str) -> int | None:
+    """질문에서 입학연도를 탐지. 없으면 None → 호출부에서 '내 학번'으로 폴백."""
+    if not question:
+        return None
+    m = _YEAR_4_RE.search(question)
+    if m:
+        return int(m.group(1))
+    m = _YEAR_2_RE.search(question)
+    if m:
+        return 2000 + int(m.group(1))   # '25학번' → 2025
+    return None
 
 # ── 졸업 질문 유형 분류 프로토타입 (임베딩 기반) ──────────────────────
 # personal : 개인 현황 조회 (DB)
@@ -166,11 +195,19 @@ class GraduationService:
 
         mentioned = detect_department(question)
         is_other = bool(mentioned and mentioned[0] != student.dept_id)
-        print(f"[Graduation] 분기 판별: 언급학과={mentioned}, 내학과id={student.dept_id}, 다른학과={is_other}")
+        # 질문에 학번이 명시되면 그 연도 요건으로 답한다(요건은 학과×입학연도로 다르다).
+        mentioned_year = detect_admission_year(question)
+        is_other_year = bool(mentioned_year and mentioned_year != my_year)
+        target_year = mentioned_year or my_year
+        print(f"[Graduation] 분기 판별: 언급학과={mentioned}, 내학과id={student.dept_id}, 다른학과={is_other}, "
+              f"언급학번={mentioned_year}, 내학번={my_year}, 다른학번={is_other_year}")
 
-        # 다른 학과 언급 → 그 학과 요건만 (개인 이수현황은 본인 학과만 가능하므로 제외)
-        if is_other:
-            return await self._answer_dept_requirement(question, mentioned[0], mentioned[1], my_year, db)
+        # 다른 학과 또는 다른 학번 → 그 기준의 요건만 (개인 이수현황은 '내 학과·내 학번'에서만
+        # 의미가 있으므로 제외한다. 2025학번 요건에 2022학번인 내 현황을 섞으면 오해를 부른다)
+        if is_other or is_other_year:
+            dept_id = mentioned[0] if mentioned else student.dept_id
+            dept_name = mentioned[1] if mentioned else my_dept_name
+            return await self._answer_dept_requirement(question, dept_id, dept_name, target_year, db)
 
         # 내 학과(또는 학과 미언급) → 유형 분류로 라우팅
         cat = await self._classify_question(question)
@@ -179,7 +216,8 @@ class GraduationService:
             return await self._answer_from_rag(question)
         # personal / both → 내 학과 졸업요건(학점+서술형) + 본인 학점 이수현황을 함께
         # (요건/현황 분류가 표현 겹침으로 불안정 → 둘 다 보여줘 분류 어려움을 우회)
-        return await self._answer_my_dept(question, student.dept_id, my_dept_name, my_year, student_id, db)
+        # target_year는 여기선 항상 my_year와 같다(다르면 위 분기로 빠짐) — 의도를 드러내려 통일.
+        return await self._answer_my_dept(question, student.dept_id, my_dept_name, target_year, student_id, db)
 
     async def _ensure_dept_cache(self, db: AsyncSession) -> None:
         """학과 매칭 캐시 지연 로드 (첫 졸업 질문 시 1회)."""
@@ -213,7 +251,9 @@ class GraduationService:
 
         # RAG(서술형 규정) 검색은 회화체·이전맥락이 낀 원 질문 대신 '학과 키워드'로 리랭킹한다.
         # (리랭커는 쿼리 노이즈에 극도로 민감 — "간호학과 졸업요건"=0.77 vs "…알려줘+맥락"=0.13)
-        rag_query = f"{dept_name} 졸업요건 전공 교양 이수학점"
+        # 쿼리는 '학과명 + 졸업요건'까지만. 일반어를 덧붙이면 리랭커 점수가 무너진다
+        # (실측: '컴퓨터공학전공 졸업요건'=0.860 → '…전공 교양 이수학점' 추가 시 0.121로 폭락 → 0건).
+        rag_query = f"{dept_name} 졸업요건"
         rag_context, metadata = await self._search_rag(rag_query)
 
         # DB 요건도 없고 서술형 문서도 0건 = 이 학과에 대해 아는 게 없다. 그대로 LLM에 넘기면
@@ -272,10 +312,13 @@ class GraduationService:
             req_context = f"{dept_name} {admission_year}학번 졸업요건 정보가 DB에 등록되어 있지 않습니다."
 
         # 2) 서술형 요건 (리랭커 노이즈 방지 위해 깔끔한 학과 키워드로 검색)
-        rag_context, metadata = await self._search_rag(f"{dept_name} 졸업요건 전공 교양 이수학점")
+        # '전공 교양 이수학점'을 붙이면 리랭커가 학과 특이성을 잃어 0건이 된다(위 _answer_dept_requirement 주석 참조).
+        rag_context, metadata = await self._search_rag(f"{dept_name} 졸업요건")
         # 서술형 문서가 0건이면 '못 찾음' 문자열이 컨텍스트로 들어가 LLM이 서술형 규정을
         # 창작한다. 이 경로는 학점 요건(DB)·개인 현황이 유효하므로 LLM은 호출하되(그 수치는
         # 보여줘야 한다), 서술형 부분만 명시적 '없음' 신호로 눌러 창작을 막는다.
+        # (학과명 빼고 공통 문서로 폴백하는 방식은 편입생 이수학점표가 딸려와 '나 졸업 가능해?'에
+        #  안 물어본 편입 정보가 가득 나오는 부작용이 있어 롤백했다 — 정확성 우선.)
         if metadata.get("rag_empty"):
             rag_context = "(서술형 졸업규정 문서 없음 — 위 학점 기준·이수현황 외에는 추측하지 말 것)"
 
