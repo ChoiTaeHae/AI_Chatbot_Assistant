@@ -9,6 +9,10 @@ from app.prompts import SYSTEM_PROMPT
 
 # 로컬 llama-cpp는 단일 스레드 실행(GPU 직렬) → worker 1.
 # Vertex는 네트워크 호출이라 병렬 가능 → worker 여러 개(동시성 확보).
+# [확장 지점] 다중 유저 동시 답변이 필요하면(예: 5090 32GB 도입) 여기 worker를 늘리는 대신
+#   provider="vllm"을 추가해 continuous batching 엔진(vLLM/TGI)으로 교체하는 게 정석이다.
+#   _generate에 분기 한 줄 + _generate_vllm() 추가면 되고, 라우팅·검색 로직은 그대로다.
+#   그때 chat_service의 세션별 prev_context 정합성(동시 요청 race)도 함께 검토한다.
 _local_executor = ThreadPoolExecutor(max_workers=1)
 _vertex_executor = ThreadPoolExecutor(max_workers=8)
 
@@ -40,8 +44,8 @@ class LlmService:
         print(f"모델 로딩 중: {settings.MODEL_PATH}")
         self.model = Llama(
             model_path=settings.MODEL_PATH,
-            n_gpu_layers=25,
-            n_ctx=4096,
+            n_gpu_layers=settings.LLM_GPU_LAYERS,   # env로 조정(3070=25 / 5090=-1 전체)
+            n_ctx=settings.LLM_N_CTX,               # env로 조정(VRAM 늘면 8192 등)
             n_batch=128,
             verbose=False,
         )

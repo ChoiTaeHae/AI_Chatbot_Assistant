@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "local"
     MODEL_PATH: str = "./llm/bllossom-8b-Q8_0.gguf"
     DEVICE: str = "cuda"
+    # GPU 오프로드 층 수 / 컨텍스트 창 — 하드웨어에 맞춰 env로 조정한다(코드 수정 불필요).
+    # 기본값은 RTX 3070 8GB 기준(모델 8GB + 임베딩·리랭커 4.5GB라 25층만 GPU, 나머지 CPU).
+    # VRAM이 크면(예: 5090 32GB) LLM_GPU_LAYERS=-1(전체 GPU) / LLM_N_CTX=8192 등으로 올리면 된다.
+    # n_ctx를 올리면 답변 예산(fit_context)이 model.n_ctx()를 읽어 자동으로 따라간다.
+    LLM_GPU_LAYERS: int = 25
+    LLM_N_CTX: int = 4096
 
     # Gemini — LLM_PROVIDER=vertex 일 때 사용.
     # 인증: GEMINI_API_KEY 있으면 API 키 방식(Gemini Developer API),
