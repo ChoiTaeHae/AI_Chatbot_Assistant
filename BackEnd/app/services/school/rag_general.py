@@ -550,12 +550,14 @@ async def answer_rag_general_question_with_metadata(
             # 컨텍스트를 답변 예산에 맞춰 절단(오버헤드 = 컨텍스트 뺀 프롬프트 + 시스템)
             context = llm_service.fit_context(context, RAG_CLUB_LIST_PROMPT.format(context="") + SYSTEM_PROMPT)
             prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
-            answer = await llm_service.answer(prompt, max_tokens=2048)
+            # 사실 조회 답변은 결정론적으로(temp 0.0) — 같은 질문에 표/목록이 매번 다르게(행 누락 등)
+            # 렌더되던 변덕 억제. (졸업 핸들러와 동일 원칙)
+            answer = await llm_service.answer(prompt, max_tokens=2048, temperature=0.0)
         elif is_club:
             context = llm_service.fit_context(
                 context, RAG_CLUB_DETAIL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT)
             prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
-            answer = await llm_service.answer(prompt, max_tokens=1024)
+            answer = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         else:
             from app.services.file_service import AVAILABLE_FILES
             from app.utils.file_matcher import match_relevant_files
@@ -572,7 +574,7 @@ async def answer_rag_general_question_with_metadata(
             overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question, files_list=files_list) + SYSTEM_PROMPT
             context = llm_service.fit_context(context, overhead)
             prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
-            answer = await llm_service.answer(prompt, max_tokens=1536)
+            answer = await llm_service.answer(prompt, max_tokens=1536, temperature=0.0)
     except ValueError as e:
         print(f"[RAG_GENERAL] ⚠️ 컨텍스트 초과로 생성 불가: {e}")
         return (
