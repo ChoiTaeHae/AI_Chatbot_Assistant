@@ -270,22 +270,20 @@ class GraduationService:
         if metadata.get("rag_empty"):
             rag_context = "(서술형 졸업규정 문서 없음 — 위 학점 기준 외에는 추측하지 말 것)"
 
-        loop = asyncio.get_event_loop()
-        files = await loop.run_in_executor(
-            None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
-        )
-        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
-
         prompt = GRADUATION_OTHER_DEPT_PROMPT.format(
-            dept=dept_name, req_context=req_context, rag_context=rag_context,
-            question=question, files_list=files_list,
+            dept=dept_name, req_context=req_context, rag_context=rag_context, question=question,
         )
         # 구조적 졸업 답변은 실행마다 흔들리면 안 되므로 결정론적으로(temp 0.0) 생성.
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
-
-        # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
         result = clean_answer(result)
+
+        # 파일 제안은 '완성된 답변' 기준(질문 기준은 신호가 약함). graduation은 현재 파일이 없어
+        # 결과가 늘 비지만, 파일이 추가되면 자동으로 동작한다.
+        loop = asyncio.get_event_loop()
+        files = await loop.run_in_executor(
+            None, match_relevant_files, result, AVAILABLE_FILES.get("graduation", [])
+        )
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -336,20 +334,18 @@ class GraduationService:
                 f"총: {report['total_earned']} / {report['total_required']} (부족 {tt})"
             )
 
-        loop = asyncio.get_event_loop()
-        files = await loop.run_in_executor(
-            None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
-        )
-        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
-
         prompt = GRADUATION_MY_DEPT_PROMPT.format(
             dept=dept_name, req_context=req_context, rag_context=rag_context,
-            status_context=status_context, question=question, files_list=files_list,
+            status_context=status_context, question=question,
         )
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
-
-        # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정. LLM 태그는 화면에서 제거만.
         result = clean_answer(result)
+
+        # 파일 제안은 '완성된 답변' 기준. graduation은 현재 파일이 없어 결과가 늘 빈다.
+        loop = asyncio.get_event_loop()
+        files = await loop.run_in_executor(
+            None, match_relevant_files, result, AVAILABLE_FILES.get("graduation", [])
+        )
         if files:
             metadata["files_to_offer"] = [Path(f).stem for f in files]
 
@@ -444,7 +440,6 @@ class GraduationService:
         files = await loop.run_in_executor(
             None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
         )
-        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
         # 검색 0건이면 LLM을 호출하지 않는다. "못 찾음" 문자열을 컨텍스트로 받은 LLM이 근거 없이
         # 절차·수치를 창작하기 때문(rag_general의 동일 가드를 여기에도 세운다).
@@ -464,7 +459,7 @@ class GraduationService:
                 metadata,
             )
 
-        prompt = self._build_rag_prompt(question, rag_context, files_list)
+        prompt = self._build_rag_prompt(question, rag_context)
         t2 = time.time()
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")
@@ -495,9 +490,8 @@ class GraduationService:
         files = await loop.run_in_executor(
             None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
         )
-        files_list = "\n".join(f"- {Path(f).stem}" for f in files) if files else "없음"
 
-        prompt = self._build_combined_prompt(question, db_context, rag_context, files_list)
+        prompt = self._build_combined_prompt(question, db_context, rag_context)
         # 구조적 졸업 답변은 실행마다 흔들리면 안 되므로 결정론적으로(temp 0.0) 생성.
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
@@ -725,11 +719,11 @@ class GraduationService:
     def _build_db_prompt(self, question: str, context: str) -> str:
         return GRADUATION_DB_PROMPT.format(context=context, question=question)
 
-    def _build_rag_prompt(self, question: str, rag_context: str, files_list: str = "없음") -> str:
-        return GRADUATION_RAG_PROMPT.format(rag_context=rag_context, question=question, files_list=files_list)
+    def _build_rag_prompt(self, question: str, rag_context: str) -> str:
+        return GRADUATION_RAG_PROMPT.format(rag_context=rag_context, question=question)
 
-    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str, files_list: str = "없음") -> str:
-        return GRADUATION_COMBINED_PROMPT.format(db_context=db_context, rag_context=rag_context, question=question, files_list=files_list)
+    def _build_combined_prompt(self, question: str, db_context: str, rag_context: str) -> str:
+        return GRADUATION_COMBINED_PROMPT.format(db_context=db_context, rag_context=rag_context, question=question)
 
 
 # 싱글톤 인스턴스
