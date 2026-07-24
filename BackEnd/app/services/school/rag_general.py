@@ -42,6 +42,10 @@ async def _is_semantic_drift(original: str, rewritten: str) -> bool:
 _GENERIC_TERMS = (
     "신청", "방법", "알려줘", "어떻게", "언제", "얼마", "기간", "일정", "안내", "문의",
     "절차", "서류", "가능", "필요", "준비", "무엇", "무슨", "어디", "해줘", "되나요",
+    # '제출'은 행위지 주제가 아니다. 어미를 떼는 로직이 생기면서 '제출해야해?' → '제출해야'가
+    # 주제어로 잡혀 맥락 통합('언제까지 제출?' + 이전 휴학)이 폐기됐다(실측).
+    # 실제 질문 2300건 검사 결과 사라지는 건 '제출/제출해/제출해야' 등 활용형뿐이라 안전하다.
+    "제출",
     "인가요", "있어", "있나요", "하나요", "까지", "부터", "궁금", "확인", "조건", "기준",
     "대해서", "관련", "이야", "이에요", "예요",
     # 속성어 — 주제가 아니라 '주제의 한 속성'을 묻는 말이라 주제어가 아니다.
@@ -81,7 +85,18 @@ def _distinctive_terms(question: str) -> list[str]:
             continue
         if any(tok.startswith(g) for g in _GENERIC_TERMS):
             continue
-        if any(tok.endswith(s) for s in _PREDICATE_SUFFIXES):
+        # 서술어 어미로 끝나면 어미만 떼고 앞부분(어간)을 본다. 토큰을 통째로 버리면
+        # 띄어쓰기 없이 붙여 쓴 질문에서 주제어까지 사라진다 —
+        # 실측: '기숙사비용얼마야?'가 토큰 하나('기숙사비용얼마야')라 끝의 '야' 때문에
+        # 통째로 제외돼 주제어가 []가 됐고, 두 가드가 '주제어 없는 파편 질문'으로 오인해
+        # 재작성이 이전 주제로 통째 교체된 것('공결 신청 방법')을 통과시켰다.
+        suffix = next((s for s in _PREDICATE_SUFFIXES if tok.endswith(s)), None)
+        if suffix:
+            stem = tok[: -len(suffix)]
+            # 어간이 너무 짧거나(우연) 그 자체가 일반어면 주제어로 인정하지 않는다.
+            if len(stem) < 2 or any(stem.startswith(g) for g in _GENERIC_TERMS):
+                continue
+            terms.append(stem)
             continue
         terms.append(tok)
     return terms
@@ -588,18 +603,13 @@ async def answer_rag_general_question_with_metadata(
             prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
             answer = await llm_service.answer(prompt, max_tokens=1024)
         else:
-            from app.services.file_service import AVAILABLE_FILES
-            from app.utils.file_matcher import match_relevant_files
-            # 파일 매칭엔 '이전 주제:' 프리픽스가 낀 llm_question 대신 현재 질문 원본을 쓴다.
-            # → 프리픽스 노이즈 제거 + "기간은?" 같은 파편 후속질문에 같은 파일 반복 제안 방지
-            #   (현재 질문 자체가 그 주제(휴학 등)를 담고 있을 때만 유사도가 올라 제안됨).
-            matched_files = await loop.run_in_executor(
-                None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
-            )
-            files_list = "\n".join(f"- {Path(f).stem}" for f in matched_files) if matched_files else "없음"
+            # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트의 파일 목록은
+            # <FILES> 태그 유도용인데 그 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로,
+            # 목록을 넣지 않아 프롬프트를 가볍게 한다(오버헤드 감소 → 답변 토큰 여유 증가).
+            files_list = "없음"
             # 답변 최소 800토큰을 남기도록 컨텍스트를 동적 절단한다. 고정 상수(MAX_TOTAL_CONTEXT)
             # 로는 RAG 골격 946토큰을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 오버헤드에
-            # 학사일정 보강 블록·파일목록까지 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
+            # 학사일정 보강 블록까지 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
             overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question, files_list=files_list) + SYSTEM_PROMPT
             context = llm_service.fit_context(context, overhead)
             prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
@@ -629,8 +639,18 @@ async def answer_rag_general_question_with_metadata(
     # 작은 로컬 LLM이 <FILES> 태그를 불안정하게 누락해 관련 파일을 못 주던 문제 →
     # 이미 검증된 임베딩 유사도 판단을 신뢰하고, LLM이 뽑은 태그는 화면에서 제거만 한다.
     # (잘린 열린 태그 + 표 구분선 '|--|' 누출까지 정리 — clean_answer)
-    from app.utils.file_matcher import clean_answer
+    from app.utils.file_matcher import clean_answer, match_relevant_files
     answer = clean_answer(answer)
+
+    # 파일 매칭은 '완성된 답변' 기준으로 여기서 한다. 질문 기준일 때는 신호가 약해
+    # '기숙사 비용 얼마야?'에도 외부인 사용 동의서가 딸려 나왔다(질문 0.559 — 진짜 요청과
+    # 구간이 겹쳐 가를 수 없었다). 답변은 '휴학신청서를 제출해야 합니다'처럼 서류 요구가
+    # 문장으로 드러나 0.60 기준으로 깨끗하게 갈린다.
+    if not matched_files:
+        from app.services.file_service import AVAILABLE_FILES
+        matched_files = await loop.run_in_executor(
+            None, match_relevant_files, answer, AVAILABLE_FILES.get(effective_topic, [])
+        )
     if matched_files:
         metadata["files_to_offer"] = [Path(f).stem for f in matched_files]
 
