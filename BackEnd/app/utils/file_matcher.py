@@ -74,7 +74,11 @@ def clean_answer(text: str) -> str:
     return strip_files_tag(strip_table_separators(text))
 
 # 아래 세 값은 실제 bge-m3로 여러 케이스(휴학/장학금 등) 코사인 유사도를 측정해 정한 값 — 튜닝 가능.
-_MIN_TOP_SCORE = 0.55   # 1등 파일조차 이 미만이면 확실히 관련된 파일이 없다고 보고 전부 제외
+# _MIN_TOP_SCORE는 '질문' 기준 0.55였으나 '답변' 기준으로 바꾸며 0.60으로 올렸다.
+# 실제 답변 40건 실측: 서류 요구가 없는 기숙사비 답변은 0.45~0.59에 몰리고, 서류 제출을
+# 요구하는 절차 답변(휴학 0.734 / 공결 0.654 / 근로장학 0.629)은 0.60 이상으로 갈렸다.
+# (0.55면 정확도 75%, 0.60이면 85%로 최고)
+_MIN_TOP_SCORE = 0.60   # 1등 파일조차 이 미만이면 확실히 관련된 파일이 없다고 보고 전부 제외
 _MARGIN = 0.08          # 1등 점수 대비 이 폭 안에 든 파일만 "관련 있음"으로 간주
 _MAX_CANDIDATES = 3     # 같은 건의 파일 세트(공고문+신청서 등)를 고려한 상한
 
@@ -88,20 +92,27 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def match_relevant_files(question: str, files: list[str]) -> list[str]:
-    """question과 의미적으로 가까운 파일만 남겨 LLM에게 넘길 후보를 좁힌다.
+def match_relevant_files(text: str, files: list[str]) -> list[str]:
+    """text(생성된 답변)와 의미적으로 가까운 파일만 남긴다.
 
-    파일이 하나뿐이면 판단할 필요가 없으므로 그대로 반환한다(LLM이 질문 무관 여부만 판단).
+    기준을 '질문'이 아니라 '답변'으로 두는 이유: 질문은 짧아 신호가 약하다. 실측에서
+    '기숙사 비용 얼마야?'와 '외부인_기숙사_사용_동의서'가 0.559로, 무관한데도 진짜 파일
+    요청('공결 신청서 양식 줘' 0.611)과 구간이 겹쳐 임계값으로 가를 수 없었다. 반면 답변은
+    '휴학신청서와 구비서류를 제출해야 합니다'처럼 서류 요구가 문장으로 드러나, 서류를
+    요구하지 않는 답변(기숙사비 0.45~0.59)과 요구하는 답변(0.60+)이 깨끗하게 갈린다.
+    → 질문에 '서류'라는 단어가 없어도 답변이 서류를 요구하면 제안된다(의도한 동작).
+
+    파일이 하나뿐이어도 검사한다. 예전엔 len(files)==1이면 무조건 반환했는데, 파일이 1개인
+    토픽이 6개(dormitory·absence·drop_out 등)라 그 토픽 질문에는 무엇을 묻든 같은 파일이
+    항상 딸려 나왔다("기숙사 비용?"에 외부인 사용 동의서 제안).
     임베딩 실패 시에는 필터링을 건너뛰고 원래 목록을 그대로 반환한다(기존 동작 유지).
     """
-    if not files:
+    if not files or not text:
         return []
-    if len(files) == 1:
-        return files
 
     names = [Path(f).stem for f in files]
     try:
-        vecs = rag_service.embedding.embed_texts([question, *names])
+        vecs = rag_service.embedding.embed_texts([text, *names])
     except Exception as e:
         print(f"[FileMatcher] 임베딩 실패, 필터링 스킵: {e}")
         return files
