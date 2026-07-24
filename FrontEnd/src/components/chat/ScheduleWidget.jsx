@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { fetchScheduleMonth, fetchScheduleUpcoming } from '../../api/schedule'
+import { segsForWeek, catBar } from './scheduleUtils'
 
 const WD = ['일', '월', '화', '수', '목', '금', '토']
 // 주 한 줄 높이(px) — 팝업을 absolute로 띄울 때 top 계산에 쓰므로 고정값이어야 한다.
-const ROW_H = 30
+// 날짜(18px) + 막대 레인 공간. 같은 일정이 여러 날 이어지는 걸 보여주려면 점보다 자리가 필요하다.
+const ROW_H = 38
+// 사이드바는 폭이 좁아 막대에 텍스트를 넣으면 뭉개진다 → 색 막대만 그리고 상세는 클릭 팝업으로.
+const BAR_H = 4          // 막대 두께
+const BAR_GAP = 2        // 레인 간격
+const MAX_LANES = 3      // 한 주에 표시할 최대 겹침 수(넘으면 잘림 — 팝업에서 전체 확인)
 // 달력 펼침 여부 저장 키 — 사이드바가 좁아 기본은 접힘(다가오는 일정만 표시)
 const OPEN_KEY = 'wsu.scheduleWidget.open'
 
@@ -139,8 +145,30 @@ export default function ScheduleWidget({ lang = 'ko' }) {
         {/* 달력 — 상세 팝업은 absolute로 달력 '위에 덮이게' 해서 아래 내용이 밀리지 않는다.
             좁은 폭(264px)이라 팝업은 컨테이너 전체 너비를 쓰고, 삼각으로 해당 요일을 가리킨다. */}
         <div className="relative" ref={calRef}>
-          {weeks.map((week, wi) => (
-            <div key={wi} className="grid grid-cols-7" style={{ height: `${ROW_H}px` }}>
+          {weeks.map((week, wi) => {
+            // 이 주에 걸치는 일정 → 연속 막대(같은 일정이 며칠이든 하나로 이어짐)
+            const { segs } = segsForWeek(week, events)
+            return (
+            <div key={wi} className="relative grid grid-cols-7" style={{ height: `${ROW_H}px` }}>
+              {/* 색 막대 레이어 — 날짜 셀 위에 겹쳐 그린다. 클릭은 아래 날짜 셀이 받도록 pointer-events 해제 */}
+              <div className="absolute inset-0 grid grid-cols-7 pointer-events-none" style={{ paddingTop: '22px' }}>
+                {segs.filter(s => s.lane < MAX_LANES).map((s, si) => (
+                  <div
+                    key={si}
+                    className={`${catBar(s.ev.event)} ${s.roundedLeft ? 'rounded-l-full' : ''} ${s.roundedRight ? 'rounded-r-full' : ''}`}
+                    style={{
+                      gridColumn: `${s.startCol + 1} / ${s.endCol + 2}`,
+                      gridRow: 1,
+                      height: `${BAR_H}px`,
+                      marginTop: `${s.lane * (BAR_H + BAR_GAP)}px`,
+                      marginLeft: s.roundedLeft ? '2px' : 0,
+                      marginRight: s.roundedRight ? '2px' : 0,
+                      alignSelf: 'start',
+                    }}
+                    title={s.ev.event}
+                  />
+                ))}
+              </div>
               {week.map((day, ci) => {
                 const iso = toISO(day)
                 const inMonth = day.getMonth() === cursor.getMonth()
@@ -168,16 +196,13 @@ export default function ScheduleWidget({ lang = 'ko' }) {
                     >
                       {day.getDate()}
                     </span>
-                    {/* 일정 있는 날 표시 */}
-                    <span
-                      className={`rounded-full ${has ? (isSel ? 'bg-[#005956]' : 'bg-[#005956]/45') : 'bg-transparent'}`}
-                      style={{ width: '4px', height: '4px', marginTop: '2px' }}
-                    />
+                    {/* 일정 표시는 위 '색 막대 레이어'가 담당 — 여기선 셀 클릭 영역만 유지 */}
                   </div>
                 )
               })}
             </div>
-          ))}
+            )
+          })}
 
           {/* 선택한 날짜 상세 — 클릭한 주 아래에 겹쳐서 표시 (달력을 밀지 않음) */}
           {sel && (

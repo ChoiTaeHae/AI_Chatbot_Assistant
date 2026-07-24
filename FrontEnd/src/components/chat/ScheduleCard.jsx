@@ -1,58 +1,6 @@
 import { useState, useMemo } from 'react'
-
-const WD = ['일', '월', '화', '수', '목', '금', '토']
-
-function toISO(d) {
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), da = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${da}`
-}
-function fmtDate(s) { return `${Number(s.slice(5, 7))}월 ${Number(s.slice(8, 10))}일` }
-
-// 카테고리별 색 (관리자 달력과 동일 팔레트)
-function catStyle(e) {
-  if (/수강|정정|철회|변경/.test(e)) return 'bg-blue-100 text-blue-700'
-  if (/성적|평가|시험/.test(e)) return 'bg-purple-100 text-purple-700'
-  if (/등록|납부|분납|장학/.test(e)) return 'bg-emerald-100 text-emerald-700'
-  if (/휴학|복학|자퇴|전과|재입학/.test(e)) return 'bg-amber-100 text-amber-700'
-  if (/졸업|학위|입학/.test(e)) return 'bg-rose-100 text-rose-700'
-  if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-slate-200 text-slate-700'
-  return 'bg-slate-100 text-slate-600'
-}
-
-// 한 달을 감싸는 주 배열(일요일 시작). 항상 6줄 고정 → 달마다 카드 높이가 일정해져
-// 페이지를 넘겨도(화살표) 세로 중앙의 버튼 위치가 안 바뀐다.
-function buildMonthWeeks(year, month0) {
-  const first = new Date(year, month0, 1)
-  const cur = new Date(first); cur.setDate(1 - first.getDay())
-  const weeks = []
-  for (let w = 0; w < 6; w++) {
-    const week = []
-    for (let i = 0; i < 7; i++) { week.push(new Date(cur)); cur.setDate(cur.getDate() + 1) }
-    weeks.push(week)
-  }
-  return weeks
-}
-
-// 한 주에 걸치는 일정 → 연속 막대 세그먼트 + lane
-function segsForWeek(days, events) {
-  const w0 = toISO(days[0]), w6 = toISO(days[6])
-  const evs = events
-    .filter(e => { const st = e.start_date, en = e.end_date || e.start_date; return st <= w6 && en >= w0 })
-    .sort((a, b) => (a.start_date < b.start_date ? -1 : a.start_date > b.start_date ? 1 : 0))
-  const lanes = [], segs = []
-  for (const ev of evs) {
-    const st = ev.start_date, en = ev.end_date || ev.start_date
-    let startCol = days.findIndex(d => toISO(d) >= st); if (startCol < 0) startCol = 0
-    let endCol = 6; for (let i = 6; i >= 0; i--) { if (toISO(days[i]) <= en) { endCol = i; break } }
-    if (endCol < startCol) endCol = startCol
-    let lane = 0
-    while (lanes[lane] && lanes[lane].some(s => !(endCol < s.startCol || startCol > s.endCol))) lane++
-    if (!lanes[lane]) lanes[lane] = []
-    lanes[lane].push({ startCol, endCol })
-    segs.push({ ev, startCol, endCol, lane, roundedLeft: st >= w0, roundedRight: en <= w6 })
-  }
-  return { segs, maxLanes: lanes.length }
-}
+// 달력 공통 로직은 scheduleUtils에 모아 ScheduleWidget(사이드바)과 공유한다.
+import { WD, toISO, fmtDate, catStyle, buildMonthWeeks, segsForWeek } from './scheduleUtils'
 
 export default function ScheduleCard({ card }) {
   const todayISO = card?.today

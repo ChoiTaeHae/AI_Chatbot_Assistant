@@ -146,6 +146,26 @@ def _invents_action(question: str, rewritten: str, prev_question: str | None) ->
     return None
 
 
+# 주제어 어간 비교의 최소 길이 — 한 글자까지 줄이면 우연 일치로 주제 교체를 놓친다.
+_STEM_MIN = 2
+
+
+def _stem_in(term: str, text: str) -> bool:
+    """주제어가 '어간 기준'으로 text에 있는지. 어미·조사가 붙어도 앞부분이 살아있으면 True.
+
+    한국어 질문은 '공결신청하려면'처럼 주제어에 어미가 붙어 한 토큰이 되는 일이 잦다.
+    통짜로 대조하면 '공결'로 정확히 줄인 재작성을 못 알아본다(실측: _keeps_topic이 좋은
+    재작성을 폐기, _borrows_prev_topic이 공결 오염을 통과). 두 가드가 같은 규칙을 쓰도록
+    여기로 모았다.
+    """
+    if not term or not text:
+        return False
+    for cut in range(len(term), _STEM_MIN - 1, -1):
+        if term[:cut] in text:
+            return True
+    return False
+
+
 def _borrows_prev_topic(question: str, rewritten: str, prev_question: str | None) -> str | None:
     """재작성이 '이전 질문에만 있던 주제어'를 현재 질문에 끌어붙였으면 그 단어를 반환.
 
@@ -157,13 +177,18 @@ def _borrows_prev_topic(question: str, rewritten: str, prev_question: str | None
       - 현재 질문에 주제어가 없다  → 맥락 통합이 정상이다('언제까지 제출?' + 이전 '휴학...')
         → 이 함수는 None을 반환해 통과시킨다.
       - 현재 질문에 주제어가 있는데 이전 주제어까지 새로 붙었다 → 오염이다. 폐기한다.
+
+    비교는 _stem_in()으로 한다. 토큰을 통째로 대조하면 어미가 붙어 붙임표기된 주제어를
+    놓친다. 실측: 이전 '공결신청하려면 어떻게해?'의 주제어가 ['공결신청하려면'] 한 덩어리라,
+    재작성 '공결 신청 방법 / 휴학 신청 방법'에 '공결'이 버젓이 있는데도 오염을 못 잡았다.
     """
     if not _distinctive_terms(question):
         return None                              # 주제어 없는 후속 → 맥락 통합 정상
     cur = question.replace(" ", "")
     rw = (rewritten or "").replace(" ", "")
     for t in _distinctive_terms(prev_question or ""):
-        if t in rw and t not in cur:             # 이전에만 있던 주제어가 재작성에 끼어듦
+        # 이전에만 있던 주제어(어간 기준)가 재작성에 끼어듦
+        if _stem_in(t, rw) and not _stem_in(t, cur):
             return t
     return None
 
@@ -174,12 +199,18 @@ def _keeps_topic(question: str, rewritten: str) -> bool:
     프롬프트에 '현재 질문에 뚜렷한 주제어가 있으면 이전 질문을 무시하라'는 규칙이 있지만
     8B가 자주 어겨 이전 주제로 통째로 갈아탄다(실측: '휴학 신청 방법'→'공결 신청 방법',
     '학칙 알려줘'→'수강신청 방법'). 임베딩 드리프트 가드는 기준문이 '이전+현재'라
-    이 경우를 못 잡으므로, 주제어 유지 여부를 코드로 확정 검사한다."""
+    이 경우를 못 잡으므로, 주제어 유지 여부를 코드로 확정 검사한다.
+
+    비교는 '어간 접두 일치'로 한다. 토큰을 통째로 대조하면 어미가 붙어 붙임표기된 주제어를
+    놓친다 — 실측: '공결신청하려면 어떻게해?'의 주제어가 ['공결신청하려면'] 한 덩어리라,
+    재작성 '공결 출석인정 신청 방법'(정확한 재작성)에 '공결'이 있는데도 폐기됐다. 그러면
+    구어체 원본이 그대로 검색에 들어가 리랭커 점수가 무너진다(1등만 0.773, 2등부터 0.086).
+    비교는 _borrows_prev_topic과 같은 _stem_in()을 쓴다(규칙 일원화)."""
     terms = _distinctive_terms(question)
     if not terms:
         return True                      # 모호한 후속 질문 → 검사 skip
     rw = (rewritten or "").replace(" ", "")
-    return any(t in rw for t in terms)
+    return any(_stem_in(t, rw) for t in terms)
 
 
 # ── 검색어 딕셔너리 ────────────────────────────────────────────────
