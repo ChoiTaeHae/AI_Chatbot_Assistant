@@ -1,6 +1,6 @@
 import { authFetch } from './utils'
 
-const BASE = 'http://localhost:8000/api'
+const BASE = '/api'
 
 export async function login(student_no, password) {
   const res = await fetch(`${BASE}/auth/login`, {

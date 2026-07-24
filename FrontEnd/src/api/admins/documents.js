@@ -1,6 +1,6 @@
 import { authFetch } from '../utils'
 
-const BASE = 'http://localhost:8000/api/admins'
+const BASE = '/api/admins'
 
 export async function uploadDocument(file, source = null, topic = null, docDate = null, url = null, contactName = null, contactPhone = null) {
   const formData = new FormData()

@@ -1,6 +1,6 @@
 import { authFetch } from '../utils'
 
-const BASE = 'http://localhost:8000/api/admins'
+const BASE = '/api/admins'
 
 // URL 크롤링 → academic_schedule 적재 (백그라운드 없이 즉시 처리, 적재 건수 반환)
 export async function crawlSchedule(url, keepRecentYears = 2) {
