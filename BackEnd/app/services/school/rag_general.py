@@ -42,6 +42,10 @@ async def _is_semantic_drift(original: str, rewritten: str) -> bool:
 _GENERIC_TERMS = (
     "신청", "방법", "알려줘", "어떻게", "언제", "얼마", "기간", "일정", "안내", "문의",
     "절차", "서류", "가능", "필요", "준비", "무엇", "무슨", "어디", "해줘", "되나요",
+    # '제출'은 행위지 주제가 아니다. 어미를 떼는 로직이 생기면서 '제출해야해?' → '제출해야'가
+    # 주제어로 잡혀 맥락 통합('언제까지 제출?' + 이전 휴학)이 폐기됐다(실측).
+    # 실제 질문 2300건 검사 결과 사라지는 건 '제출/제출해/제출해야' 등 활용형뿐이라 안전하다.
+    "제출",
     "인가요", "있어", "있나요", "하나요", "까지", "부터", "궁금", "확인", "조건", "기준",
     "대해서", "관련", "이야", "이에요", "예요",
     # 속성어 — 주제가 아니라 '주제의 한 속성'을 묻는 말이라 주제어가 아니다.
@@ -81,7 +85,18 @@ def _distinctive_terms(question: str) -> list[str]:
             continue
         if any(tok.startswith(g) for g in _GENERIC_TERMS):
             continue
-        if any(tok.endswith(s) for s in _PREDICATE_SUFFIXES):
+        # 서술어 어미로 끝나면 어미만 떼고 앞부분(어간)을 본다. 토큰을 통째로 버리면
+        # 띄어쓰기 없이 붙여 쓴 질문에서 주제어까지 사라진다 —
+        # 실측: '기숙사비용얼마야?'가 토큰 하나('기숙사비용얼마야')라 끝의 '야' 때문에
+        # 통째로 제외돼 주제어가 []가 됐고, 두 가드가 '주제어 없는 파편 질문'으로 오인해
+        # 재작성이 이전 주제로 통째 교체된 것('공결 신청 방법')을 통과시켰다.
+        suffix = next((s for s in _PREDICATE_SUFFIXES if tok.endswith(s)), None)
+        if suffix:
+            stem = tok[: -len(suffix)]
+            # 어간이 너무 짧거나(우연) 그 자체가 일반어면 주제어로 인정하지 않는다.
+            if len(stem) < 2 or any(stem.startswith(g) for g in _GENERIC_TERMS):
+                continue
+            terms.append(stem)
             continue
         terms.append(tok)
     return terms
