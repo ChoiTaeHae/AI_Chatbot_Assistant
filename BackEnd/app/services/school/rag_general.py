@@ -102,6 +102,43 @@ def _distinctive_terms(question: str) -> list[str]:
     return terms
 
 
+# 동아리 문서 한 줄: "분야: 봉사 | 동아리명: 새말동아리 | 주요활동: ... | 설립: 1999.3"
+_CLUB_LINE_RE = re.compile(r"분야:\s*(?P<cat>[^|]+?)\s*\|\s*동아리명:\s*(?P<name>[^|]+?)\s*\|\s*주요활동:\s*(?P<act>[^|]+?)\s*(?:\|\s*설립:.*)?$")
+# 분야 표기 순서 고정 — LLM이 매번 순서·형식을 바꾸던 것을 코드로 못박는다.
+_CLUB_CAT_ORDER = ["봉사", "교양", "예체능", "종교"]
+
+
+def format_club_list(context: str) -> str:
+    """동아리 목록을 '분야별 그룹 + 이름 : 설명' 형식으로 코드에서 직접 만든다.
+
+    문서가 '분야: X | 동아리명: Y | 주요활동: Z' 로 완전히 정형화돼 있어 LLM이 정리할 게 없다.
+    그런데 LLM에 맡기면 같은 질문에도 형식이 매번 달라졌다(글머리표 유무, 파이프 표 등) —
+    입력(재작성→검색 컨텍스트)이 미세하게 바뀌면 temperature 0.0이어도 출력이 달라지기 때문.
+    코드로 파싱·포맷하면 입력과 무관하게 항상 같은 형식이 나온다(schedule·graduation과 동일 원칙).
+    파싱 실패 시 빈 문자열을 반환해 호출부가 LLM 폴백으로 넘어가게 한다.
+    """
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for raw in context.splitlines():
+        m = _CLUB_LINE_RE.search(raw)
+        if not m:
+            continue
+        cat = m.group("cat").strip()
+        name = m.group("name").strip()
+        act = re.sub(r"\s+", " ", m.group("act").strip())
+        groups.setdefault(cat, [])
+        if name not in [n for n, _ in groups[cat]]:      # 중복 청크 방지
+            groups[cat].append((name, act))
+    if not groups:
+        return ""
+    # 알려진 분야를 먼저, 그 외 분야는 등장 순서로 뒤에
+    cats = [c for c in _CLUB_CAT_ORDER if c in groups] + [c for c in groups if c not in _CLUB_CAT_ORDER]
+    blocks = []
+    for c in cats:
+        lines = "\n".join(f"- {name} : {act}" for name, act in groups[c])
+        blocks.append(f"[{c}]\n{lines}")
+    return "우송대학교 중앙동아리 목록입니다.\n\n" + "\n\n".join(blocks)
+
+
 def _is_keyword_query(question: str) -> bool:
     """이미 검색어 형태인가 — 재작성해서 얻을 게 없고 훼손 위험만 있는 질문.
 
@@ -593,26 +630,28 @@ async def answer_rag_general_question_with_metadata(
     # (예산 조정으로 거의 안 생겨야 하지만, 마지막 방어선이다)
     try:
         if is_club_list:
-            # 컨텍스트를 답변 예산에 맞춰 절단(오버헤드 = 컨텍스트 뺀 프롬프트 + 시스템)
-            context = llm_service.fit_context(context, RAG_CLUB_LIST_PROMPT.format(context="") + SYSTEM_PROMPT)
-            prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
-            answer = await llm_service.answer(prompt, max_tokens=2048)
+            # 동아리 목록은 정형 문서라 코드로 직접 포맷한다(항상 같은 형식). 파싱 실패 시에만
+            # LLM 폴백. fit_context는 코드 포맷이 컨텍스트 전체를 쓰므로 폴백일 때만 적용한다.
+            answer = format_club_list(context)
+            if not answer:
+                context = llm_service.fit_context(context, RAG_CLUB_LIST_PROMPT.format(context="") + SYSTEM_PROMPT)
+                prompt = RAG_CLUB_LIST_PROMPT.format(context=context)
+                answer = await llm_service.answer(prompt, max_tokens=2048, temperature=0.0)
         elif is_club:
             context = llm_service.fit_context(
                 context, RAG_CLUB_DETAIL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT)
             prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
-            answer = await llm_service.answer(prompt, max_tokens=1024)
+            answer = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         else:
-            # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트의 파일 목록은
-            # <FILES> 태그 유도용인데 그 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로,
-            # 목록을 넣지 않아 프롬프트를 가볍게 한다(오버헤드 감소 → 답변 토큰 여유 증가).
-            files_list = "없음"
+            # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트에서 파일 목록·
+            # <FILES> 태그 지시를 뺐다 — 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로
+            # 무용했고, 목록을 넣지 않으니 프롬프트가 가벼워진다(오버헤드 감소 → 답변 토큰 여유 증가).
             # 답변 최소 800토큰을 남기도록 컨텍스트를 동적 절단한다. 고정 상수(MAX_TOTAL_CONTEXT)
-            # 로는 RAG 골격 946토큰을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 오버헤드에
-            # 학사일정 보강 블록까지 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
-            overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question, files_list=files_list) + SYSTEM_PROMPT
+            # 로는 RAG 골격을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 학사일정 보강 블록도
+            # 오버헤드에 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
+            overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT
             context = llm_service.fit_context(context, overhead)
-            prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question, files_list=files_list)
+            prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
             answer = await llm_service.answer(prompt, max_tokens=1536)
     except ValueError as e:
         print(f"[RAG_GENERAL] ⚠️ 컨텍스트 초과로 생성 불가: {e}")
