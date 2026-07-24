@@ -44,7 +44,9 @@ function buildWeeks(year, month0) {
   return weeks
 }
 
-export default function ScheduleWidget({ lang = 'ko' }) {
+// refreshKey: 부모(Sidebar)가 백엔드 준비 감시(포커스·재연결·down→up)에서 넘겨주는 값.
+// 이 값이 바뀔 때마다 두 조회를 다시 실행해, 백엔드가 (재)시작되면 수동 새로고침 없이 채워진다.
+export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
   const t = T[lang] || T.ko
   const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [events, setEvents] = useState([])
@@ -78,11 +80,14 @@ export default function ScheduleWidget({ lang = 'ko' }) {
   }, [sel])
 
   // 다가오는 일정 — 항상 고정 표시 (월 이동과 무관)
+  // refreshKey가 바뀌면(백엔드 (재)시작·창 복귀·재연결) 다시 조회 → 수동 새로고침 불필요.
   useEffect(() => {
+    let alive = true
     fetchScheduleUpcoming(2)
-      .then(d => { setUpcoming(d.events || []); if (d.today) setTodayISO(d.today) })
-      .catch(() => setUpcoming([]))
-  }, [])
+      .then(d => { if (!alive) return; setUpcoming(d.events || []); if (d.today) setTodayISO(d.today) })
+      .catch(() => { /* 실패 시 기존 값 유지 — 다음 refreshKey에서 재시도 */ })
+    return () => { alive = false }
+  }, [refreshKey])
 
   // 월별 일정 — 달력 점 표시용
   useEffect(() => {
@@ -91,9 +96,9 @@ export default function ScheduleWidget({ lang = 'ko' }) {
     setSel(null)   // 월 이동 시 팝업 닫기
     fetchScheduleMonth(cursor.getFullYear(), cursor.getMonth() + 1)
       .then(d => { if (alive) setEvents(d.events || []) })
-      .catch(() => { if (alive) setEvents([]) })
+      .catch(() => { /* 실패 시 기존 값 유지 — refreshKey 변경 시 재조회 */ })
     return () => { alive = false }
-  }, [cursor, open])
+  }, [cursor, open, refreshKey])
 
   const weeks = useMemo(() => buildWeeks(cursor.getFullYear(), cursor.getMonth()), [cursor])
 

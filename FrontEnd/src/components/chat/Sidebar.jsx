@@ -376,7 +376,8 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         </section>
 
         {/* 학사일정 (달력 + 다가오는 일정) */}
-        <ScheduleWidget lang={lang} />
+        {/* autoRefresh: 창 포커스·네트워크 재연결·백엔드 down→up 시 증가 → 위젯이 함께 재조회 */}
+        <ScheduleWidget lang={lang} refreshKey={autoRefresh} />
 
         {/* 최근 대화 + topic 필터 */}
         <div className="flex flex-col min-h-0 flex-1" style={{ marginTop: '16px' }}>
