@@ -329,9 +329,14 @@ class ScheduleService:
     async def _query_by_keywords(self, keywords: list[str], track: str, today: date, db: AsyncSession) -> list:
         """이벤트 키워드로 조회 → 다가오는 것(가까운 순) + 최근 과거(최근 순, _MAX_PAST_ITEMS까지)."""
         current_ay = today.year if today.month >= 3 else today.year - 1
+        # 동의어 확장: '시험'→'정기평가'/'수시(중간)평가' 등 DB 실제 이벤트명으로 치환.
+        # 매핑에 없는 키워드는 자기 자신을 검색어로 쓴다.
+        search_terms: list[str] = []
+        for k in keywords:
+            search_terms.extend(self._EVENT_SYNONYMS.get(k, [k]))
         # 공백 무시 매칭: '1학기 수강 신청' 이벤트도 '수강신청' 키워드로 잡히게
         norm_event = func.replace(AcademicSchedule.event, " ", "")
-        conds = [norm_event.ilike(f"%{k}%") for k in keywords]
+        conds = [norm_event.ilike(f"%{t.replace(' ', '')}%") for t in search_terms]
         matched = (await db.execute(
             select(AcademicSchedule)
                 .where(AcademicSchedule.track == track)
@@ -414,12 +419,25 @@ class ScheduleService:
         "성적정정", "성적입력", "성적공고", "이의신청", "성적",
         "졸업사정", "학위수여식", "졸업식", "졸업", "학위",
         "입학식", "신입생", "편입", "입학",
-        "중간고사", "기말고사", "정기평가", "수시평가", "중간평가",
+        "시험", "중간고사", "기말고사", "중간시험", "기말시험",
+        "정기평가", "수시평가", "중간평가",
         "보강", "공휴일", "연휴", "축제",
         "계절학기", "여름학기", "겨울학기",
         "복수전공", "부전공", "트랙", "전공배정", "조기졸업", "취득유예",
         "토익", "학점포기", "논문", "종합시험",
     ]
+
+    # 학생어 → DB 실제 이벤트명 매핑. 학부 중간/기말은 DB에 '수시(중간)평가'·'정기평가'로
+    # 저장돼 있어 '시험'·'중간고사' 글자로는 안 잡힌다. '평가' 통짜로 매칭하면
+    # 수업평가 설문('수강소감설문(수업평가)')·역량평가('전공능력성취도 평가')까지 딸려오므로
+    # 진짜 시험 이벤트명 두 개만 콕 집어 치환한다. 매핑에 없는 키워드는 그대로 사용.
+    _EVENT_SYNONYMS = {
+        "시험": ["정기평가", "수시(중간)평가"],
+        "중간고사": ["수시(중간)평가"],
+        "중간시험": ["수시(중간)평가"],
+        "기말고사": ["정기평가"],
+        "기말시험": ["정기평가"],
+    }
 
     def _extract_keywords(self, q: str) -> list[str]:
         qn = q.replace(" ", "")
