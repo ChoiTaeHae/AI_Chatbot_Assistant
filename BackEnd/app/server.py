@@ -160,11 +160,17 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # API 문서는 기본 비활성(settings.ENABLE_DOCS=false). 인터넷 공개 시 /docs·/redoc·
+    # /openapi.json 으로 API 구조 전체가 노출되는 것을 막는다. 세 개를 모두 꺼야 한다
+    # (하나만 열려 있어도 openapi 스키마로 전체 구조가 샌다).
+    _docs = dict(docs_url="/docs", redoc_url="/redoc", openapi_url="/openapi.json") if settings.ENABLE_DOCS \
+        else dict(docs_url=None, redoc_url=None, openapi_url=None)
     app = FastAPI(
         title="학교생활지원 AI",
         description="대학교 학생들의 학교생활을 도와주는 AI 챗봇 API",
         version="0.1.0",
         lifespan=lifespan,
+        **_docs,
     )
 
     app.add_middleware(
