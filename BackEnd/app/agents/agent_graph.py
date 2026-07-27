@@ -76,6 +76,45 @@ DEFAULT_EVENT_KWS = [
 #   제외: 취소·철회 — event_kw '수강취소/수강철회'와 부분 매칭돼 정당한 일정 질문을 막는다.
 GATE_EXCLUDE = ('등록금', '납부', '서류', '제출', '신청서', '방법', '절차', '어떻게')
 
+# ── 프롬프트 인젝션 입력 필터 ─────────────────────────────────────
+# LLM에 닿기 전에 '노골적인' 조작 시도만 선차단하는 보조 방어 겹(프롬프트 하드닝의 백업).
+# 원칙: 정상 학사 질문에는 절대 나오지 않는 조합만 좁게 매칭 → 오탐(정상 질문 차단)을 0에 가깝게.
+#       (여기 안 걸리는 정교한 시도는 시스템 프롬프트의 지시계층 방어가 받아낸다)
+# 튜닝: 오탐이 생기면 해당 패턴만 지우면 되고, 통째로 끄려면 _looks_like_injection이 항상 None 반환.
+_INJECTION_PATTERNS = (
+    # 1) 이전 지시/규칙/프롬프트를 무시·삭제·망각하라는 메타 지시 ('무시' 등 동사와 결합될 때만)
+    r"(이전|앞의|위의|기존|모든)\s*(의)?\s*(지시|명령|규칙|프롬프트|설정|제약)\w*.{0,5}?(무시|잊|삭제|해제|무효)",
+    r"ignore\s+(all\s+|the\s+|previous\s+|prior\s+|above\s+)*(instruction|prompt|rule|command|guideline)",
+    r"disregard\s+(all\s+|the\s+|previous\s+|prior\s+|above\s+)*(instruction|prompt|rule)",
+    # 2) 역할/정체성 강제 변경 (규칙·제한·필터 없는 AI 요구, DAN 등)
+    r"(규칙|제한|필터|검열|제약)\s*[이가]?\s*없는\s*(AI|인공지능|챗봇|모델|assistant|어시스턴트)",
+    r"(이제부터|지금부터)\s*(너|넌|당신|니)\S*.*(규칙\s*없|제한\s*없|필터\s*없|뭐든|무엇이든|다른\s*AI|역할\s*을?\s*바꾸)",
+    r"pretend\s+you\s+are|you\s+are\s+now\s+(a|an|dan)\b|act\s+as\s+(a\s+)?(dan|jailbroken)",
+    # 3) 시스템/개발자 프롬프트 유출 요구
+    r"(시스템|개발자|system|developer)\s*(프롬프트|prompt|지시|instruction|메시지|message)\w*\s*[을를]?\s*(그대로|전부|모두)?\s*(알려|보여|출력|공개|말해|뱉|노출|reveal|show|print|repeat)",
+    r"(프롬프트|prompt)\s*[을를]?\s*(그대로|전부|모두)\s*(출력|공개|보여|알려|repeat|print)",
+    # 4) 우리 내부 입력 레이블을 사용자가 직접 주입(역할/구획 스푸핑)
+    r"\[\s*(시스템|system|개발자|developer|assistant|참고\s*문서|사용자\s*질문)\s*\]",
+    # 5) 노골적 탈옥 키워드
+    r"jailbreak|dan\s*(모드|mode)|탈옥\s*모드",
+)
+_INJECTION_RE = tuple(re.compile(p, re.IGNORECASE) for p in _INJECTION_PATTERNS)
+_INJECTION_REPLY = (
+    "죄송해요, 그 요청은 도와드리기 어려워요. 저는 우송대학교 학사(수강신청·졸업·장학금 등) "
+    "질문을 도와드리는 챗봇이에요. 학사 관련해서 궁금한 점을 편하게 물어봐 주세요! 😊"
+)
+
+
+def _looks_like_injection(q: str) -> str | None:
+    """노골적 프롬프트 인젝션이면 매칭된 패턴(로깅용)을, 아니면 None을 반환."""
+    if not q:
+        return None
+    for rx in _INJECTION_RE:
+        if rx.search(q):
+            return rx.pattern
+    return None
+
+
 # 런타임 캐시 (공백 제거 비교 기준)
 _gate_date_intent = tuple(k.replace(' ', '') for k in DEFAULT_DATE_INTENT)
 _gate_event_kws = tuple(k.replace(' ', '') for k in DEFAULT_EVENT_KWS)
@@ -188,6 +227,13 @@ async def _pre_check(state: AgentState) -> dict:
       False → 거절 메시지
       None  → 파일 응답이 아님, 일반 질문으로 처리
     """
+    # 프롬프트 인젝션 입력 필터 — 노골적 조작 시도는 LLM/검색을 태우지 않고 즉시 정중히 거절.
+    # (파일 예/아니오 버튼 흐름엔 question이 비어/무해하므로 걸리지 않는다)
+    inj = _looks_like_injection(state.get("question", ""))
+    if inj:
+        print(f"[Graph] 입력 인젝션 패턴 차단: '{state.get('question','')[:60]}' | 패턴={inj}")
+        return {"answer": _INJECTION_REPLY, "done": True}
+
     pf = state.get("pending_file")
     file_confirm = state.get("file_confirm")  # bool | None
 
