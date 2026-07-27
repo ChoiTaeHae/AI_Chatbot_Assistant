@@ -139,6 +139,93 @@ def format_club_list(context: str) -> str:
     return "우송대학교 중앙동아리 목록입니다.\n\n" + "\n\n".join(blocks)
 
 
+# 제증명 청크(idx=1)는 '[증명서명]\n내용' 블록으로 재구성돼 있다(2026-07-27, 학점표가
+# 엉뚱한 증명서에 붙던 오배치 버그를 데이터 재구성으로 고치면서 도입한 구조).
+# [source=..., score=...] 라벨도 '[...]' 형태라 name에서 ','·'=' 문자를 제외해 구분한다.
+_CERT_BLOCK_RE = re.compile(r"^\[([^\[\],=]+)\]\s*$", re.MULTILINE)
+_CERT_LIST_KEYWORDS = {"종류", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
+
+# search_context_with_results가 여러 청크를 이어붙일 때 청크마다 붙이는 구분선.
+# 이 경계에서 먼저 잘라야 한다 — 안 자르면 컨텍스트의 '마지막' 증명서 블록(제적증명서)이
+# '다음 [이름] 없으면 끝까지'로 몸통을 잡다가, 뒤에 이어붙은 다른 청크(발급절차·학적부 규정
+# 원문 등)까지 통째로 삼킨다(실측: '제증명 종류' 답변에 '[source=...]' 라벨이 그대로 노출됨).
+_CHUNK_BOUNDARY_RE = re.compile(r"^\[source=.*?\]\s*$", re.MULTILINE)
+
+# 리트리버가 같은 문서의 청크를 하나로 병합해 넘긴다(retriever.py _merge_same_article, 태해
+# 코드). 그래서 idx=1(증명서 블록)과 idx=2/3(발급절차, 대괄호 없는 평문)이 같은 세그먼트로
+# 붙어 있을 수 있다 — 마지막 블록(제적증명서)이 '다음 [이름] 없으면 끝까지'로 몸통을 잡다가
+# 절차 안내까지 통째로 삼킨다(실측: '제증명 종류' 답변이 발급절차까지 길게 딸려 나옴).
+# 대괄호가 없는 절차 헤더라 정규식으로 못 끊으므로, 알려진 헤더 앞에서 잘라낸다.
+_CERT_NONBLOCK_HEADERS = ("인터넷 증명서 발급", "국제(해외) 우편 증명서 발급", "상기 콘텐츠")
+
+# '종류' 목록 답변에서 각 증명서를 '한 줄'로 보여줄 때 쓰는 짧은 설명.
+# 5종(재학·성적·교육비·휴학·제적)은 원문 자체가 이미 한 줄이라 body를 그대로 쓴다.
+# 졸업예정·수료는 원문이 길어(요건 문장·학점표) 목록엔 부적합 → 아래에 사실을 압축한 한 줄을
+# 둔다(전체 원문은 특정 증명서를 콕 집어 물으면 matched 분기에서 그대로 나온다).
+_CERT_SHORT_DESC = {
+    "졸업예정증명서": "졸업 수업연한·요건을 충족한 재학생 또는 졸업종합시험 합격 수료생에게 발급",
+    "수료증명서": "학년별 취득학점 기준을 충족한 자에게 발급",
+    "재학증명서": "편제학년에 의거 발급",   # 원문("학년별 재학증명서는 ~ 발급한다.")이 완결 문장이라 톤 통일용
+}
+
+
+def _cert_one_line(name: str, body: str) -> str:
+    if name in _CERT_SHORT_DESC:
+        return _CERT_SHORT_DESC[name]
+    return body.splitlines()[0].strip()   # 5종은 이미 한 줄
+
+
+def _clip_at_nonblock_header(body: str) -> str:
+    cut = min((i for h in _CERT_NONBLOCK_HEADERS if (i := body.find(h)) != -1), default=len(body))
+    return body[:cut].strip()
+
+
+def _parse_certificate_blocks(context: str) -> dict[str, str]:
+    """context에서 '[증명서명]\n내용' 블록만 추출한다. dict는 삽입 순서를 보존한다."""
+    blocks: dict[str, str] = {}
+    for segment in _CHUNK_BOUNDARY_RE.split(context):     # 청크 경계 밖으로 못 넘어가게 먼저 분리
+        marks = list(_CERT_BLOCK_RE.finditer(segment))
+        for i, m in enumerate(marks):
+            name = m.group(1).strip()
+            start = m.end()
+            end = marks[i + 1].start() if i + 1 < len(marks) else len(segment)
+            body = _clip_at_nonblock_header(segment[start:end].strip())
+            if name and body and name not in blocks:      # 먼저 나온(고득점) 청크 우선
+                blocks[name] = body
+    return blocks
+
+
+def format_certificate_info(context: str, question: str) -> str:
+    """제증명 종류·발급기준 질문을 코드에서 직접 포맷한다 (club 목록과 동일 원칙).
+
+    LLM에 맡겼을 때 실측된 문제: 수료증명서 학점표가 졸업예정증명서 아래에 잘못 붙거나,
+    여러 연도 기준 중 엉뚱한 걸 현행처럼 골랐다(2026-07-27). 블록이 이미 증명서명으로
+    깔끔히 나뉘어 있어 LLM이 다시 정리할 이유가 없다 — 코드가 블록을 그대로 옮기면
+    오배치 자체가 불가능해진다.
+    - 특정 증명서명이 질문에 있으면(목록성 어미 없이) → 그 블록 전체
+    - '종류/뭐가 있어' 류면 → 7종을 '이름: 한 줄 설명'으로 세로 정렬(세부는 특정 질문 때)
+    - 둘 다 아니면(발급 방법·비용 등 이 블록의 소관이 아닌 질문) → 빈 문자열, LLM에 맡긴다.
+    파싱 결과가 없으면(이 청크가 검색에 안 잡힌 경우 등)도 빈 문자열 → 호출부가 LLM 폴백.
+    """
+    blocks = _parse_certificate_blocks(context)
+    if not blocks:
+        return ""
+
+    qn = question.replace(" ", "")
+    is_list_query = any(kw in question for kw in _CERT_LIST_KEYWORDS)
+    matched = [name for name in blocks if name.replace(" ", "") in qn]
+
+    if matched and not is_list_query:
+        return "\n\n".join(f"[{name}]\n{blocks[name]}" for name in matched)
+    if is_list_query:
+        # '종류가 뭐야' 류엔 각 증명서를 '이름: 한 줄 설명'으로 세로 정렬해 가볍게 보여준다
+        # (2026-07-27 실사용 피드백: 상세부터 들이밀면 무겁다). 세부 기준(수료 학점표 등)은
+        # 특정 증명서를 콕 집어 물으면 위 matched 분기에서 전체가 나온다.
+        lines = "\n".join(f"- {name}: {_cert_one_line(name, body)}" for name, body in blocks.items())
+        return f"제증명은 총 {len(blocks)}종입니다.\n\n{lines}"
+    return ""
+
+
 def _is_keyword_query(question: str) -> bool:
     """이미 검색어 형태인가 — 재작성해서 얻을 게 없고 훼손 위험만 있는 질문.
 
@@ -273,6 +360,8 @@ def _keeps_topic(question: str, rewritten: str) -> bool:
 DEFAULT_SEARCH_SYNONYMS: dict[str, list[str]] = {
     "학칙": ["학생규칙"],     # 실측 0.014 → 0.642
     "공결": ["출석인정"],     # 실측 0.051 → 0.994
+    "제증명": ["증명서"],     # 리랭커가 합성어 '제증명'을 문서의 '증명서'와 매칭 못함.
+                              # 회귀 harness: '제증명 뭐 뗄 수 있어' 0건 → PASS (문서에 있는 공식어라 안전)
 }
 
 _search_synonyms: dict[str, list[str]] = dict(DEFAULT_SEARCH_SYNONYMS)
@@ -673,7 +762,8 @@ async def answer_rag_general_question_with_metadata(
     is_club = "동아리" in question and effective_topic == "student_support"
     _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
     is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
-    print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, topic={effective_topic}")
+    is_certificate = any(k in question for k in ("증명서", "제증명")) and effective_topic == "rag_general"
+    print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, is_certificate={is_certificate}, topic={effective_topic}")
 
     from pathlib import Path
     matched_files: list[str] = []   # 임베딩 필터가 고른 관련 파일 (제안 확정용)
@@ -696,16 +786,22 @@ async def answer_rag_general_question_with_metadata(
             prompt = RAG_CLUB_DETAIL_PROMPT.format(context=context, question=llm_question)
             answer = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         else:
-            # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트에서 파일 목록·
-            # <FILES> 태그 지시를 뺐다 — 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로
-            # 무용했고, 목록을 넣지 않으니 프롬프트가 가벼워진다(오버헤드 감소 → 답변 토큰 여유 증가).
-            # 답변 최소 800토큰을 남기도록 컨텍스트를 동적 절단한다. 고정 상수(MAX_TOTAL_CONTEXT)
-            # 로는 RAG 골격을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 학사일정 보강 블록도
-            # 오버헤드에 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
-            overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT
-            context = llm_service.fit_context(context, overhead)
-            prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
-            answer = await llm_service.answer(prompt, max_tokens=1536)
+            # 제증명 종류·기준은 club 목록과 동일 원칙으로 코드가 먼저 시도한다(위 함수 설명 참조).
+            # 파싱 실패(청크가 검색에 안 잡힘 등)면 빈 문자열 → 아래 기존 LLM 경로로 그대로 이어진다.
+            answer = format_certificate_info(context, question) if is_certificate else ""
+            if not answer:
+                # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트에서 파일 목록·
+                # <FILES> 태그 지시를 뺐다 — 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로
+                # 무용했고, 목록을 넣지 않으니 프롬프트가 가벼워진다(오버헤드 감소 → 답변 토큰 여유 증가).
+                # 답변 최소 800토큰을 남기도록 컨텍스트를 동적 절단한다. 고정 상수(MAX_TOTAL_CONTEXT)
+                # 로는 RAG 골격을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 학사일정 보강 블록도
+                # 오버헤드에 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
+                overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT
+                context = llm_service.fit_context(context, overhead)
+                prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
+                # 사실 조회 답변은 결정론적으로(temp 0.0) — 같은 질문에 목록·표 완비가 매번 달라지던
+                # 변덕 억제(예: 주차 정기권 3개 요금 중 1개만 뽑힘). 졸업·일정·동아리 핸들러와 동일 원칙.
+                answer = await llm_service.answer(prompt, max_tokens=1536, temperature=0.0)
     except ValueError as e:
         print(f"[RAG_GENERAL] ⚠️ 컨텍스트 초과로 생성 불가: {e}")
         return (
