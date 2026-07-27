@@ -230,6 +230,10 @@ class ChatMessage(Base):
     source      = Column(String(255), nullable=True)
     source_file = Column(String(255), nullable=True)
     rewritten_query = Column(Text, nullable=True)      # user 메시지의 검색용 재작성 질문 (파인튜닝 데이터용, assistant면 null)
+    # 지도·학사일정·학과·파일 카드 등 답변에 딸린 구조화 데이터. 본문(content)만으론 복원 못 하므로
+    # 과거 대화를 다시 열 때 카드(지도 등)를 그대로 되살리기 위해 assistant 메시지에 함께 저장한다.
+    # { map_card, schedule_card, dept_card, file_offer } 중 존재하는 것만 담음(없으면 NULL).
+    card_meta   = Column(JSONB, nullable=True)
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

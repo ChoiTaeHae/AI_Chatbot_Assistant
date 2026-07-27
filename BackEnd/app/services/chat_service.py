@@ -111,6 +111,16 @@ class ChatService:
         # RAG 경로에서 질문이 재작성됐으면 원본 질문(user_msg) 행에 기록 (파인튜닝 데이터용)
         user_msg.rewritten_query = getattr(result, "rewritten_query", None)
 
+        # 답변에 딸린 카드(지도·학사일정·학과·파일제안) — 있는 것만 저장해 과거 대화 복원 시 되살린다.
+        card_meta = {
+            k: v for k, v in {
+                "map_card": result.map_card,
+                "schedule_card": getattr(result, "schedule_card", None),
+                "dept_card": result.dept_card,
+                "file_offer": result.file_offer,
+            }.items() if v
+        } or None
+
         asst_msg = ChatMessage(
             session_id=session.id,
             student_id=current_user.id,
@@ -120,6 +130,7 @@ class ChatService:
             topic=getattr(result, "topic", None),
             source=getattr(result, "source", None),
             source_file=getattr(result, "source_file", None),
+            card_meta=card_meta,
         )
         db.add(asst_msg)
 
@@ -196,6 +207,8 @@ class ChatService:
                     "topic": m.topic,
                     "source": m.source,
                     "message_id": m.id,
+                    # 답변에 딸렸던 카드(지도·학사일정·학과·파일제안)를 그대로 실어 보내 복원한다.
+                    "card_meta": m.card_meta or None,
                 }
                 for m in msgs
             ],
