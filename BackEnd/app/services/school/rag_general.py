@@ -336,6 +336,38 @@ def _clean_rewrite_output(raw: str | None) -> str:
     return text.strip()
 
 
+async def _respace_query(q: str) -> str | None:
+    """검색어의 '띄어쓰기만' 교정한다(단어 추가·삭제·변경 금지).
+
+    ko-reranker가 붙여 쓴 한국어 복합어를 무관 문서로 오판하는 문제를 구제하기 위한 것.
+    (실측: '주차정기권 요금' → 리랭크 0.14로 정답 문서 탈락 / '주차 정기권 요금' → 0.99로 정답)
+    벡터 검색은 붙여써도 정답 문서를 잘 찾으므로 리랭커 필터에서만 걸러지는데, 여기서
+    띄어쓰기를 바로잡으면 리랭커가 제대로 점수를 매긴다.
+
+    안전장치: 공백을 제외한 글자열이 원본과 완전히 같을 때만 채택한다. LLM이 단어를
+    바꾸거나 지어내면(글자열이 달라지면) 폐기 → 환각·주제이탈 위험 없음. 0건일 때만
+    호출되므로 정상 검색 경로의 지연·비용은 0이다."""
+    try:
+        raw = await llm_service.answer(
+            "붙여 쓴 한국어 검색어를 자연스럽게 띄어 써라. 뜻은 그대로 두고 공백만 넣어 한 줄로 출력해라.\n"
+            "주차정기권요금 → 주차 정기권 요금\n"
+            "수강신청기간 → 수강 신청 기간\n"
+            "국가장학금신청방법 → 국가 장학금 신청 방법\n"
+            f"{q} →",
+            max_tokens=48,
+            system_prompt=KEYWORD_EXTRACTION_SYSTEM_PROMPT,
+            temperature=0.0,
+        )
+    except Exception as e:
+        print(f"[RAG_GENERAL] 띄어쓰기 교정 실패(무시): {e}")
+        return None
+    cand = _clean_rewrite_output(raw)
+    # 실제로 띄어쓰기가 바뀌었고(=원본과 다름) & 내용은 그대로(공백 제외 동일)일 때만 채택
+    if cand and cand != q and cand.replace(" ", "") == q.replace(" ", ""):
+        return cand
+    return None
+
+
 async def _rewrite_query(question: str, prev_question: str | None = None, force: bool = False) -> str:
     """구어체 질문을 검색용 공식 용어로 변환.
 
@@ -537,6 +569,27 @@ async def answer_rag_general_question_with_metadata(
                 print("[RAG_GENERAL] ✅ 재시도 성공")
                 metadata["query_fallback"] = True
                 rewritten_for_log = alt if skipped_rewrite else rewritten_for_log
+
+    # ── 마지막 폴백: 띄어쓰기 교정 재시도 ────────────────────────────
+    # 위 재시도까지 0건이면, 붙여 쓴 복합어를 리랭커가 오판했을 수 있다(예: '주차정기권').
+    # 검색어의 '띄어쓰기만' 바로잡아 한 번 더 검색한다. 0건일 때만 발동하므로 정상 경로엔
+    # 영향이 없고, 내용은 그대로라(공백 제외 동일 검증) 환각·주제이탈 위험도 없다.
+    if not context:
+        base = rewritten_for_log or question
+        respaced = await _respace_query(base)
+        if respaced:
+            print(f"[RAG_GENERAL] 0건 → 띄어쓰기 교정 재시도: '{base}' → '{respaced}'")
+            context, metadata = await loop.run_in_executor(
+                None,
+                _search_rag,
+                expand_search_query(respaced),
+                respaced,
+                effective_topic,
+            )
+            if context:
+                print("[RAG_GENERAL] ✅ 띄어쓰기 교정 재시도 성공")
+                metadata["query_fallback"] = True
+                rewritten_for_log = respaced
 
     # 파인튜닝 데이터용: 실제로 재작성된 경우에만 기록 (원본과 같으면 no-op이므로 None)
     metadata["rewritten_query"] = rewritten_for_log if rewritten_for_log != question else None
