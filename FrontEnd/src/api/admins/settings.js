@@ -1,6 +1,6 @@
 import { authFetch } from '../utils'
 
-const BASE = 'http://localhost:8000/api/admins'
+const BASE = '/api/admins'
 
 export async function fetchSettings() {
   const res = await authFetch(`${BASE}/settings`)

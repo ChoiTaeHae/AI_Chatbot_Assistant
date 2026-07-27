@@ -4,7 +4,7 @@ import MascotAvatar from '../common/MascotAvatar'
 import ScheduleCard from './ScheduleCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = ''
 
 /**
  * 인증 헤더를 포함해서 파일을 fetch한 뒤 blob URL로 다운로드.

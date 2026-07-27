@@ -1,6 +1,6 @@
 import { authFetch } from './utils'
 
-const BASE = 'http://localhost:8000/api'
+const BASE = '/api'
 
 // 해당 월에 걸치는 일정 (사이드바 달력 점 표시용)
 export async function fetchScheduleMonth(year, month, track = '학부') {

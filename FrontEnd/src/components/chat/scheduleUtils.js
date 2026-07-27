@@ -27,16 +27,17 @@ export function catStyle(e) {
   return 'bg-slate-100 text-slate-600'
 }
 
-// 좁은 사이드바용 — 텍스트 없이 '색 막대'만 그리므로 진한 배경색만 필요하다.
-// catStyle의 연한 배경(bg-*-100)은 4px 막대에선 거의 안 보여 한 단계 진하게 쓴다.
+// 좁은 사이드바용 — 텍스트 없이 '색 막대'만 그린다.
+// Tailwind -300은 색상마다 채도가 제각각(amber는 쨍, violet은 차분)이라 조화가 깨진다.
+// → 명도·채도를 통일한 마카롱 파스텔 세트를 직접 지정해 '색상(hue)만' 다르게 한다.
 export function catBar(e) {
-  if (/수강|정정|철회|변경/.test(e)) return 'bg-blue-400'
-  if (/성적|평가|시험/.test(e)) return 'bg-purple-400'
-  if (/등록|납부|분납|장학/.test(e)) return 'bg-emerald-400'
-  if (/휴학|복학|자퇴|전과|재입학/.test(e)) return 'bg-amber-400'
-  if (/졸업|학위|입학/.test(e)) return 'bg-rose-400'
-  if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-slate-400'
-  return 'bg-slate-300'
+  if (/수강|정정|철회|변경/.test(e)) return 'bg-[#A8CCE8]'   // 소프트 블루
+  if (/성적|평가|시험/.test(e)) return 'bg-[#C4B8E0]'         // 소프트 라벤더
+  if (/등록|납부|분납|장학/.test(e)) return 'bg-[#A8D8C0]'    // 소프트 민트
+  if (/휴학|복학|자퇴|전과|재입학/.test(e)) return 'bg-[#F3CBA8]' // 소프트 피치
+  if (/졸업|학위|입학/.test(e)) return 'bg-[#F0BAC8]'         // 소프트 로즈
+  if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-[#C2D6A8]' // 소프트 세이지
+  return 'bg-[#CBD5E1]'                                       // 소프트 그레이
 }
 
 // 한 달을 감싸는 주 배열(일요일 시작). 항상 6줄 고정 → 달마다 높이가 일정해져

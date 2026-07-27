@@ -40,6 +40,8 @@ services:
       - "5173:5173"
     volumes:
       - ./FrontEnd/src:/app/src
+      # vite.config.js도 마운트 — 프록시/allowedHosts 설정 변경을 재빌드 없이 반영
+      - ./FrontEnd/vite.config.js:/app/vite.config.js
     depends_on:
       - backend
     restart: unless-stopped

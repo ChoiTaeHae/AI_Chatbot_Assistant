@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24   # 24시간
 
+    # API 문서(/docs, /redoc, /openapi.json) 노출 여부. 기본 꺼짐(안전) —
+    # 인터넷 공개 시 API 구조 전체가 새는 것을 막는다. 로컬 개발 중 문서가 필요하면
+    # .env에 ENABLE_DOCS=true 로 켠다.
+    ENABLE_DOCS: bool = False
+
     # Reranker 모델 경로 (venv: 절대경로, Docker: /app/models/ko-reranker)
     RERANKER_MODEL_PATH: str = "/app/models/ko-reranker"
     # 리랭커 실행 device: "cuda"(GPU, 빠름) | "cpu"(느림, VRAM 부족 시)

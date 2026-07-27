@@ -169,13 +169,21 @@ export function useChat(lang = 'ko') {
       setSessionId(sid)
       setPendingFile(null)
       setPendingContext(null)
-      setMessages((data.messages || []).map((m) => ({
-        id: m.id,
-        role: m.role === 'assistant' ? 'ai' : 'user',
-        content: m.content,
-        time: getTime(),
-        messageId: m.message_id || null,
-      })))
+      setMessages((data.messages || []).map((m) => {
+        // 답변에 딸렸던 카드(지도·학사일정·학과·파일제안) 복원 — 없으면 각 필드 null.
+        const cm = m.card_meta || {}
+        return {
+          id: m.id,
+          role: m.role === 'assistant' ? 'ai' : 'user',
+          content: m.content,
+          time: getTime(),
+          messageId: m.message_id || null,
+          mapCard: cm.map_card || null,
+          scheduleCard: cm.schedule_card || null,
+          deptCard: cm.dept_card || null,
+          fileOffer: cm.file_offer || null,
+        }
+      }))
     } catch (err) {
       setMessages([{ id: Date.now(), role: 'ai', content: `${ERR[lang]}: ${err.message}`, time: getTime() }])
     } finally {

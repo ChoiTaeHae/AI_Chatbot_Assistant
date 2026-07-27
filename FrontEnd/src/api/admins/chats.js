@@ -1,6 +1,6 @@
 import { authFetch } from '../utils'
 
-const BASE = 'http://localhost:8000/api/admins'
+const BASE = '/api/admins'
 
 export async function fetchChatSessions({ search = '', page = 1, limit = 50 } = {}) {
   const params = new URLSearchParams({ page, limit })

@@ -1,6 +1,6 @@
 import { authFetch } from './utils'
 
-const BASE = 'http://localhost:8000/api'
+const BASE = '/api'
 
 // 백엔드 준비 확인 — /health 는 FastAPI lifespan(모델 로딩·토픽 워밍업)이 끝난 뒤에야
 // 응답하므로, 성공 = "완전히 켜져서 요청을 받을 수 있는 상태". 인증 불필요한 경량 핑.

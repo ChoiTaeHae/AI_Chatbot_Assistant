@@ -44,7 +44,9 @@ function buildWeeks(year, month0) {
   return weeks
 }
 
-export default function ScheduleWidget({ lang = 'ko' }) {
+// refreshKey: 부모(Sidebar)가 백엔드 준비 감시(포커스·재연결·down→up)에서 넘겨주는 값.
+// 이 값이 바뀔 때마다 두 조회를 다시 실행해, 백엔드가 (재)시작되면 수동 새로고침 없이 채워진다.
+export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
   const t = T[lang] || T.ko
   const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [events, setEvents] = useState([])
@@ -78,11 +80,14 @@ export default function ScheduleWidget({ lang = 'ko' }) {
   }, [sel])
 
   // 다가오는 일정 — 항상 고정 표시 (월 이동과 무관)
+  // refreshKey가 바뀌면(백엔드 (재)시작·창 복귀·재연결) 다시 조회 → 수동 새로고침 불필요.
   useEffect(() => {
+    let alive = true
     fetchScheduleUpcoming(2)
-      .then(d => { setUpcoming(d.events || []); if (d.today) setTodayISO(d.today) })
-      .catch(() => setUpcoming([]))
-  }, [])
+      .then(d => { if (!alive) return; setUpcoming(d.events || []); if (d.today) setTodayISO(d.today) })
+      .catch(() => { /* 실패 시 기존 값 유지 — 다음 refreshKey에서 재시도 */ })
+    return () => { alive = false }
+  }, [refreshKey])
 
   // 월별 일정 — 달력 점 표시용
   useEffect(() => {
@@ -91,9 +96,9 @@ export default function ScheduleWidget({ lang = 'ko' }) {
     setSel(null)   // 월 이동 시 팝업 닫기
     fetchScheduleMonth(cursor.getFullYear(), cursor.getMonth() + 1)
       .then(d => { if (alive) setEvents(d.events || []) })
-      .catch(() => { if (alive) setEvents([]) })
+      .catch(() => { /* 실패 시 기존 값 유지 — refreshKey 변경 시 재조회 */ })
     return () => { alive = false }
-  }, [cursor, open])
+  }, [cursor, open, refreshKey])
 
   const weeks = useMemo(() => buildWeeks(cursor.getFullYear(), cursor.getMonth()), [cursor])
 
@@ -204,20 +209,25 @@ export default function ScheduleWidget({ lang = 'ko' }) {
             )
           })}
 
-          {/* 선택한 날짜 상세 — 클릭한 주 아래에 겹쳐서 표시 (달력을 밀지 않음) */}
-          {sel && (
-            <div style={{ position: 'absolute', top: `${(sel.weekIdx + 1) * ROW_H}px`, left: 0, right: 0, zIndex: 20 }}>
-              {/* 해당 요일을 가리키는 삼각 */}
+          {/* 선택한 날짜 상세 — 클릭한 주에 겹쳐서 표시 (달력을 밀지 않음).
+              하단 주(마지막 2줄)를 누르면 아래로 뜨면 잘리므로 위로 뒤집어(flipUp) 띄운다. */}
+          {sel && (() => {
+            const flipUp = sel.weekIdx >= weeks.length - 2
+            const triangle = (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
                 <div style={{ gridColumn: sel.colIdx + 1, display: 'flex', justifyContent: 'center' }}>
                   <span style={{
                     width: 0, height: 0,
                     borderLeft: '5px solid transparent', borderRight: '5px solid transparent',
-                    borderBottom: '5px solid #ffffff',
-                    filter: 'drop-shadow(0 -1px 0 rgba(0,89,86,0.3))',
+                    // flipUp이면 박스가 위 → 삼각은 아래를 가리킴(borderTop), 아니면 위를 가리킴(borderBottom)
+                    ...(flipUp
+                      ? { borderTop: '5px solid #ffffff', filter: 'drop-shadow(0 1px 0 rgba(0,89,86,0.3))' }
+                      : { borderBottom: '5px solid #ffffff', filter: 'drop-shadow(0 -1px 0 rgba(0,89,86,0.3))' }),
                   }} />
                 </div>
               </div>
+            )
+            const box = (
               <div className="rounded-lg bg-white border border-[#005956]/30 shadow-lg" style={{ padding: '7px 9px' }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
                   <p className="font-bold text-[#005956]" style={{ fontSize: '11px' }}>{fmtMD(sel.iso)}</p>
@@ -234,8 +244,17 @@ export default function ScheduleWidget({ lang = 'ko' }) {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
+            )
+            // flipUp: 박스 아래끝을 클릭한 주 위(bottom 기준)에 붙임 / 아니면 주 아래(top 기준)
+            const pos = flipUp
+              ? { bottom: `${(weeks.length - sel.weekIdx) * ROW_H}px` }
+              : { top: `${(sel.weekIdx + 1) * ROW_H}px` }
+            return (
+              <div style={{ position: 'absolute', left: 0, right: 0, zIndex: 20, ...pos }}>
+                {flipUp ? <>{box}{triangle}</> : <>{triangle}{box}</>}
+              </div>
+            )
+          })()}
         </div>
         </>
         )}
