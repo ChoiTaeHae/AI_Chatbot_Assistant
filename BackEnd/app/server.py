@@ -93,6 +93,13 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # create_all 은 '기존' 테이블을 ALTER 하지 않으므로, 나중에 추가된 컬럼은 여기서
+            # 멱등(IF NOT EXISTS)으로 보강한다. nullable 이라 기존 데이터·코드에 무해하고,
+            # 공유 DB에 한 번만 적용되면 팀원들도 코드만 받아 재시작하면 동작한다.
+            from sqlalchemy import text
+            await conn.execute(text(
+                "ALTER TABLE chat_message ADD COLUMN IF NOT EXISTS card_meta JSONB"
+            ))
         print("DB 연결 성공")
     except Exception as e:
         print(f"DB 연결 실패 (나중에 연결): {e}")

@@ -209,20 +209,25 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
             )
           })}
 
-          {/* 선택한 날짜 상세 — 클릭한 주 아래에 겹쳐서 표시 (달력을 밀지 않음) */}
-          {sel && (
-            <div style={{ position: 'absolute', top: `${(sel.weekIdx + 1) * ROW_H}px`, left: 0, right: 0, zIndex: 20 }}>
-              {/* 해당 요일을 가리키는 삼각 */}
+          {/* 선택한 날짜 상세 — 클릭한 주에 겹쳐서 표시 (달력을 밀지 않음).
+              하단 주(마지막 2줄)를 누르면 아래로 뜨면 잘리므로 위로 뒤집어(flipUp) 띄운다. */}
+          {sel && (() => {
+            const flipUp = sel.weekIdx >= weeks.length - 2
+            const triangle = (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
                 <div style={{ gridColumn: sel.colIdx + 1, display: 'flex', justifyContent: 'center' }}>
                   <span style={{
                     width: 0, height: 0,
                     borderLeft: '5px solid transparent', borderRight: '5px solid transparent',
-                    borderBottom: '5px solid #ffffff',
-                    filter: 'drop-shadow(0 -1px 0 rgba(0,89,86,0.3))',
+                    // flipUp이면 박스가 위 → 삼각은 아래를 가리킴(borderTop), 아니면 위를 가리킴(borderBottom)
+                    ...(flipUp
+                      ? { borderTop: '5px solid #ffffff', filter: 'drop-shadow(0 1px 0 rgba(0,89,86,0.3))' }
+                      : { borderBottom: '5px solid #ffffff', filter: 'drop-shadow(0 -1px 0 rgba(0,89,86,0.3))' }),
                   }} />
                 </div>
               </div>
+            )
+            const box = (
               <div className="rounded-lg bg-white border border-[#005956]/30 shadow-lg" style={{ padding: '7px 9px' }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
                   <p className="font-bold text-[#005956]" style={{ fontSize: '11px' }}>{fmtMD(sel.iso)}</p>
@@ -239,8 +244,17 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
+            )
+            // flipUp: 박스 아래끝을 클릭한 주 위(bottom 기준)에 붙임 / 아니면 주 아래(top 기준)
+            const pos = flipUp
+              ? { bottom: `${(weeks.length - sel.weekIdx) * ROW_H}px` }
+              : { top: `${(sel.weekIdx + 1) * ROW_H}px` }
+            return (
+              <div style={{ position: 'absolute', left: 0, right: 0, zIndex: 20, ...pos }}>
+                {flipUp ? <>{box}{triangle}</> : <>{triangle}{box}</>}
+              </div>
+            )
+          })()}
         </div>
         </>
         )}
