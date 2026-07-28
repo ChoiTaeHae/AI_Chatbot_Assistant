@@ -10,6 +10,10 @@ import { fetchUsers, updateUserRole } from '../api/admins/security'
 import { fetchFiles, uploadFile, deleteFile, downloadFile } from '../api/admins/files'
 import { fetchChatSessions, fetchSessionMessages, upsertMessageFeedback } from '../api/admins/chats'
 import ScheduleManager from '../components/admin/ScheduleManager'
+import ScholarshipManager from '../components/admin/ScholarshipManager'
+
+// 파일 관리 탭에서 숨길 topic — 장학금 파일은 '장학금 관리' 화면에서 전용 관리
+const HIDDEN_FILE_TOPICS = ['scholarship', 'work_study']
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '대시보드 요약', icon: (
@@ -41,6 +45,11 @@ const NAV_ITEMS = [
   { id: 'files', label: '파일 관리', icon: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+  )},
+  { id: 'scholarships', label: '장학금·근로 관리', icon: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" />
     </svg>
   )},
   { id: 'chats', label: '채팅 내역', icon: (
@@ -580,6 +589,13 @@ export default function AdminPage() {
           {activeNav === 'schedule' && (
             <div className="flex-1 flex flex-col overflow-y-auto" style={{ gap: '20px' }}>
               <ScheduleManager />
+            </div>
+          )}
+
+          {/* 장학금 관리 */}
+          {activeNav === 'scholarships' && (
+            <div className="flex-1 flex flex-col overflow-y-auto" style={{ gap: '20px' }}>
+              <ScholarshipManager />
             </div>
           )}
 
@@ -1367,7 +1383,7 @@ export default function AdminPage() {
                     className="text-sm font-semibold text-[#05263d] border border-slate-200 rounded-xl bg-white outline-none focus:border-[#005956] appearance-none cursor-pointer"
                     style={{ padding: '7px 36px 7px 12px', minWidth: '160px' }}
                   >
-                    {Object.entries(fileLabels).map(([topicKey, label]) => (
+                    {Object.entries(fileLabels).filter(([k]) => !HIDDEN_FILE_TOPICS.includes(k)).map(([topicKey, label]) => (
                       <option key={topicKey} value={topicKey}>
                         {label}{files[topicKey]?.length > 0 ? ` (${files[topicKey].length})` : ''}
                       </option>
