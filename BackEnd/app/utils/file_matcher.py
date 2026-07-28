@@ -110,7 +110,16 @@ def match_relevant_files(text: str, files: list[str]) -> list[str]:
     if not files or not text:
         return []
 
-    names = [Path(f).stem for f in files]
+    # 파일명은 공식 용어로 돼 있는데(예: '출석인정 요청서…') 질문·답변은 구어를 쓴다(예: '공결').
+    # 이 간극 때문에 관련 파일이 0.587로 기준(0.60) 아래에 떨어져 제안되지 않았다(실측).
+    # 검색어 딕셔너리를 반대 방향으로 적용해 제목에 구어 용어를 덧붙이면 0.693으로 통과한다.
+    # (rag_general은 이 모듈을 지연 import 하므로 여기서도 지연 import 해 순환 참조를 피한다)
+    try:
+        from app.services.school.rag_general import expand_document_title
+        names = [expand_document_title(Path(f).stem) for f in files]
+    except Exception as e:                       # 확장 실패는 치명적이지 않다 — 원래 이름으로 진행
+        print(f"[FileMatcher] 제목 확장 스킵: {e}")
+        names = [Path(f).stem for f in files]
     try:
         vecs = rag_service.embedding.embed_texts([text, *names])
     except Exception as e:

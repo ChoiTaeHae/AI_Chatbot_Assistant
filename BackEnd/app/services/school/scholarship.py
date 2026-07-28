@@ -174,8 +174,18 @@ async def answer_scholarship_question(
     from app.utils.file_matcher import match_relevant_files, clean_answer
     from pathlib import Path
 
+    # 컨텍스트를 예산에 맞춰 자른다(rag_general과 동일). 장학금 문서는 공고·포스터가 길어
+    # 프롬프트가 n_ctx에 근접하면 답변 토큰이 쪼그라든다 — 실측에서 출력이 96토큰까지 줄며
+    # 문서에 있는 날짜 대신 모델이 아는 일반 상식을 뱉었다.
+    overhead = RAG_SCHOLARSHIP_PROMPT.format(context="", question=question) + SCHOLARSHIP_SYSTEM_PROMPT
+    context = llm_service.fit_context(context, overhead)
     prompt = RAG_SCHOLARSHIP_PROMPT.format(context=context, question=question)
-    answer = await llm_service.answer(prompt, system_prompt=SCHOLARSHIP_SYSTEM_PROMPT)
+    # 사실 조회(신청기간·금액·자격)라 결정론적으로 생성한다 — temp 0.3에서는 문서에 근거가
+    # 있는데도 사전지식으로 새는 경우가 있었다(실측: '국가장학금 신청기간' → 문서에 없는
+    # '매년 1월 초부터 2월까지'). rag_general·졸업·일정 핸들러와 동일 원칙.
+    answer = await llm_service.answer(
+        prompt, system_prompt=SCHOLARSHIP_SYSTEM_PROMPT, temperature=0.0
+    )
     answer = clean_answer(answer)   # 잘린 <FILES> 태그·표 구분선 정리
 
     # 파일 제안은 '완성된 답변' 기준으로 판정한다(질문 기준은 신호가 약해 무관한 파일이 붙는다).
