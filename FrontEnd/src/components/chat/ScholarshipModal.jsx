@@ -3,6 +3,19 @@ import { getScholarships } from '../../api/scholarship'
 
 const TEAL = '#005956'
 
+/** 표준 드롭다운 셰브론(아래 방향). open이면 180° 회전해 위를 가리킨다.
+ *  기존 '⌄'(U+2304) 글자는 폰트마다 얇은 캐럿(^)처럼 렌더돼 부자연스러웠다 → SVG로 일관되게. */
+function Chevron({ open, size = 14, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+      style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}
+      aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
 /** 인증 헤더로 파일 다운로드 (a href 직접 연결은 Authorization 미전송) */
 async function downloadFileWithAuth(topic, filename) {
   const token = sessionStorage.getItem('wsu_token')
@@ -215,7 +228,7 @@ export default function ScholarshipModal({ onClose }) {
                   <span className="font-bold" style={{ fontSize: '14px', color: TEAL }}>{g.category}</span>
                   <span className="rounded-full font-semibold text-white" style={{ fontSize: '11px', padding: '1px 9px', background: TEAL }}>{g.items.length}</span>
                   <span className="flex-1" />
-                  <span style={{ color: TEAL, fontSize: '15px', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>⌄</span>
+                  <Chevron open={open} size={16} color={TEAL} />
                 </button>
 
                 {open && (
@@ -265,7 +278,7 @@ export default function ScholarshipModal({ onClose }) {
                                 style={{ fontSize: '11px', padding: '3px 11px', color: TEAL, border: `1px solid ${TEAL}` }}
                               >
                                 📎 첨부파일 {files.length}
-                                <span style={{ transform: filesOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>⌄</span>
+                                <Chevron open={filesOpen} size={12} />
                               </button>
                             )}
                             {it.link && (
