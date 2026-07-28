@@ -7,6 +7,7 @@ class ChatRequest(BaseModel):
     pending_file: dict | None = None     # { topic, filename } 파일 제안에 대한 응답 시 프론트가 전달
     pending_context: dict | None = None  # { type: "scholarship" } 멀티턴 대화 상태
     file_confirm: bool | None = None     # 프론트 예/아니오 버튼: True=예, False=아니오, None=일반 질문
+    lang: str | None = None              # 프론트 UI 언어(ko/en/zh). 답변 후처리 번역 대상 판정용
 
 
 class ChatResponse(BaseModel):

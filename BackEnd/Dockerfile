@@ -33,6 +33,9 @@ RUN pip install --no-cache-dir diskcache
 # Vertex AI (Gemini) SDK — LLM_PROVIDER=vertex 일 때 답변 생성에 사용 (의존성 포함 설치)
 RUN pip install --no-cache-dir google-genai
 
+# Cloud Translation API SDK — 답변 후처리 번역(다국어 지원)에 사용. Vertex와 같은 GCP 인증 재사용.
+RUN pip install --no-cache-dir google-cloud-translate
+
 # CUDA 링커 경로 등록 (빌드 시점에 stub 라이브러리 인식)
 RUN echo "/usr/local/cuda/lib64" >> /etc/ld.so.conf.d/cuda.conf && \
     echo "/usr/local/cuda/lib64/stubs" >> /etc/ld.so.conf.d/cuda-stubs.conf && \

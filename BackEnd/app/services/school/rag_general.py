@@ -411,6 +411,29 @@ def expand_search_query(query: str) -> str:
     return expanded
 
 
+def expand_document_title(title: str) -> str:
+    """문서(파일) 제목에 공식 용어가 있으면 학생이 쓰는 구어 용어를 덧붙인다 — 위 함수의 역방향.
+
+    파일 제안이 임베딩 유사도로 걸러지는데(file_matcher), 질문·답변은 '공결'이라 부르는 반면
+    파일명은 '출석인정 요청서 및 결석 사유별 내역서(양식)'이라 유사도가 0.587까지밖에 안 붙어
+    기준(0.60)에서 컷됐다(실측). 같은 사전을 반대로 써서 제목 쪽에 '공결'을 붙이면 0.693으로
+    올라 통과한다. 사전에는 문서에 실재하는 용어만 등록돼 있어 없는 말을 지어내지 않고,
+    사전 단어가 없는 제목은 그대로 반환하므로 대부분의 파일에는 아무 영향이 없다.
+    """
+    if not title:
+        return title
+    tn = title.replace(" ", "")
+    additions: list[str] = []
+    for term, officials in _search_synonyms.items():
+        if term.replace(" ", "") in tn:
+            continue                       # 구어 용어가 이미 제목에 있음
+        if any(o.replace(" ", "") in tn for o in officials) and term not in additions:
+            additions.append(term)
+    if not additions:
+        return title
+    return f"{' '.join(additions)} {title}"
+
+
 def _clean_rewrite_output(raw: str | None) -> str:
     """LLM 재작성 출력 정리.
     - 빈/None 출력 안전 처리 (빈 문자열 반환)

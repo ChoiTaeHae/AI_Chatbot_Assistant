@@ -3,6 +3,19 @@ import { getScholarships } from '../../api/scholarship'
 
 const TEAL = 'var(--brand)'
 
+/** 표준 드롭다운 셰브론(아래 방향). open이면 180° 회전해 위를 가리킨다.
+ *  기존 '⌄'(U+2304) 글자는 폰트마다 얇은 캐럿(^)처럼 렌더돼 부자연스러웠다 → SVG로 일관되게. */
+function Chevron({ open, size = 14, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+      style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}
+      aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
 /** 인증 헤더로 파일 다운로드 (a href 직접 연결은 Authorization 미전송) */
 async function downloadFileWithAuth(topic, filename) {
   const token = sessionStorage.getItem('wsu_token')
@@ -44,8 +57,41 @@ function highlight(text, q) {
   )
 }
 
-export default function ScholarshipModal({ onClose }) {
-  const [kind, setKind] = useState('장학금')   // 상단 전환: '장학금' | '근로'
+// 모달 정적 라벨 다국어. kind('장학금'/'근로')·scope('교내'/'교외')는 API 값이라 그대로 두고
+// 표시 텍스트만 번역한다(동적 데이터 — 장학금명·조건·카테고리 등은 백엔드 값 그대로).
+const MT = {
+  ko: { title: '장학금·근로 둘러보기', subtitle: '우송대학교 장학·근로 안내', close: '닫기',
+        scholarship: '장학금', work: '근로', inSchool: '교내', outSchool: '교외',
+        searchHint: '검색 (이름·조건)', clearSearch: '검색어 지우기', hideExpired: '기간마감 숨기기',
+        loading: '불러오는 중…', loadFail: '불러오지 못했어요.',
+        noSearch: (q) => `'${q}' 검색 결과가 없어요.`,
+        noVisible: '표시할 항목이 없어요. (기간마감 숨김 해제해 보세요)',
+        noItems: (k) => `등록된 ${k} 항목이 없어요.`,
+        expired: '기간마감', condition: '조건', detailNote: '세부 내용은 첨부된 공고문을 확인해 주세요',
+        files: '첨부파일', viewNotice: '공고 보기' },
+  en: { title: 'Scholarships & Work-Study', subtitle: 'Woosong Univ. scholarship/work info', close: 'Close',
+        scholarship: 'Scholarship', work: 'Work-Study', inSchool: 'On-campus', outSchool: 'Off-campus',
+        searchHint: 'Search (name/condition)', clearSearch: 'Clear search', hideExpired: 'Hide expired',
+        loading: 'Loading…', loadFail: 'Failed to load.',
+        noSearch: (q) => `No results for '${q}'.`,
+        noVisible: 'Nothing to show. (Try unhiding expired items)',
+        noItems: (k) => `No ${k} items registered.`,
+        expired: 'Expired', condition: 'Eligibility', detailNote: 'See the attached notice for details',
+        files: 'Attachments', viewNotice: 'View notice' },
+  zh: { title: '奖学金·勤工俭学浏览', subtitle: '又松大学奖学·勤工信息', close: '关闭',
+        scholarship: '奖学金', work: '勤工俭学', inSchool: '校内', outSchool: '校外',
+        searchHint: '搜索（名称·条件）', clearSearch: '清除搜索', hideExpired: '隐藏已截止',
+        loading: '加载中…', loadFail: '加载失败。',
+        noSearch: (q) => `没有 '${q}' 的搜索结果。`,
+        noVisible: '没有可显示的项目。（请尝试取消隐藏已截止项目）',
+        noItems: (k) => `没有已登记的${k}项目。`,
+        expired: '已截止', condition: '条件', detailNote: '详细内容请查看附件公告',
+        files: '附件', viewNotice: '查看公告' },
+}
+
+export default function ScholarshipModal({ lang = 'ko', onClose }) {
+  const mt = MT[lang] || MT.ko
+  const [kind, setKind] = useState('장학금')   // 상단 전환: '장학금' | '근로' (API 값)
   const [scope, setScope] = useState('교내')
   const [query, setQuery] = useState('')
   const [data, setData] = useState(null)      // { count, groups, counts }
@@ -74,11 +120,11 @@ export default function ScholarshipModal({ onClose }) {
         setOpenCats({})
       }
     } catch (e) {
-      setError(e.message || '불러오지 못했어요.')
+      setError(e.message || (MT[lang] || MT.ko).loadFail)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [lang])
 
   // kind/scope 전환 시 즉시 로드 (검색어 초기화)
   useEffect(() => { setQuery(''); load(kind, scope, '') }, [kind, scope, load])
@@ -124,10 +170,10 @@ export default function ScholarshipModal({ onClose }) {
             <span style={{ fontSize: '18px' }}>🎓</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-(--text)" style={{ fontSize: '15px' }}>장학금·근로 둘러보기</p>
-            <p className="text-(--text-faint)" style={{ fontSize: '12px' }}>우송대학교 장학·근로 안내</p>
+            <p className="font-bold text-(--text)" style={{ fontSize: '15px' }}>{mt.title}</p>
+            <p className="text-(--text-faint)" style={{ fontSize: '12px' }}>{mt.subtitle}</p>
           </div>
-          <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-body) text-lg" aria-label="닫기">✕</button>
+          <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-body) text-lg" aria-label={mt.close}>✕</button>
         </div>
 
         {/* 상단 전환: 장학금 / 근로 */}
@@ -145,7 +191,7 @@ export default function ScholarshipModal({ onClose }) {
                   color: active ? '#fff' : 'var(--text-muted)',
                 }}
               >
-                <span>{icon}</span>{k}{kindCounts[k] != null ? ` ${kindCounts[k]}` : ''}
+                <span>{icon}</span>{k === '장학금' ? mt.scholarship : mt.work}{kindCounts[k] != null ? ` ${kindCounts[k]}` : ''}
               </button>
             )
           })}
@@ -167,7 +213,7 @@ export default function ScholarshipModal({ onClose }) {
                     color: active ? '#fff' : 'var(--text-muted)',
                   }}
                 >
-                  {s}{counts[s] != null ? ` ${counts[s]}` : ''}
+                  {s === '교내' ? mt.inSchool : mt.outSchool}{counts[s] != null ? ` ${counts[s]}` : ''}
                 </button>
               )
             })}
@@ -177,29 +223,29 @@ export default function ScholarshipModal({ onClose }) {
             <input
               value={query}
               onChange={(e) => onSearch(e.target.value)}
-              placeholder={`${kind} 검색 (이름·조건)`}
+              placeholder={`${kind === '장학금' ? mt.scholarship : mt.work} ${mt.searchHint}`}
               className="flex-1 outline-none bg-transparent text-(--text-body)"
               style={{ fontSize: '13px' }}
             />
             {query && (
-              <button onClick={() => onSearch('')} className="text-(--text-faint) hover:text-(--text-muted)" aria-label="검색어 지우기">✕</button>
+              <button onClick={() => onSearch('')} className="text-(--text-faint) hover:text-(--text-muted)" aria-label={mt.clearSearch}>✕</button>
             )}
           </div>
           <label className="flex items-center gap-1.5 cursor-pointer select-none w-fit" style={{ marginTop: '9px', fontSize: '12px', color: 'var(--text-muted)' }}>
             <input type="checkbox" checked={hideExpired} onChange={(e) => setHideExpired(e.target.checked)} style={{ accentColor: TEAL }} />
-            기간마감 숨기기
+            {mt.hideExpired}
           </label>
         </div>
 
         {/* 본문 */}
         <div style={{ padding: '12px 18px 18px', overflowY: 'auto' }}>
-          {loading && <p className="text-center text-(--text-faint)" style={{ fontSize: '13px', padding: '30px' }}>불러오는 중…</p>}
+          {loading && <p className="text-center text-(--text-faint)" style={{ fontSize: '13px', padding: '30px' }}>{mt.loading}</p>}
           {error && !loading && <p className="text-center text-red-400" style={{ fontSize: '13px', padding: '30px' }}>{error}</p>}
           {!loading && !error && visibleCount === 0 && (
             <p className="text-center text-(--text-faint)" style={{ fontSize: '13px', padding: '30px' }}>
-              {query ? `'${query}' 검색 결과가 없어요.`
-                : (hideExpired && data?.count > 0) ? '표시할 항목이 없어요. (기간마감 숨김 해제해 보세요)'
-                : `등록된 ${kind} 항목이 없어요.`}
+              {query ? mt.noSearch(query)
+                : (hideExpired && data?.count > 0) ? mt.noVisible
+                : mt.noItems(kind === '장학금' ? mt.scholarship : mt.work)}
             </p>
           )}
 
@@ -215,7 +261,7 @@ export default function ScholarshipModal({ onClose }) {
                   <span className="font-bold" style={{ fontSize: '14px', color: TEAL }}>{g.category}</span>
                   <span className="rounded-full font-semibold text-white" style={{ fontSize: '11px', padding: '1px 9px', background: TEAL }}>{g.items.length}</span>
                   <span className="flex-1" />
-                  <span style={{ color: TEAL, fontSize: '15px', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>⌄</span>
+                  <Chevron open={open} size={16} color={TEAL} />
                 </button>
 
                 {open && (
@@ -238,7 +284,7 @@ export default function ScholarshipModal({ onClose }) {
                               </span>
                             )}
                             {it.expired && (
-                              <span className="rounded-full font-semibold" style={{ fontSize: '11px', padding: '1px 8px', background: 'var(--danger-tint)', color: 'var(--danger-text)' }}>기간마감</span>
+                              <span className="rounded-full font-semibold" style={{ fontSize: '11px', padding: '1px 8px', background: 'var(--danger-tint)', color: 'var(--danger-text)' }}>{mt.expired}</span>
                             )}
                           </div>
                         )}
@@ -246,13 +292,13 @@ export default function ScholarshipModal({ onClose }) {
                         {/* 조건 */}
                         {it.eligibility && (
                           <p className="text-(--text-muted)" style={{ fontSize: '12px', marginTop: '7px' }}>
-                            <span className="text-(--text-faint)">조건 : </span>{highlight(it.eligibility, query)}
+                            <span className="text-(--text-faint)">{mt.condition} : </span>{highlight(it.eligibility, query)}
                           </p>
                         )}
 
                         {/* 안내 문구 */}
                         {files.length > 0 && (
-                          <p className="text-(--text-faint)" style={{ fontSize: '11px', marginTop: '3px' }}>세부 내용은 첨부된 공고문을 확인해 주세요</p>
+                          <p className="text-(--text-faint)" style={{ fontSize: '11px', marginTop: '3px' }}>{mt.detailNote}</p>
                         )}
 
                         {/* 액션: 첨부파일 · 공고 링크 */}
@@ -264,8 +310,8 @@ export default function ScholarshipModal({ onClose }) {
                                 className="inline-flex items-center gap-1 rounded-full hover:bg-(--brand-tint) transition"
                                 style={{ fontSize: '11px', padding: '3px 11px', color: TEAL, border: `1px solid ${TEAL}` }}
                               >
-                                📎 첨부파일 {files.length}
-                                <span style={{ transform: filesOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>⌄</span>
+                                📎 {mt.files} {files.length}
+                                <Chevron open={filesOpen} size={12} />
                               </button>
                             )}
                             {it.link && (
@@ -274,7 +320,7 @@ export default function ScholarshipModal({ onClose }) {
                                 className="inline-flex items-center gap-1 rounded-full hover:bg-(--brand-tint) transition"
                                 style={{ fontSize: '11px', padding: '3px 11px', color: TEAL, border: `1px solid ${TEAL}`, textDecoration: 'none' }}
                               >
-                                🔗 공고 보기
+                                🔗 {mt.viewNotice}
                               </a>
                             )}
                           </div>
