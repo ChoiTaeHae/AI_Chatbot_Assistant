@@ -190,7 +190,9 @@ def _parse_certificate_blocks(context: str) -> dict[str, str]:
             start = m.end()
             end = marks[i + 1].start() if i + 1 < len(marks) else len(segment)
             body = _clip_at_nonblock_header(segment[start:end].strip())
-            if name and body and name not in blocks:      # 먼저 나온(고득점) 청크 우선
+            # 이름에 '증명'이 든 블록만 인정 — 딴 문서의 '[공지]' 같은 대괄호 줄을 증명서로
+            # 오인하지 않게 한다(토픽 가드를 뗀 뒤의 안전장치). 이 프로젝트 증명서는 모두 '~증명서'.
+            if name and body and "증명" in name and name not in blocks:   # 먼저 나온(고득점) 청크 우선
                 blocks[name] = body
     return blocks
 
@@ -264,7 +266,10 @@ _ACTION_CONCEPTS: dict[str, tuple[str, ...]] = {
     # '어디서'도 방법을 묻는 씨앗으로 인정한다 — '증명서 어디서 떼' → '증명서 발급 방법'은
     # 정당한 변환인데 폐기됐다(실측). 반대로 '뭐야/얼마야'는 넣지 않는다: '졸업 요건 뭐야'가
     # '졸업 요건 확인 방법'이 되면 질문의 성격 자체가 바뀌므로 막아야 한다.
-    "방법": ("방법", "어떻게", "어케", "하는법", "하려면", "어디"),
+    # '떼는 법/떼려면/떼고 싶어/떼주세요'='발급 방법' — 증명서 '떼다'류 구어를 방법 씨앗으로 인정.
+    # '는법/려면'은 일반형(가는 법, 하려면 등)까지, '떼고/떼주'는 떼 동사에 붙은 형태만(먹고 싶어·
+    # 알려주세요 같은 비-떼 질문엔 영향 없음).
+    "방법": ("방법", "어떻게", "어케", "하는법", "는법", "하려면", "려면", "떼고", "떼주", "어디"),
     "신청": ("신청", "접수", "지원", "넣", "내려"),
     "절차": ("절차", "과정", "순서", "어떻게", "하려면", "어디"),
     "발급": ("발급", "떼", "받"),
@@ -785,7 +790,11 @@ async def answer_rag_general_question_with_metadata(
     is_club = "동아리" in question and effective_topic == "student_support"
     _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
     is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
-    is_certificate = any(k in question for k in ("증명서", "제증명")) and effective_topic == "rag_general"
+    # 제증명 코드 렌더링 게이트: 토픽 분류에 의존하지 않는다(예전 == "rag_general"은 제증명이
+    # '미분류'로 떨어질 때만 성립해, 나중에 증명서 토픽을 추가하면 조용히 죽는 시한폭탄이었다).
+    # 질문에 증명서 언급이 있으면 시도만 하고, 실제 발동은 format_certificate_info가 컨텍스트에서
+    # '[증명서명]' 블록을 파싱했을 때만(블록 없으면 "" 반환 → LLM 폴백). 어느 토픽이든 견고하게 동작.
+    is_certificate = any(k in question for k in ("증명서", "제증명"))
     print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, is_certificate={is_certificate}, topic={effective_topic}")
 
     from pathlib import Path

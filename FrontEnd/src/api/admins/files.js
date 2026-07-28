@@ -11,10 +11,14 @@ export async function fetchFiles() {
   return res.json()
 }
 
-export async function uploadFile(file, topic) {
+export async function uploadFile(file, topic, scholarshipId = null, isPrimary = false) {
   const form = new FormData()
   form.append('file', file)
   form.append('topic', topic)
+  if (scholarshipId) {
+    form.append('scholarship_id', scholarshipId)
+    form.append('is_primary', isPrimary ? 'true' : 'false')
+  }
 
   const res = await authFetch(`${BASE}/files/upload`, {
     method: 'POST',
@@ -23,6 +27,35 @@ export async function uploadFile(file, topic) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || '파일 업로드 실패')
+  }
+  return res.json()
+}
+
+/** 파일 연결 드롭다운용 장학금 목록 */
+export async function fetchScholarshipOptions() {
+  const res = await authFetch(`${BASE}/scholarship-catalog`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '장학금 목록 조회 실패')
+  }
+  return res.json()
+}
+
+/** 기존 파일을 장학금에 연결 (scholarshipId=null 이면 연결 해제) */
+export async function setScholarshipLink(documentFileId, scholarshipId, isPrimary = false) {
+  if (!scholarshipId) {
+    const res = await authFetch(`${BASE}/files/link/${documentFileId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('연결 해제 실패')
+    return res.json()
+  }
+  const res = await authFetch(`${BASE}/files/link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ document_file_id: documentFileId, scholarship_id: scholarshipId, is_primary: isPrimary }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '연결 실패')
   }
   return res.json()
 }

@@ -13,6 +13,7 @@ from app.api.campus import router as campus_router
 from app.api.graduation import router as graduation_router
 from app.api.dining import router as dining_router
 from app.api.schedule import router as schedule_router
+from app.api.scholarship import router as scholarship_router
 import asyncio
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
@@ -196,6 +197,7 @@ def create_app() -> FastAPI:
     app.include_router(graduation_router, prefix="/api",    tags=["졸업"])
     app.include_router(dining_router, prefix="/api",     tags=["학식"])
     app.include_router(schedule_router, prefix="/api",   tags=["학사일정"])
+    app.include_router(scholarship_router, prefix="/api", tags=["장학금"])
     app.include_router(admins_router, prefix="/api/admins", tags=["관리자"])
 
     @app.get("/health", tags=["상태확인"])

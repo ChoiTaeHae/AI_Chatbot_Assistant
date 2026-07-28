@@ -148,6 +148,26 @@ async def _extract_location_keyword(question: str) -> str | None:
     return keyword.splitlines()[0].strip()
 
 
+def _norm_alias(s) -> str:
+    return str(s or "").replace(" ", "").lower()
+
+
+def _prefer_exact(buildings: list[Building], keyword: str) -> Building | None:
+    """이름/별칭이 keyword와 '정확히' 일치하는 건물을 부분일치보다 우선한다.
+
+    부분일치(ilike %kw%)만 쓰면 '학생회관'이 '학생회관(동캠)'·'학생회관(서캠)' 두 이름에 모두
+    걸려 .first()가 임의로 하나를 집는다. 그러나 별칭을 정확히 '학생회관'으로 둔 건물(서캠)이
+    의도된 답이다. → 이름 또는 별칭이 keyword와 완전히 같은 건물을 먼저 고르고,
+    없을 때만 기존처럼 첫 부분일치 결과를 쓴다. (공백·대소문자 무시하고 비교)"""
+    if not buildings:
+        return None
+    kw = _norm_alias(keyword)
+    for b in buildings:
+        if any(_norm_alias(n) == kw for n in [b.name, *(b.aliases or [])]):
+            return b
+    return buildings[0]
+
+
 async def _search_db_building_only(keyword: str) -> tuple[Building | None, None]:
     async with AsyncSessionLocal() as db:
         building_result = await db.execute(
@@ -159,7 +179,7 @@ async def _search_db_building_only(keyword: str) -> tuple[Building | None, None]
                 )
             )
         )
-        building = building_result.scalars().first()
+        building = _prefer_exact(list(building_result.scalars().all()), keyword)
         return building, None
 
 
@@ -185,8 +205,30 @@ async def _search_db_with_room(keyword: str) -> tuple[Building | None, Room | No
                 Building.name.ilike(f"%{keyword}%")
             )
         )
-        building = building_result.scalars().first()
+        building = _prefer_exact(list(building_result.scalars().all()), keyword)
         return building, None
+
+
+async def has_building_hit(question: str) -> bool:
+    """LLM 없이(후보 토큰 기반) 질문이 '특정 건물을 지칭'하는지 빠르게 확인한다.
+
+    라우팅 fast-path 전용 — 건물명이 있으면(위치 의도거나 정보의도 없음일 때) campus로 보낸다.
+
+    ★ substring(ilike %kw%)이 아니라 '정확 일치'로 판정한다. substring이면 '학생'(주어)이
+      '유학생기숙사'·'학생회관'에 걸려 "학생이 주차장정기권 살 수 있나?"가 건물 질문으로
+      오판됐다. 건물의 짧은 통칭(도서관·체육관·학군단…)은 모두 정확한 별칭으로 등록돼 있어
+      정확 일치만으로 충분하다. (이름/괄호뗀이름/별칭을 공백·대소문자 무시하고 비교)"""
+    cands = {_norm_alias(c) for c in _make_keyword_candidates(question) if _norm_alias(c)}
+    if not cands:
+        return False
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(Building.name, Building.aliases))).all()
+    for name, aliases in rows:
+        tokens = {_norm_alias(name), _norm_alias(re.sub(r"\s*\([^)]*\)", "", str(name)))}
+        tokens |= {_norm_alias(a) for a in (aliases or [])}
+        if cands & {t for t in tokens if t}:
+            return True
+    return False
 
 
 async def _find_location_from_question(question: str) -> tuple[Building | None, Room | None, str | None]:
@@ -249,6 +291,12 @@ async def _search_kakao_place(building: Building) -> dict | None:
         f"{CAMPUS_KEYWORD} {building.name}",  # "우송대학교 식품건축관"
         str(building.name),                    # "식품건축관"
     ]
+    # 이름의 '(서캠)'·'(동캠)' 같은 괄호 접미사는 카카오가 인식 못 해 검색이 0건이 된다
+    # (실측: '우송대학교 학생회관(서캠)'→0건 / '우송대학교 학생회관'→5건, target_id 매칭 성공).
+    # 괄호를 떼고도 검색한다. 결과에 두 캠퍼스가 섞여도 아래 target_id 매칭이 정확히 걸러낸다.
+    bare = re.sub(r"\s*\([^)]*\)", "", str(building.name)).strip()
+    if bare and bare != str(building.name):
+        queries += [f"{CAMPUS_KEYWORD} {bare}", bare]
 
     for query in queries:
         data = await asyncio.to_thread(_call_kakao_keyword_api, query)
