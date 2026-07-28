@@ -504,7 +504,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
       </div>
     )}
 
-    {scholarshipModal && <ScholarshipModal onClose={() => setScholarshipModal(false)} />}
+    {scholarshipModal && <ScholarshipModal lang={lang} onClose={() => setScholarshipModal(false)} />}
 
     {/* 대화 삭제 확인 */}
     {deleteTarget && (

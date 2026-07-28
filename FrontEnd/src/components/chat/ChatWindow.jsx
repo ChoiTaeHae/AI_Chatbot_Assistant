@@ -66,6 +66,7 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
             <MessageBubble
               key={msg.id}
               message={msg}
+              lang={lang}
               onClearPendingFile={onClearPendingFile}
               pendingFile={pendingFile}
               onConfirmFile={onConfirmFile}
