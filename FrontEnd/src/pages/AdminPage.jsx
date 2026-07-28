@@ -11,6 +11,7 @@ import { fetchFiles, uploadFile, deleteFile, downloadFile } from '../api/admins/
 import { fetchChatSessions, fetchSessionMessages, upsertMessageFeedback } from '../api/admins/chats'
 import ScheduleManager from '../components/admin/ScheduleManager'
 import ScholarshipManager from '../components/admin/ScholarshipManager'
+import ThemeToggle from '../components/common/ThemeToggle'
 
 // 파일 관리 탭에서 숨길 topic — 장학금 파일은 '장학금 관리' 화면에서 전용 관리
 const HIDDEN_FILE_TOPICS = ['scholarship', 'work_study']
@@ -459,14 +460,14 @@ export default function AdminPage() {
   })
 
   return (
-    <div className="flex h-screen bg-[#f4f6f9] overflow-hidden" style={{ minWidth: '900px' }}>
+    <div className="flex h-screen bg-(--page) overflow-hidden" style={{ minWidth: '900px' }}>
 
       {/* 사이드바 */}
-      <aside className="w-56 shrink-0 bg-white border-r border-slate-100 flex flex-col shadow-sm">
+      <aside className="w-56 shrink-0 bg-(--surface-card) border-r border-(--border) flex flex-col shadow-sm">
         {/* 로고 */}
-        <div className="flex items-center border-b border-slate-100" style={{ gap: '10px', padding: '20px' }}>
+        <div className="flex items-center border-b border-(--border)" style={{ gap: '10px', padding: '20px' }}>
           <MascotAvatar className="h-10 w-10 object-contain" />
-          <span className="text-xl font-black text-[#005956]">SOL로몬</span>
+          <span className="text-xl font-black text-(--brand)">SOL로몬</span>
         </div>
 
         {/* 네비게이션 */}
@@ -477,8 +478,8 @@ export default function AdminPage() {
               onClick={() => setActiveNav(item.id)}
               className={`flex items-center rounded-xl text-sm font-medium transition text-left w-full ${
                 activeNav === item.id
-                  ? 'bg-[#005956]/10 text-[#005956] font-bold'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                  ? 'bg-(--brand-a10) text-(--brand) font-bold'
+                  : 'text-(--text-muted) hover:bg-(--surface-2) hover:text-(--text-body)'
               }`}
               style={{ gap: '12px', padding: '10px 14px' }}
             >
@@ -489,12 +490,12 @@ export default function AdminPage() {
         </nav>
 
         {/* 하단 마스코트 카드 */}
-        <div className="m-3 p-3 rounded-2xl bg-[#f0f9f8] border border-[#005956]/10">
+        <div className="m-3 p-3 rounded-2xl bg-(--brand-tint) border border-(--brand-a10)">
           <MascotAvatar className="h-14 w-14 object-contain mx-auto" />
-          <p className="text-xs text-center text-slate-500 mt-2 font-medium">AI 어시스턴트가<br />문서를 분석하고 답변을 제공합니다.</p>
+          <p className="text-xs text-center text-(--text-muted) mt-2 font-medium">AI 어시스턴트가<br />문서를 분석하고 답변을 제공합니다.</p>
           <button
             onClick={() => navigate('/chat')}
-            className="mt-2 w-full flex items-center justify-center gap-1.5 bg-white border border-[#005956]/20 text-[#005956] text-xs font-bold py-2 rounded-xl hover:bg-[#005956]/5 transition"
+            className="mt-2 w-full flex items-center justify-center gap-1.5 bg-(--surface-card) border border-(--brand-a20) text-(--brand) text-xs font-bold py-2 rounded-xl hover:bg-(--brand-a5) transition"
           >
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
@@ -506,7 +507,7 @@ export default function AdminPage() {
         {/* 로그아웃 */}
         <button
           onClick={handleLogout}
-          className="flex items-center text-sm font-medium text-slate-400 hover:text-red-500 hover:bg-red-50 transition border-t border-slate-100"
+          className="flex items-center text-sm font-medium text-(--text-faint) hover:text-red-500 hover:bg-red-50 transition border-t border-(--border)"
           style={{ gap: '8px', padding: '16px 24px' }}
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -520,10 +521,11 @@ export default function AdminPage() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* 헤더 */}
-        <header className="shrink-0 bg-white border-b border-slate-100 flex items-center justify-between relative z-50" style={{ padding: '16px 32px' }}>
-          <h1 className="text-lg font-black text-[#05263d] truncate min-w-0">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
+        <header className="shrink-0 bg-(--surface-card) border-b border-(--border) flex items-center justify-between relative z-50" style={{ padding: '16px 32px' }}>
+          <h1 className="text-lg font-black text-(--text) truncate min-w-0">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
           <div className="flex items-center shrink-0" style={{ gap: '16px' }}>
-            <button className="text-slate-400 hover:text-slate-600 transition">
+            <ThemeToggle className="text-(--text-faint) hover:text-(--text-muted) transition" />
+            <button className="text-(--text-faint) hover:text-(--text-muted) transition">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
@@ -532,16 +534,16 @@ export default function AdminPage() {
             <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setProfileOpen(v => !v)}
-                className="flex items-center rounded-xl hover:bg-slate-50 transition"
+                className="flex items-center rounded-xl hover:bg-(--surface-2) transition"
                 style={{ gap: '10px', padding: '6px 10px' }}
               >
                 <MascotAvatar className="h-8 w-8 object-contain" />
                 <div className="text-sm text-left">
-                  <p className="font-bold text-slate-700">{user?.name || '관리자님'} · 교무처</p>
-                  <p className="text-xs text-slate-400">Admin</p>
+                  <p className="font-bold text-(--text-body)">{user?.name || '관리자님'} · 교무처</p>
+                  <p className="text-xs text-(--text-faint)">Admin</p>
                 </div>
                 <svg
-                  className={`h-4 w-4 text-slate-400 transition-transform ${profileOpen ? 'rotate-180' : ''}`}
+                  className={`h-4 w-4 text-(--text-faint) transition-transform ${profileOpen ? 'rotate-180' : ''}`}
                   fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -550,13 +552,13 @@ export default function AdminPage() {
 
               {/* 드롭다운 메뉴 */}
               {profileOpen && (
-                <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden z-50">
+                <div className="absolute right-0 top-full mt-2 w-52 bg-(--surface-card) rounded-2xl shadow-lg border border-(--border) overflow-hidden z-50">
                   
 
                   {/* AI 어시스턴트로 이동 */}
                   <button
                     onClick={() => { setProfileOpen(false); navigate('/chat') }}
-                    className="w-full flex items-center text-sm text-slate-600 hover:bg-[#005956]/5 hover:text-[#005956] transition"
+                    className="w-full flex items-center text-sm text-(--text-muted) hover:bg-(--brand-a5) hover:text-(--brand) transition"
                     style={{ gap: '10px', padding: '12px 16px' }}
                   >
                     <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -568,7 +570,7 @@ export default function AdminPage() {
                   {/* 로그아웃 */}
                   <button
                     onClick={() => { setProfileOpen(false); handleLogout() }}
-                    className="w-full flex items-center text-sm text-red-500 hover:bg-red-50 transition border-t border-slate-50"
+                    className="w-full flex items-center text-sm text-red-500 hover:bg-red-50 transition border-t border-(--border)"
                     style={{ gap: '10px', padding: '12px 16px' }}
                   >
                     <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -606,15 +608,15 @@ export default function AdminPage() {
               {/* 요약 카드 행 */}
               <div className="grid grid-cols-4 gap-4">
                 {[
-                  { label: '전체 질문 수', value: chatStats ? chatStats.total_chats.toLocaleString() : '-', sub: '누적', color: '#005956' },
+                  { label: '전체 질문 수', value: chatStats ? chatStats.total_chats.toLocaleString() : '-', sub: '누적', color: 'var(--brand)' },
                   { label: '오늘 질문 수', value: chatStats ? chatStats.today_chats.toLocaleString() : '-', sub: '오늘', color: '#1d4ed8' },
                   { label: '활성 학생 (7일)', value: chatStats ? chatStats.active_students_7d.toLocaleString() : '-', sub: '최근 7일', color: '#7c3aed' },
                   { label: '전체 학생 수', value: stats ? stats.total_students.toLocaleString() : '-', sub: `관리자 ${stats?.total_admins ?? '-'}명 포함`, color: '#b45309' },
                 ].map(({ label, value, sub, color }) => (
-                  <div key={label} className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '20px 24px' }}>
-                    <p className="text-xs font-semibold text-slate-400 truncate" style={{ marginBottom: '8px' }}>{label}</p>
+                  <div key={label} className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)" style={{ padding: '20px 24px' }}>
+                    <p className="text-xs font-semibold text-(--text-faint) truncate" style={{ marginBottom: '8px' }}>{label}</p>
                     <p className="text-3xl font-black truncate" style={{ color, marginBottom: '6px' }}>{value}</p>
-                    <p className="text-xs text-slate-400 truncate">{sub}</p>
+                    <p className="text-xs text-(--text-faint) truncate">{sub}</p>
                   </div>
                 ))}
               </div>
@@ -623,10 +625,10 @@ export default function AdminPage() {
               <div className="grid grid-cols-2 gap-4">
 
                 {/* 일별 질문 수 바 차트 */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
-                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '20px' }}>최근 7일 질문 수</p>
+                <div className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-(--text)" style={{ marginBottom: '20px' }}>최근 7일 질문 수</p>
                   {!chatStats ? (
-                    <p className="text-slate-400 text-sm">불러오는 중...</p>
+                    <p className="text-(--text-faint) text-sm">불러오는 중...</p>
                   ) : (() => {
                     const data = chatStats.daily_counts
                     const max = Math.max(...data.map(d => d.count), 1)
@@ -634,15 +636,15 @@ export default function AdminPage() {
                       <div style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-end', justifyContent: 'space-between', height: '130px', gap: '10px', padding: '0 4px' }}>
                         {data.map(d => (
                           <div key={d.date} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: '5px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#475569', minHeight: '16px' }}>{d.count > 0 ? d.count : ''}</span>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', minHeight: '16px' }}>{d.count > 0 ? d.count : ''}</span>
                             <div style={{
                               width: '100%',
                               borderRadius: '5px 5px 0 0',
                               height: `${Math.max((d.count / max) * 88, d.count > 0 ? 6 : 2)}px`,
-                              background: d.count > 0 ? '#005956' : '#e2e8f0',
+                              background: d.count > 0 ? 'var(--brand)' : 'var(--border)',
                               transition: 'height 0.3s',
                             }} />
-                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>{d.date}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{d.date}</span>
                           </div>
                         ))}
                       </div>
@@ -651,12 +653,12 @@ export default function AdminPage() {
                 </div>
 
                 {/* 주제별 분포 도넛 차트 */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
-                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '20px' }}>주제별 질문 분포</p>
+                <div className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-(--text)" style={{ marginBottom: '20px' }}>주제별 질문 분포</p>
                   {!chatStats || chatStats.topic_counts.length === 0 ? (
-                    <p className="text-slate-400 text-sm">아직 데이터가 없습니다</p>
+                    <p className="text-(--text-faint) text-sm">아직 데이터가 없습니다</p>
                   ) : (() => {
-                    const COLORS = ['#005956','#1d4ed8','#7c3aed','#b45309','#0891b2','#16a34a','#dc2626','#9333ea']
+                    const COLORS = ['var(--brand)','#1d4ed8','#7c3aed','#b45309','#0891b2','#16a34a','#dc2626','#9333ea']
                     const total = chatStats.topic_counts.reduce((s, t) => s + t.count, 0)
                     const r = 50, cx = 68, cy = 68, stroke = 20
                     const circumference = 2 * Math.PI * r
@@ -678,17 +680,17 @@ export default function AdminPage() {
                               style={{ transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` }}
                             />
                           ))}
-                          <text x={cx} y={cy - 7} textAnchor="middle" fontSize="17" fontWeight="900" fill="#05263d">{total}</text>
-                          <text x={cx} y={cy + 11} textAnchor="middle" fontSize="10" fill="#94a3b8">전체</text>
+                          <text x={cx} y={cy - 7} textAnchor="middle" fontSize="17" fontWeight="900" fill="var(--text)">{total}</text>
+                          <text x={cx} y={cy + 11} textAnchor="middle" fontSize="10" fill="var(--text-faint)">전체</text>
                         </svg>
                         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '7px' }}>
                           {segments.map((s, i) => (
                             <div key={i} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'center', justifyContent: 'space-between' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color, flexShrink: 0 }} />
-                                <span style={{ fontSize: '12px', color: '#475569' }}>{s.label}</span>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{s.label}</span>
                               </div>
-                              <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b' }}>{s.count}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>{s.count}</span>
                             </div>
                           ))}
                         </div>
@@ -700,9 +702,9 @@ export default function AdminPage() {
 
               {/* 시스템 상태 + DB 현황 */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
-                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '18px' }}>시스템 상태</p>
-                  {!dashboard ? <p className="text-slate-400 text-sm">불러오는 중...</p> : (
+                <div className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-(--text)" style={{ marginBottom: '18px' }}>시스템 상태</p>
+                  {!dashboard ? <p className="text-(--text-faint) text-sm">불러오는 중...</p> : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       {[
                         { label: 'RAG 문서', value: `${dashboard.total_documents}건 / ${dashboard.total_chunks}청크` },
@@ -710,17 +712,17 @@ export default function AdminPage() {
                         { label: 'DEV MODE', value: dashboard.dev_mode ? '⚠️ ON' : 'OFF' },
                         { label: '모델 경로', value: dashboard.model_path },
                       ].map(({ label, value }) => (
-                        <div key={label} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-start', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '10px', gap: '12px' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', flexShrink: 0, width: '80px' }}>{label}</span>
+                        <div key={label} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-start', justifyContent: 'space-between', borderBottom: '1px solid var(--surface-2)', paddingBottom: '10px', gap: '12px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-faint)', flexShrink: 0, width: '80px' }}>{label}</span>
                           <span style={{ fontSize: '12px', color: '#334155', fontFamily: 'monospace', textAlign: 'right', wordBreak: 'break-all' }}>{value}</span>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100" style={{ padding: '24px 28px' }}>
-                  <p className="text-sm font-black text-[#05263d]" style={{ marginBottom: '18px' }}>DB 현황</p>
-                  {!stats ? <p className="text-slate-400 text-sm">불러오는 중...</p> : (
+                <div className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)" style={{ padding: '24px 28px' }}>
+                  <p className="text-sm font-black text-(--text)" style={{ marginBottom: '18px' }}>DB 현황</p>
+                  {!stats ? <p className="text-(--text-faint) text-sm">불러오는 중...</p> : (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       {[
                         { label: '전체 학생', value: stats.total_students, unit: '명' },
@@ -728,11 +730,11 @@ export default function AdminPage() {
                         { label: '학과', value: stats.total_departments, unit: '개' },
                         { label: '과목', value: stats.total_courses, unit: '개' },
                       ].map(({ label, value, unit }) => (
-                        <div key={label} style={{ background: '#f8fafc', borderRadius: '12px', padding: '14px 16px' }}>
-                          <p style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>{label}</p>
-                          <p style={{ fontSize: '22px', fontWeight: 900, color: '#05263d' }}>
+                        <div key={label} style={{ background: 'var(--surface-2)', borderRadius: '12px', padding: '14px 16px' }}>
+                          <p style={{ fontSize: '11px', color: 'var(--text-faint)', marginBottom: '4px' }}>{label}</p>
+                          <p style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text)' }}>
                             {value.toLocaleString()}
-                            <span style={{ fontSize: '11px', fontWeight: 400, color: '#94a3b8', marginLeft: '4px' }}>{unit}</span>
+                            <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-faint)', marginLeft: '4px' }}>{unit}</span>
                           </p>
                         </div>
                       ))}
@@ -746,10 +748,10 @@ export default function AdminPage() {
 
           {/* 서비스 설정 */}
           {activeNav === 'settings' && (
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '24px' }}>
-              <h2 className="text-base font-black text-[#05263d]">서비스 설정</h2>
+            <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col" style={{ padding: '32px', gap: '24px' }}>
+              <h2 className="text-base font-black text-(--text)">서비스 설정</h2>
               {!settings ? (
-                <p className="text-slate-400 text-sm">불러오는 중...</p>
+                <p className="text-(--text-faint) text-sm">불러오는 중...</p>
               ) : (
                 <div className="flex flex-col" style={{ gap: '8px' }}>
                   {[
@@ -761,9 +763,9 @@ export default function AdminPage() {
                     { label: 'Qdrant 컬렉션', value: settings.qdrant_collection },
                     { label: 'RAG Top-K', value: String(settings.rag_top_k) },
                   ].map(({ label, value }) => (
-                    <div key={label} className="flex items-center justify-between border-b border-slate-50 py-3">
-                      <span className="text-sm font-bold text-slate-500 w-36 shrink-0">{label}</span>
-                      <span className="text-sm text-slate-700 font-mono bg-slate-50 rounded-lg px-3 py-1">{value}</span>
+                    <div key={label} className="flex items-center justify-between border-b border-(--border) py-3">
+                      <span className="text-sm font-bold text-(--text-muted) w-36 shrink-0">{label}</span>
+                      <span className="text-sm text-(--text-body) font-mono bg-(--surface-2) rounded-lg px-3 py-1">{value}</span>
                     </div>
                   ))}
                 </div>
@@ -773,10 +775,10 @@ export default function AdminPage() {
 
           {/* 보안 및 권한 */}
           {activeNav === 'security' && (
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '20px' }}>
-              <h2 className="text-base font-black text-[#05263d]">보안 및 권한 관리</h2>
+            <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col" style={{ padding: '32px', gap: '20px' }}>
+              <h2 className="text-base font-black text-(--text)">보안 및 권한 관리</h2>
               {users.length === 0 ? (
-                <p className="text-slate-400 text-sm">불러오는 중...</p>
+                <p className="text-(--text-faint) text-sm">불러오는 중...</p>
               ) : (() => {
                 const totalPages = Math.ceil(users.length / USERS_PER_PAGE)
                 const pageUsers = users.slice((userPage - 1) * USERS_PER_PAGE, userPage * USERS_PER_PAGE)
@@ -792,20 +794,20 @@ export default function AdminPage() {
                           <col style={{ width: '20%' }} />
                         </colgroup>
                         <thead>
-                          <tr className="border-b border-slate-100">
+                          <tr className="border-b border-(--border)">
                             {['학번', '이름', '학과', '현재 권한', '권한 변경'].map(h => (
-                              <th key={h} className="text-left text-xs font-bold text-slate-500 whitespace-nowrap" style={{ padding: '10px 12px' }}>{h}</th>
+                              <th key={h} className="text-left text-xs font-bold text-(--text-muted) whitespace-nowrap" style={{ padding: '10px 12px' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {pageUsers.map(u => (
-                            <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
-                              <td className="font-mono text-xs text-slate-600" style={{ padding: '12px' }}>{u.student_no}</td>
-                              <td className="font-medium text-slate-700" style={{ padding: '12px' }}>{u.name}</td>
-                              <td className="text-slate-500 text-xs truncate" style={{ padding: '12px' }}>{u.department}</td>
+                            <tr key={u.id} className="border-b border-(--border) hover:bg-(--surface-2) transition">
+                              <td className="font-mono text-xs text-(--text-muted)" style={{ padding: '12px' }}>{u.student_no}</td>
+                              <td className="font-medium text-(--text-body)" style={{ padding: '12px' }}>{u.name}</td>
+                              <td className="text-(--text-muted) text-xs truncate" style={{ padding: '12px' }}>{u.department}</td>
                               <td style={{ padding: '12px' }}>
-                                <span className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-[#005956]/10 text-[#005956]' : 'bg-slate-100 text-slate-500'}`}>
+                                <span className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-(--brand-a10) text-(--brand)' : 'bg-(--surface-2) text-(--text-muted)'}`}>
                                   {u.role === 'admin' ? '관리자' : '학생'}
                                 </span>
                               </td>
@@ -813,7 +815,7 @@ export default function AdminPage() {
                                 <button
                                   onClick={() => handleRoleChange(u.id, u.role === 'admin' ? 'student' : 'admin')}
                                   disabled={roleLoading === u.id}
-                                  className="text-xs font-bold border border-slate-200 hover:border-[#005956] hover:text-[#005956] text-slate-500 transition disabled:opacity-40 rounded-lg px-3 py-1"
+                                  className="text-xs font-bold border border-(--border) hover:border-(--brand) hover:text-(--brand) text-(--text-muted) transition disabled:opacity-40 rounded-lg px-3 py-1"
                                 >
                                   {roleLoading === u.id ? '변경 중...' : u.role === 'admin' ? '학생으로 변경' : '관리자로 변경'}
                                 </button>
@@ -825,13 +827,13 @@ export default function AdminPage() {
                     </div>
 
                     {/* 페이지네이션 */}
-                    <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100 overflow-hidden" style={{ paddingTop: '16px' }}>
+                    <div className="flex items-center justify-between text-sm text-(--text-faint) border-t border-(--border) overflow-hidden" style={{ paddingTop: '16px' }}>
                       <span className="shrink-0">총 {users.length}명</span>
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => setUserPage(p => p - 1)}
                           disabled={userPage === 1}
-                          className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                          className="w-7 h-7 rounded-lg border border-(--border) flex items-center justify-center hover:bg-(--surface-2) disabled:opacity-30 disabled:cursor-not-allowed transition"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -846,19 +848,19 @@ export default function AdminPage() {
                           }, [])
                           .map((p, idx) =>
                             p === '...' ? (
-                              <span key={`dots-${idx}`} className="w-7 h-7 flex items-center justify-center text-xs text-slate-400">…</span>
+                              <span key={`dots-${idx}`} className="w-7 h-7 flex items-center justify-center text-xs text-(--text-faint)">…</span>
                             ) : (
                               <button
                                 key={p}
                                 onClick={() => setUserPage(p)}
-                                className={`w-7 h-7 rounded-lg text-xs font-bold transition ${userPage === p ? 'bg-[#005956] text-white' : 'border border-slate-200 hover:bg-slate-50'}`}
+                                className={`w-7 h-7 rounded-lg text-xs font-bold transition ${userPage === p ? 'bg-(--brand) text-white' : 'border border-(--border) hover:bg-(--surface-2)'}`}
                               >{p}</button>
                             )
                           )}
                         <button
                           onClick={() => setUserPage(p => p + 1)}
                           disabled={userPage === totalPages}
-                          className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                          className="w-7 h-7 rounded-lg border border-(--border) flex items-center justify-center hover:bg-(--surface-2) disabled:opacity-30 disabled:cursor-not-allowed transition"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -877,26 +879,26 @@ export default function AdminPage() {
           <div className="flex flex-col flex-1 min-h-0" style={{ gap: '16px' }}>
 
             {/* 업로드 패널 */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 shrink-0" style={{ padding: '20px 24px' }}>
+            <div className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) shrink-0" style={{ padding: '20px 24px' }}>
               {/* 헤더 행: 제목 + 탭 */}
               <div className="flex items-center justify-between overflow-hidden" style={{ marginBottom: '14px' }}>
                 <div>
-                  <h2 className="text-base font-black text-[#05263d]">RAG 지식 추가</h2>
-                  <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>
+                  <h2 className="text-base font-black text-(--text)">RAG 지식 추가</h2>
+                  <p className="text-xs text-(--text-faint)" style={{ marginTop: '2px' }}>
                     {uploadMode === 'document' ? 'RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD, HWP, HWPX, 이미지' : '웹페이지를 크롤링하여 RAG 지식베이스에 추가'}
                   </p>
                 </div>
-                <div className="flex border border-slate-200 overflow-hidden text-sm font-bold" style={{ borderRadius: '8px' }}>
+                <div className="flex border border-(--border) overflow-hidden text-sm font-bold" style={{ borderRadius: '8px' }}>
                   <button
                     onClick={() => setUploadMode('document')}
-                    className={`transition ${uploadMode === 'document' ? 'bg-[#005956] text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                    className={`transition ${uploadMode === 'document' ? 'bg-(--brand) text-white' : 'text-(--text-muted) hover:bg-(--surface-2)'}`}
                     style={{ padding: '7px 16px' }}
                   >
                     문서 업로드
                   </button>
                   <button
                     onClick={() => setUploadMode('crawl')}
-                    className={`border-l border-slate-200 transition ${uploadMode === 'crawl' ? 'bg-[#005956] text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                    className={`border-l border-(--border) transition ${uploadMode === 'crawl' ? 'bg-(--brand) text-white' : 'text-(--text-muted) hover:bg-(--surface-2)'}`}
                     style={{ padding: '7px 16px' }}
                   >
                     URL 크롤링
@@ -913,47 +915,47 @@ export default function AdminPage() {
                 {/* 파일 드롭 영역 */}
                 <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md,.hwpx,.hwp,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif" className="hidden" onChange={handleFileChange} />
                 <div
-                  className="border-2 border-dashed border-slate-200 hover:border-[#005956]/40 transition cursor-pointer bg-slate-50 flex flex-col items-center justify-center shrink-0"
+                  className="border-2 border-dashed border-(--border) hover:border-(--brand-a40) transition cursor-pointer bg-(--surface-2) flex flex-col items-center justify-center shrink-0"
                   style={{ borderRadius: '10px', padding: '10px 16px', gap: '4px', width: '160px', height: '72px' }}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   {selectedFile ? (
                     <>
-                      <svg className="h-5 w-5 text-[#005956]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <svg className="h-5 w-5 text-(--brand)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                       </svg>
-                      <p className="text-xs font-medium text-[#005956] text-center" style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFile.name}</p>
+                      <p className="text-xs font-medium text-(--brand) text-center" style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFile.name}</p>
                     </>
                   ) : (
                     <>
-                      <svg className="h-6 w-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+                      <svg className="h-6 w-6 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
                       </svg>
-                      <p className="text-xs text-slate-400">클릭하여 파일 선택</p>
+                      <p className="text-xs text-(--text-faint)">클릭하여 파일 선택</p>
                     </>
                   )}
                 </div>
 
                 {/* 문서명 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
-                  <label className="text-xs font-bold text-slate-500">문서명 (source)</label>
+                  <label className="text-xs font-bold text-(--text-muted)">문서명 (source)</label>
                   <input
                     type="text"
                     placeholder="문서명을 입력하세요"
                     value={docTitle}
                     onChange={(e) => setDocTitle(e.target.value)}
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 주제 분류 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 4 }}>
-                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
+                  <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
                   <select
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition bg-white w-full"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition bg-(--surface-card) w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   >
                     <option value="">선택 안 함 (전체 검색 대상)</option>
@@ -965,12 +967,12 @@ export default function AdminPage() {
 
                 {/* 기준 날짜 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜</label>
+                  <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">기준 날짜</label>
                   <input
                     type="date"
                     value={docDate}
                     onChange={(e) => setDocDate(e.target.value)}
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
@@ -981,36 +983,36 @@ export default function AdminPage() {
 
                 {/* 출처 URL */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
-                  <label className="text-xs font-bold text-slate-500">출처 URL</label>
+                  <label className="text-xs font-bold text-(--text-muted)">출처 URL</label>
                   <input
                     value={docUrl}
                     onChange={(e) => setDocUrl(e.target.value)}
                     placeholder="https://wsu.ac.kr/..."
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 담당 부서 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500">담당 부서</label>
+                  <label className="text-xs font-bold text-(--text-muted)">담당 부서</label>
                   <input
                     value={docContactName}
                     onChange={(e) => setDocContactName(e.target.value)}
                     placeholder="예: 학사팀"
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 전화번호 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500">전화번호</label>
+                  <label className="text-xs font-bold text-(--text-muted)">전화번호</label>
                   <input
                     value={docContactPhone}
                     onChange={(e) => setDocContactPhone(e.target.value)}
                     placeholder="예: 042-630-9114"
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
@@ -1020,7 +1022,7 @@ export default function AdminPage() {
                   <button
                     onClick={handleUpload}
                     disabled={uploading || !selectedFile}
-                    className="flex items-center justify-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center bg-(--brand) text-white text-sm font-black hover:bg-(--brand-hover) transition disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ gap: '6px', borderRadius: '8px', padding: '10px 18px' }}
                   >
                     {uploading ? (
@@ -1042,7 +1044,7 @@ export default function AdminPage() {
                   </button>
                   <button
                     onClick={() => { setSelectedFile(null); setDocTitle(''); setUploadMsg(null) }}
-                    className="border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition"
+                    className="border border-(--border) text-sm font-bold text-(--text-muted) hover:bg-(--surface-2) transition"
                     style={{ borderRadius: '8px', padding: '10px 14px' }}
                   >
                     취소
@@ -1054,7 +1056,7 @@ export default function AdminPage() {
               {/* 업로드 결과 메시지 */}
               {uploadMsg && (
                 <p className={`text-xs font-medium truncate ${
-                  uploadMsg.type === 'success' ? 'text-[#005956]' :
+                  uploadMsg.type === 'success' ? 'text-(--brand)' :
                   uploadMsg.type === 'info'    ? 'text-blue-500' :
                   'text-red-500'
                 }`} title={uploadMsg.text}>
@@ -1072,37 +1074,37 @@ export default function AdminPage() {
 
                 {/* URL 입력 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
-                  <label className="text-xs font-bold text-slate-500">크롤링 URL</label>
+                  <label className="text-xs font-bold text-(--text-muted)">크롤링 URL</label>
                   <input
                     type="url"
                     placeholder="https://..."
                     value={crawlUrl}
                     onChange={(e) => setCrawlUrl(e.target.value)}
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 문서명 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500">문서명 (source)</label>
+                  <label className="text-xs font-bold text-(--text-muted)">문서명 (source)</label>
                   <input
                     type="text"
                     placeholder="문서명을 입력하세요"
                     value={crawlSource}
                     onChange={(e) => setCrawlSource(e.target.value)}
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 주제 분류 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
+                  <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
                   <select
                     value={crawlTopic}
                     onChange={(e) => setCrawlTopic(e.target.value)}
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition bg-white w-full"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition bg-(--surface-card) w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   >
                     <option value="">선택 안 함 (전체 검색 대상)</option>
@@ -1114,12 +1116,12 @@ export default function AdminPage() {
 
                 {/* 기준 날짜 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 2 }}>
-                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">기준 날짜</label>
+                  <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">기준 날짜</label>
                   <input
                     type="date"
                     value={crawlDocDate}
                     onChange={(e) => setCrawlDocDate(e.target.value)}
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
@@ -1130,24 +1132,24 @@ export default function AdminPage() {
 
                 {/* 담당 부서 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500">담당 부서</label>
+                  <label className="text-xs font-bold text-(--text-muted)">담당 부서</label>
                   <input
                     value={crawlContactName}
                     onChange={(e) => setCrawlContactName(e.target.value)}
                     placeholder="예: 학사팀"
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 전화번호 */}
                 <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
-                  <label className="text-xs font-bold text-slate-500">전화번호</label>
+                  <label className="text-xs font-bold text-(--text-muted)">전화번호</label>
                   <input
                     value={crawlContactPhone}
                     onChange={(e) => setCrawlContactPhone(e.target.value)}
                     placeholder="예: 042-630-9114"
-                    className="border border-slate-200 text-sm outline-none focus:border-[#005956] transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
@@ -1157,7 +1159,7 @@ export default function AdminPage() {
                   <button
                     onClick={handleCrawl}
                     disabled={crawling || !crawlUrl}
-                    className="flex items-center justify-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center bg-(--brand) text-white text-sm font-black hover:bg-(--brand-hover) transition disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ gap: '6px', borderRadius: '8px', padding: '10px 18px' }}
                   >
                     {crawling ? (
@@ -1179,7 +1181,7 @@ export default function AdminPage() {
                   </button>
                   <button
                     onClick={() => { setCrawlUrl(''); setCrawlSource(''); setCrawlTopic(''); setCrawlMsg(null) }}
-                    className="border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition"
+                    className="border border-(--border) text-sm font-bold text-(--text-muted) hover:bg-(--surface-2) transition"
                     style={{ borderRadius: '8px', padding: '10px 14px' }}
                   >
                     취소
@@ -1191,7 +1193,7 @@ export default function AdminPage() {
               {/* 크롤링 결과 메시지 */}
               {crawlMsg && (
                 <p className={`text-xs font-medium truncate ${
-                  crawlMsg.type === 'success' ? 'text-[#005956]' :
+                  crawlMsg.type === 'success' ? 'text-(--brand)' :
                   crawlMsg.type === 'info'    ? 'text-blue-500' :
                   'text-red-500'
                 }`} title={crawlMsg.text}>
@@ -1203,14 +1205,14 @@ export default function AdminPage() {
             </div>
 
             {/* 문서 목록 — 전체 너비 */}
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 min-w-0 flex flex-col min-h-0" style={{ padding: '24px 32px' }}>
+            <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) min-w-0 flex flex-col min-h-0" style={{ padding: '24px 32px' }}>
               <div className="flex items-center justify-between overflow-hidden" style={{ marginBottom: '12px' }}>
-                <h2 className="text-base font-black text-[#05263d] truncate min-w-0">
+                <h2 className="text-base font-black text-(--text) truncate min-w-0">
                   현재 RAG 지식 문서 목록
-                  <span className="ml-2 text-slate-400 font-normal text-sm">(Active Retrieval Documents)</span>
+                  <span className="ml-2 text-(--text-faint) font-normal text-sm">(Active Retrieval Documents)</span>
                 </h2>
-                <div className="flex items-center gap-2 border border-slate-200" style={{ borderRadius: '8px', padding: '6px 12px' }}>
-                  <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <div className="flex items-center gap-2 border border-(--border)" style={{ borderRadius: '8px', padding: '6px 12px' }}>
+                  <svg className="h-4 w-4 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                   </svg>
                   <input
@@ -1218,19 +1220,19 @@ export default function AdminPage() {
                     placeholder="문서 검색"
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
-                    className="text-sm outline-none text-slate-600 placeholder:text-slate-400 w-40"
+                    className="text-sm outline-none text-(--text-muted) placeholder:text-(--text-faint) w-40"
                   />
                 </div>
               </div>
 
               {/* 카테고리 필터 드롭다운 */}
-              <div className="flex items-center border-b border-slate-100" style={{ gap: '10px', marginBottom: '8px', paddingBottom: '10px' }}>
-                <span className="text-xs font-bold text-slate-500 shrink-0">카테고리</span>
+              <div className="flex items-center border-b border-(--border)" style={{ gap: '10px', marginBottom: '8px', paddingBottom: '10px' }}>
+                <span className="text-xs font-bold text-(--text-muted) shrink-0">카테고리</span>
                 <div className="relative" style={{ width: '220px' }}>
                   <select
                     value={topicFilter}
                     onChange={(e) => setTopicFilter(e.target.value)}
-                    className="w-full border border-slate-200 text-sm font-semibold text-slate-600 outline-none focus:border-[#005956] transition bg-white appearance-none"
+                    className="w-full border border-(--border) text-sm font-semibold text-(--text-muted) outline-none focus:border-(--brand) transition bg-(--surface-card) appearance-none"
                     style={{ borderRadius: '8px', padding: '7px 32px 7px 12px', maxHeight: '200px' }}
                   >
                     <option value="all">전체 ({documents.length})</option>
@@ -1242,7 +1244,7 @@ export default function AdminPage() {
                       <option value="none">미분류 ({documents.filter(d => !d.topic).length})</option>
                     )}
                   </select>
-                  <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
@@ -1259,39 +1261,39 @@ export default function AdminPage() {
                     <col style={{ width: '10%' }} />
                   </colgroup>
                   <thead>
-                    <tr className="border-b border-slate-100">
+                    <tr className="border-b border-(--border)">
                       {['문서명 (source)', '파일명', '카테고리', '기준 날짜', '청크(Chunks)', '액션'].map(h => (
-                        <th key={h} className={`text-xs font-bold text-slate-500 whitespace-nowrap ${h === '청크(Chunks)' ? 'text-right' : 'text-left'}`} style={{ padding: '10px 16px' }}>{h}</th>
+                        <th key={h} className={`text-xs font-bold text-(--text-muted) whitespace-nowrap ${h === '청크(Chunks)' ? 'text-right' : 'text-left'}`} style={{ padding: '10px 16px' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="text-center text-slate-400 text-sm" style={{ padding: '40px' }}>
+                        <td colSpan={5} className="text-center text-(--text-faint) text-sm" style={{ padding: '40px' }}>
                           등록된 문서가 없습니다.
                         </td>
                       </tr>
                     )}
                     {filtered.map((doc, i) => (
-                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition">
-                        <td className="font-medium text-slate-700 truncate" style={{ padding: '13px 16px' }}>{doc.source}</td>
-                        <td className="text-slate-500 text-xs truncate" style={{ padding: '13px 16px' }}>{doc.file_name || '-'}</td>
+                      <tr key={i} className="border-b border-(--border) hover:bg-(--surface-2) transition">
+                        <td className="font-medium text-(--text-body) truncate" style={{ padding: '13px 16px' }}>{doc.source}</td>
+                        <td className="text-(--text-muted) text-xs truncate" style={{ padding: '13px 16px' }}>{doc.file_name || '-'}</td>
                         <td style={{ padding: '13px 16px', overflow: 'hidden' }}>
                           {doc.topic ? (
-                            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-[#005956]/8 text-[#005956] truncate max-w-full">
+                            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md bg-(--brand-a8) text-(--brand) truncate max-w-full">
                               {topicLabels[doc.topic] || doc.topic}
                             </span>
                           ) : (
-                            <span className="text-xs text-slate-300">미분류</span>
+                            <span className="text-xs text-(--text-faint)">미분류</span>
                           )}
                         </td>
-                        <td className="text-slate-500 text-xs" style={{ padding: '13px 16px' }}>{doc.doc_date || '-'}</td>
-                        <td className="text-right text-slate-700 font-medium" style={{ padding: '13px 16px' }}>{doc.chunks}</td>
+                        <td className="text-(--text-muted) text-xs" style={{ padding: '13px 16px' }}>{doc.doc_date || '-'}</td>
+                        <td className="text-right text-(--text-body) font-medium" style={{ padding: '13px 16px' }}>{doc.chunks}</td>
                         <td style={{ padding: '13px 16px' }}>
                           <button
                             onClick={() => handleDelete(doc.source)}
-                            className="hover:text-red-500 transition text-slate-400"
+                            className="hover:text-red-500 transition text-(--text-faint)"
                             title="삭제"
                           >
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1305,16 +1307,16 @@ export default function AdminPage() {
                 </table>
               </div>
 
-              <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-100 overflow-hidden" style={{ paddingTop: '16px' }}>
+              <div className="flex items-center justify-between text-sm text-(--text-faint) border-t border-(--border) overflow-hidden" style={{ paddingTop: '16px' }}>
                 <span className="shrink-0">총 {filtered.length}건 · 청크 {documents.reduce((s, d) => s + (d.chunks || 0), 0).toLocaleString()}개</span>
                 <div className="flex items-center gap-1">
-                  <button className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50">
+                  <button className="w-7 h-7 rounded-lg border border-(--border) flex items-center justify-center hover:bg-(--surface-2)">
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                     </svg>
                   </button>
-                  <button className="w-7 h-7 rounded-lg bg-[#005956] text-white text-xs font-bold">1</button>
-                  <button className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50">
+                  <button className="w-7 h-7 rounded-lg bg-(--brand) text-white text-xs font-bold">1</button>
+                  <button className="w-7 h-7 rounded-lg border border-(--border) flex items-center justify-center hover:bg-(--surface-2)">
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
@@ -1328,12 +1330,12 @@ export default function AdminPage() {
 
           {/* 파일 관리 */}
           {activeNav === 'files' && (
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col" style={{ padding: '32px', gap: '20px' }}>
+            <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col" style={{ padding: '32px', gap: '20px' }}>
               {/* 헤더 */}
               <div className="flex items-center justify-between overflow-hidden">
                 <div className="min-w-0">
-                  <h2 className="text-base font-black text-[#05263d] truncate">파일 관리</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">학생에게 제공할 양식·자료를 topic별로 관리합니다</p>
+                  <h2 className="text-base font-black text-(--text) truncate">파일 관리</h2>
+                  <p className="text-xs text-(--text-faint) mt-0.5">학생에게 제공할 양식·자료를 topic별로 관리합니다</p>
                 </div>
                 <div className="flex items-center" style={{ gap: '8px' }}>
                   {fileUploading && (
@@ -1355,7 +1357,7 @@ export default function AdminPage() {
                   <button
                     onClick={() => filesInputRef.current?.click()}
                     disabled={fileUploading}
-                    className="flex items-center bg-[#005956] text-white text-sm font-bold hover:bg-[#004a47] transition disabled:opacity-50 rounded-xl"
+                    className="flex items-center bg-(--brand) text-white text-sm font-bold hover:bg-(--brand-hover) transition disabled:opacity-50 rounded-xl"
                     style={{ gap: '6px', padding: '9px 16px' }}
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1375,12 +1377,12 @@ export default function AdminPage() {
 
               {/* Topic 드롭다운 */}
               <div className="flex items-center" style={{ gap: '10px' }}>
-                <label className="text-xs font-bold text-slate-500 shrink-0">Topic</label>
+                <label className="text-xs font-bold text-(--text-muted) shrink-0">Topic</label>
                 <div className="relative">
                   <select
                     value={filesTopic}
                     onChange={e => { setFilesTopic(e.target.value); setFileMsg(null) }}
-                    className="text-sm font-semibold text-[#05263d] border border-slate-200 rounded-xl bg-white outline-none focus:border-[#005956] appearance-none cursor-pointer"
+                    className="text-sm font-semibold text-(--text) border border-(--border) rounded-xl bg-(--surface-card) outline-none focus:border-(--brand) appearance-none cursor-pointer"
                     style={{ padding: '7px 36px 7px 12px', minWidth: '160px' }}
                   >
                     {Object.entries(fileLabels).filter(([k]) => !HIDDEN_FILE_TOPICS.includes(k)).map(([topicKey, label]) => (
@@ -1389,12 +1391,12 @@ export default function AdminPage() {
                       </option>
                     ))}
                   </select>
-                  <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
                 {files[filesTopic]?.length > 0 && (
-                  <span className="text-xs font-bold text-[#005956] bg-[#005956]/8 px-2 py-0.5 rounded-full">
+                  <span className="text-xs font-bold text-(--brand) bg-(--brand-a8) px-2 py-0.5 rounded-full">
                     {files[filesTopic].length}개
                   </span>
                 )}
@@ -1403,7 +1405,7 @@ export default function AdminPage() {
               {/* 파일 목록 */}
               <div className="flex-1 overflow-y-auto">
                 {(files[filesTopic] || []).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center text-slate-300" style={{ padding: '60px 0', gap: '12px' }}>
+                  <div className="flex flex-col items-center justify-center text-(--text-faint)" style={{ padding: '60px 0', gap: '12px' }}>
                     <svg className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                     </svg>
@@ -1413,17 +1415,17 @@ export default function AdminPage() {
                 ) : (
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-slate-100">
+                      <tr className="border-b border-(--border)">
                         {['파일명', '크기', '액션'].map((h, i) => (
-                          <th key={h} className={`text-xs font-bold text-slate-500 ${i === 2 ? 'text-right' : 'text-left'}`} style={{ padding: '10px 12px' }}>{h}</th>
+                          <th key={h} className={`text-xs font-bold text-(--text-muted) ${i === 2 ? 'text-right' : 'text-left'}`} style={{ padding: '10px 12px' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {(files[filesTopic] || []).map((f) => (
-                        <tr key={f.name} className="border-b border-slate-50 hover:bg-slate-50 transition group">
+                        <tr key={f.name} className="border-b border-(--border) hover:bg-(--surface-2) transition group">
                           {/* width:100% → 파일명 칸이 남는 폭을 모두 차지 (크기·액션은 내용폭만) */}
-                          <td className="font-medium text-slate-700" style={{ padding: '12px', width: '100%' }}>
+                          <td className="font-medium text-(--text-body)" style={{ padding: '12px', width: '100%' }}>
                             <div className="flex items-center" style={{ gap: '8px' }}>
                               {/* 확장자 아이콘 */}
                               <span className={`shrink-0 text-xs font-bold px-1.5 py-0.5 rounded-md ${
@@ -1431,7 +1433,7 @@ export default function AdminPage() {
                                 f.name.endsWith('.docx') || f.name.endsWith('.hwp') || f.name.endsWith('.hwpx') ? 'bg-blue-100 text-blue-600' :
                                 f.name.endsWith('.xlsx') ? 'bg-green-100 text-green-600' :
                                 f.name.endsWith('.pptx') ? 'bg-orange-100 text-orange-600' :
-                                'bg-slate-100 text-slate-500'
+                                'bg-(--surface-2) text-(--text-muted)'
                               }`}>
                                 {f.name.split('.').pop().toUpperCase()}
                               </span>
@@ -1440,7 +1442,7 @@ export default function AdminPage() {
                               <span className="truncate max-w-2xl">{f.name}</span>
                             </div>
                           </td>
-                          <td className="text-slate-400 text-xs whitespace-nowrap" style={{ padding: '12px' }}>
+                          <td className="text-(--text-faint) text-xs whitespace-nowrap" style={{ padding: '12px' }}>
                             {f.size < 1024 ? `${f.size} B` :
                              f.size < 1024 * 1024 ? `${(f.size / 1024).toFixed(1)} KB` :
                              `${(f.size / 1024 / 1024).toFixed(1)} MB`}
@@ -1450,7 +1452,7 @@ export default function AdminPage() {
                               {/* 다운로드 버튼 */}
                               <button
                                 onClick={() => handleFileDownload(filesTopic, f.name)}
-                                className="text-slate-300 hover:text-[#005956] transition"
+                                className="text-(--text-faint) hover:text-(--brand) transition"
                                 title="다운로드"
                               >
                                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1460,7 +1462,7 @@ export default function AdminPage() {
                               {/* 삭제 버튼 */}
                               <button
                                 onClick={() => handleFileDelete(filesTopic, f.name)}
-                                className="text-slate-300 hover:text-red-500 transition"
+                                className="text-(--text-faint) hover:text-red-500 transition"
                                 title="삭제"
                               >
                                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1477,11 +1479,11 @@ export default function AdminPage() {
               </div>
 
               {/* 하단 정보 */}
-              <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-100 pt-4">
+              <div className="flex items-center justify-between text-xs text-(--text-faint) border-t border-(--border) pt-4">
                 <span>
                   {fileLabels[filesTopic]} 탭 — 총 {(files[filesTopic] || []).length}개 파일
                 </span>
-                <span className="font-mono bg-slate-50 px-2 py-1 rounded-lg text-slate-500">
+                <span className="font-mono bg-(--surface-2) px-2 py-1 rounded-lg text-(--text-muted)">
                   documents/{filesTopic}/
                 </span>
               </div>
@@ -1499,7 +1501,7 @@ export default function AdminPage() {
               scholarship: { label: '장학금', color: 'bg-green-100 text-green-700' },
               dormitory: { label: '기숙사', color: 'bg-orange-100 text-orange-700' },
               course_registration: { label: '수강신청', color: 'bg-indigo-100 text-indigo-700' },
-              general: { label: '일반', color: 'bg-slate-100 text-slate-500' },
+              general: { label: '일반', color: 'bg-(--surface-2) text-(--text-muted)' },
             }
             const selectedSession = chatSessions.find(s => s.id === selectedSessionId)
             const filteredSessions = chatSessions.filter(s =>
@@ -1512,14 +1514,14 @@ export default function AdminPage() {
               <div className="flex-1 flex gap-4 min-h-0">
 
                 {/* 왼쪽: 세션 목록 */}
-                <div className="w-72 shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0">
-                  <div className="shrink-0 border-b border-slate-100" style={{ padding: '20px 20px 14px' }}>
+                <div className="w-72 shrink-0 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col min-h-0">
+                  <div className="shrink-0 border-b border-(--border)" style={{ padding: '20px 20px 14px' }}>
                     <div className="flex items-center justify-between" style={{ marginBottom: '10px' }}>
-                      <h2 className="text-base font-black text-[#05263d]">채팅 내역</h2>
-                      <span className="text-xs text-slate-400 font-medium">총 {chatSessionsTotal}건</span>
+                      <h2 className="text-base font-black text-(--text)">채팅 내역</h2>
+                      <span className="text-xs text-(--text-faint) font-medium">총 {chatSessionsTotal}건</span>
                     </div>
-                    <div className="flex items-center gap-2 border border-slate-200 rounded-xl" style={{ padding: '7px 12px' }}>
-                      <svg className="h-3.5 w-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <div className="flex items-center gap-2 border border-(--border) rounded-xl" style={{ padding: '7px 12px' }}>
+                      <svg className="h-3.5 w-3.5 text-(--text-faint) shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                       </svg>
                       <input
@@ -1527,7 +1529,7 @@ export default function AdminPage() {
                         placeholder="이름·학번·내용 검색"
                         value={chatSearchText}
                         onChange={e => { setChatSearchText(e.target.value); loadChatSessions(e.target.value) }}
-                        className="text-xs outline-none text-slate-600 placeholder:text-slate-400 w-full"
+                        className="text-xs outline-none text-(--text-muted) placeholder:text-(--text-faint) w-full"
                       />
                     </div>
                   </div>
@@ -1535,13 +1537,13 @@ export default function AdminPage() {
                   <div className="flex-1 overflow-y-auto" style={{ padding: '8px' }}>
                     {chatLoading ? (
                       <div className="flex items-center justify-center" style={{ padding: '40px 0' }}>
-                        <svg className="h-5 w-5 animate-spin text-slate-300" fill="none" viewBox="0 0 24 24">
+                        <svg className="h-5 w-5 animate-spin text-(--text-faint)" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
                       </div>
                     ) : filteredSessions.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center" style={{ padding: '40px 0' }}>채팅 내역이 없습니다</p>
+                      <p className="text-xs text-(--text-faint) text-center" style={{ padding: '40px 0' }}>채팅 내역이 없습니다</p>
                     ) : filteredSessions.map(s => {
                       const isSelected = selectedSessionId === s.id
                       const intent = INTENT_LABELS[s.intent] || INTENT_LABELS.general
@@ -1552,23 +1554,23 @@ export default function AdminPage() {
                         <button
                           key={s.id}
                           onClick={() => loadSessionMessages(s.id)}
-                          className={`w-full text-left rounded-xl transition ${isSelected ? 'bg-[#005956]/8 border border-[#005956]/20' : 'hover:bg-slate-50 border border-transparent'}`}
+                          className={`w-full text-left rounded-xl transition ${isSelected ? 'bg-(--brand-a8) border border-(--brand-a20)' : 'hover:bg-(--surface-2) border border-transparent'}`}
                           style={{ padding: '10px 12px', marginBottom: '2px' }}
                         >
                           <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
-                            <span className="text-sm font-bold text-slate-700 truncate">{s.student_name || '알 수 없음'}</span>
-                            <span className="text-xs text-slate-400 shrink-0 ml-2">{dateStr}</span>
+                            <span className="text-sm font-bold text-(--text-body) truncate">{s.student_name || '알 수 없음'}</span>
+                            <span className="text-xs text-(--text-faint) shrink-0 ml-2">{dateStr}</span>
                           </div>
                           <div className="flex items-center gap-1.5" style={{ marginBottom: '4px' }}>
-                            <span className="text-xs text-slate-400 font-mono">{s.student_no}</span>
+                            <span className="text-xs text-(--text-faint) font-mono">{s.student_no}</span>
                             {s.intent && (
                               <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${intent.color}`}>
                                 {intent.label}
                               </span>
                             )}
-                            <span className="text-xs text-slate-400 ml-auto shrink-0">{s.message_count}건</span>
+                            <span className="text-xs text-(--text-faint) ml-auto shrink-0">{s.message_count}건</span>
                           </div>
-                          <p className="text-xs text-slate-500 truncate">{s.first_message || '(내용 없음)'}</p>
+                          <p className="text-xs text-(--text-muted) truncate">{s.first_message || '(내용 없음)'}</p>
                         </button>
                       )
                     })}
@@ -1576,9 +1578,9 @@ export default function AdminPage() {
                 </div>
 
                 {/* 오른쪽: 메시지 상세 */}
-                <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0">
+                <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col min-h-0">
                   {!selectedSessionId ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-slate-300" style={{ gap: '12px' }}>
+                    <div className="flex-1 flex flex-col items-center justify-center text-(--text-faint)" style={{ gap: '12px' }}>
                       <svg className="h-14 w-14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
                       </svg>
@@ -1586,24 +1588,24 @@ export default function AdminPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="shrink-0 border-b border-slate-100 flex items-center justify-between" style={{ padding: '16px 24px' }}>
+                      <div className="shrink-0 border-b border-(--border) flex items-center justify-between" style={{ padding: '16px 24px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-black text-[#05263d]">{selectedSession?.student_name || '-'}</span>
-                            <span className="text-xs font-mono text-slate-400">{selectedSession?.student_no}</span>
+                            <span className="text-sm font-black text-(--text)">{selectedSession?.student_name || '-'}</span>
+                            <span className="text-xs font-mono text-(--text-faint)">{selectedSession?.student_no}</span>
                             {selectedSession?.intent && (() => {
                               const intent = INTENT_LABELS[selectedSession.intent] || INTENT_LABELS.general
                               return <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${intent.color}`}>{intent.label}</span>
                             })()}
                           </div>
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-(--text-faint)">
                             {selectedSession?.started_at ? new Date(selectedSession.started_at).toLocaleString('ko-KR') : ''}
                             {' · '}{sessionMessages.length}개 메시지
                           </span>
                         </div>
                         <button
                           onClick={() => { setSelectedSessionId(null); setSessionMessages([]) }}
-                          className="text-slate-300 hover:text-slate-500 transition"
+                          className="text-(--text-faint) hover:text-(--text-muted) transition"
                         >
                           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -1614,13 +1616,13 @@ export default function AdminPage() {
                       <div className="flex-1 overflow-y-auto" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {msgLoading ? (
                           <div className="flex items-center justify-center flex-1">
-                            <svg className="h-6 w-6 animate-spin text-slate-300" fill="none" viewBox="0 0 24 24">
+                            <svg className="h-6 w-6 animate-spin text-(--text-faint)" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                             </svg>
                           </div>
                         ) : sessionMessages.length === 0 ? (
-                          <p className="text-sm text-slate-400 text-center" style={{ marginTop: '40px' }}>메시지가 없습니다</p>
+                          <p className="text-sm text-(--text-faint) text-center" style={{ marginTop: '40px' }}>메시지가 없습니다</p>
                         ) : sessionMessages.map((msg, i) => {
                           const isUser = msg.role === 'user'
                           const timeStr = msg.created_at
@@ -1655,33 +1657,33 @@ export default function AdminPage() {
                           return (
                             <div key={msg.id || i} style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: '3px' }}>
                               <div className="flex items-center gap-1.5" style={{ flexDirection: isUser ? 'row-reverse' : 'row' }}>
-                                <span className="text-xs font-bold text-slate-400">{isUser ? '학생' : 'SOL로몬'}</span>
+                                <span className="text-xs font-bold text-(--text-faint)">{isUser ? '학생' : 'SOL로몬'}</span>
                                 {!isUser && intent && (
                                   <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${intent.color}`}>{intent.label}</span>
                                 )}
                                 {!isUser && msg.source && (
-                                  <span className="text-xs text-slate-300 font-mono truncate max-w-xs">{msg.source}</span>
+                                  <span className="text-xs text-(--text-faint) font-mono truncate max-w-xs">{msg.source}</span>
                                 )}
                               </div>
                               <div
                                 className={`text-sm rounded-2xl whitespace-pre-wrap break-words ${
                                   isUser
-                                    ? 'bg-[#005956] text-white rounded-tr-sm'
-                                    : 'bg-slate-50 border border-slate-100 text-slate-700 rounded-tl-sm'
+                                    ? 'bg-(--brand) text-white rounded-tr-sm'
+                                    : 'bg-(--surface-2) border border-(--border) text-(--text-body) rounded-tl-sm'
                                 }`}
                                 style={{ maxWidth: '72%', padding: '10px 14px', lineHeight: '1.6' }}
                               >
                                 {msg.content}
                               </div>
                               <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-slate-300">{timeStr}</span>
+                                <span className="text-xs text-(--text-faint)">{timeStr}</span>
                                 {/* 어시스턴트 메시지에만 피드백 버튼 표시 */}
                                 {!isUser && (
                                   fb && !isFormOpen ? (
                                     /* 기존 피드백 뱃지 */
                                     <button
                                       onClick={openForm}
-                                      className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-lg border border-slate-200 hover:border-[#005956]/40 hover:text-[#005956] transition text-slate-400"
+                                      className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-lg border border-(--border) hover:border-(--brand-a40) hover:text-(--brand) transition text-(--text-faint)"
                                     >
                                       {fb.is_helpful ? '👍' : '👎'}
                                       {fb.rating ? ` ${fb.rating}점` : ''}
@@ -1692,7 +1694,7 @@ export default function AdminPage() {
                                     /* 피드백 없을 때 작성 버튼 */
                                     <button
                                       onClick={openForm}
-                                      className="text-xs text-slate-300 hover:text-[#005956] transition"
+                                      className="text-xs text-(--text-faint) hover:text-(--brand) transition"
                                     >
                                       + 피드백
                                     </button>
@@ -1702,29 +1704,29 @@ export default function AdminPage() {
 
                               {/* 인라인 피드백 폼 */}
                               {!isUser && isFormOpen && (
-                                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm" style={{ maxWidth: '72%', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div className="bg-(--surface-card) border border-(--border) rounded-2xl shadow-sm" style={{ maxWidth: '72%', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                   {/* 👍 / 👎 */}
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xs font-bold text-slate-500 w-14 shrink-0">평가</span>
+                                    <span className="text-xs font-bold text-(--text-muted) w-14 shrink-0">평가</span>
                                     <button
                                       onClick={() => setFeedbackDraft(d => ({ ...d, is_helpful: true }))}
-                                      className={`text-lg px-3 py-1 rounded-xl border transition ${feedbackDraft.is_helpful === true ? 'border-[#005956] bg-[#005956]/8' : 'border-slate-200 hover:border-slate-300'}`}
+                                      className={`text-lg px-3 py-1 rounded-xl border transition ${feedbackDraft.is_helpful === true ? 'border-(--brand) bg-(--brand-a8)' : 'border-(--border) hover:border-(--border-strong)'}`}
                                     >👍</button>
                                     <button
                                       onClick={() => setFeedbackDraft(d => ({ ...d, is_helpful: false }))}
-                                      className={`text-lg px-3 py-1 rounded-xl border transition ${feedbackDraft.is_helpful === false ? 'border-red-400 bg-red-50' : 'border-slate-200 hover:border-slate-300'}`}
+                                      className={`text-lg px-3 py-1 rounded-xl border transition ${feedbackDraft.is_helpful === false ? 'border-red-400 bg-red-50' : 'border-(--border) hover:border-(--border-strong)'}`}
                                     >👎</button>
                                   </div>
 
                                   {/* 별점 */}
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xs font-bold text-slate-500 w-14 shrink-0">별점</span>
+                                    <span className="text-xs font-bold text-(--text-muted) w-14 shrink-0">별점</span>
                                     <div className="flex gap-1">
                                       {[1,2,3,4,5].map(n => (
                                         <button
                                           key={n}
                                           onClick={() => setFeedbackDraft(d => ({ ...d, rating: d.rating === n ? 0 : n }))}
-                                          className={`text-lg transition ${n <= feedbackDraft.rating ? 'text-yellow-400' : 'text-slate-200 hover:text-yellow-300'}`}
+                                          className={`text-lg transition ${n <= feedbackDraft.rating ? 'text-yellow-400' : 'text-(--text-faint) hover:text-yellow-300'}`}
                                         >★</button>
                                       ))}
                                     </div>
@@ -1732,13 +1734,13 @@ export default function AdminPage() {
 
                                   {/* 메모 */}
                                   <div className="flex items-start gap-2">
-                                    <span className="text-xs font-bold text-slate-500 w-14 shrink-0 pt-1.5">메모</span>
+                                    <span className="text-xs font-bold text-(--text-muted) w-14 shrink-0 pt-1.5">메모</span>
                                     <textarea
                                       value={feedbackDraft.comment}
                                       onChange={e => setFeedbackDraft(d => ({ ...d, comment: e.target.value }))}
                                       placeholder="관리자 메모 (선택)"
                                       rows={2}
-                                      className="flex-1 text-xs border border-slate-200 rounded-xl outline-none focus:border-[#005956] resize-none"
+                                      className="flex-1 text-xs border border-(--border) rounded-xl outline-none focus:border-(--brand) resize-none"
                                       style={{ padding: '7px 10px' }}
                                     />
                                   </div>
@@ -1747,13 +1749,13 @@ export default function AdminPage() {
                                   <div className="flex items-center gap-2 justify-end">
                                     <button
                                       onClick={() => setOpenFeedbackId(null)}
-                                      className="text-slate-400 hover:text-slate-600 transition border border-slate-200 hover:bg-slate-50 rounded-lg"
+                                      className="text-(--text-faint) hover:text-(--text-muted) transition border border-(--border) hover:bg-(--surface-2) rounded-lg"
                                       style={{ fontSize: '11px', padding: '6px 14px' }}
                                     >취소</button>
                                     <button
                                       onClick={saveFeedback}
                                       disabled={feedbackDraft.is_helpful === null || savingFeedback}
-                                      className="font-bold bg-[#005956] text-white rounded-lg hover:bg-[#004a47] transition disabled:opacity-40"
+                                      className="font-bold bg-(--brand) text-white rounded-lg hover:bg-(--brand-hover) transition disabled:opacity-40"
                                       style={{ fontSize: '11px', padding: '6px 14px' }}
                                     >{savingFeedback ? '저장 중...' : '저장'}</button>
                                   </div>
@@ -1774,16 +1776,16 @@ export default function AdminPage() {
 
           {/* ── Topic 관리 ── */}
           {activeNav === 'topics' && (
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0" style={{ padding: '24px' }}>
+            <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col min-h-0" style={{ padding: '24px' }}>
               {/* 헤더 */}
               <div className="flex items-center justify-between shrink-0" style={{ marginBottom: '16px' }}>
                 <div>
-                  <h2 className="text-base font-black text-[#05263d]">Topic 관리</h2>
-                  <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>질문 분류 topic을 추가·수정·삭제합니다. 시스템 topic은 삭제할 수 없습니다.</p>
+                  <h2 className="text-base font-black text-(--text)">Topic 관리</h2>
+                  <p className="text-xs text-(--text-faint)" style={{ marginTop: '2px' }}>질문 분류 topic을 추가·수정·삭제합니다. 시스템 topic은 삭제할 수 없습니다.</p>
                 </div>
                 <button
                   onClick={() => { setShowNewTopicForm(v => !v); setTopicMsg(null) }}
-                  className="flex items-center gap-1.5 text-sm font-bold bg-[#005956] text-white rounded-xl hover:bg-[#004a47] transition"
+                  className="flex items-center gap-1.5 text-sm font-bold bg-(--brand) text-white rounded-xl hover:bg-(--brand-hover) transition"
                   style={{ padding: '8px 16px' }}
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
@@ -1799,36 +1801,36 @@ export default function AdminPage() {
 
               {/* 새 topic 폼 */}
               {showNewTopicForm && (
-                <div className="border border-[#005956]/20 bg-[#005956]/5 rounded-xl shrink-0" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <p className="text-xs font-black text-[#005956]">새 Topic 추가</p>
+                <div className="border border-(--brand-a20) bg-(--brand-a5) rounded-xl shrink-0" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <p className="text-xs font-black text-(--brand)">새 Topic 추가</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>name (영문, 언더바)</label>
-                      <input value={newTopic.name} onChange={e => setNewTopic(v => ({ ...v, name: e.target.value }))} placeholder="예: tuition" className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '6px 10px' }} />
+                      <label className="text-xs font-bold text-(--text-muted) block" style={{ marginBottom: '4px' }}>name (영문, 언더바)</label>
+                      <input value={newTopic.name} onChange={e => setNewTopic(v => ({ ...v, name: e.target.value }))} placeholder="예: tuition" className="w-full text-sm border border-(--border) rounded-lg outline-none focus:border-(--brand)" style={{ padding: '6px 10px' }} />
                     </div>
                     <div>
-                      <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>label (한글 표시명)</label>
-                      <input value={newTopic.label} onChange={e => setNewTopic(v => ({ ...v, label: e.target.value }))} placeholder="예: 등록금" className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '6px 10px' }} />
+                      <label className="text-xs font-bold text-(--text-muted) block" style={{ marginBottom: '4px' }}>label (한글 표시명)</label>
+                      <input value={newTopic.label} onChange={e => setNewTopic(v => ({ ...v, label: e.target.value }))} placeholder="예: 등록금" className="w-full text-sm border border-(--border) rounded-lg outline-none focus:border-(--brand)" style={{ padding: '6px 10px' }} />
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>설명 (선택)</label>
-                    <input value={newTopic.description} onChange={e => setNewTopic(v => ({ ...v, description: e.target.value }))} placeholder="이 topic에 대한 간단한 설명" className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '6px 10px' }} />
+                    <label className="text-xs font-bold text-(--text-muted) block" style={{ marginBottom: '4px' }}>설명 (선택)</label>
+                    <input value={newTopic.description} onChange={e => setNewTopic(v => ({ ...v, description: e.target.value }))} placeholder="이 topic에 대한 간단한 설명" className="w-full text-sm border border-(--border) rounded-lg outline-none focus:border-(--brand)" style={{ padding: '6px 10px' }} />
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '4px' }}>분류 문장 (한 줄에 하나씩)</label>
+                    <label className="text-xs font-bold text-(--text-muted) block" style={{ marginBottom: '4px' }}>분류 문장 (한 줄에 하나씩)</label>
                     <textarea
                       value={newTopic.sentences}
                       onChange={e => setNewTopic(v => ({ ...v, sentences: e.target.value }))}
                       placeholder={"등록금 납부 방법이 궁금해요\n등록금은 언제까지 내야 하나요?"}
                       rows={4}
-                      className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956] resize-none"
+                      className="w-full text-sm border border-(--border) rounded-lg outline-none focus:border-(--brand) resize-none"
                       style={{ padding: '7px 10px' }}
                     />
                   </div>
                   <div className="flex gap-2 justify-end">
-                    <button onClick={() => setShowNewTopicForm(false)} className="text-xs text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-50" style={{ padding: '6px 14px' }}>취소</button>
-                    <button onClick={handleCreateTopic} disabled={!newTopic.name || !newTopic.label} className="text-xs font-bold bg-[#005956] text-white rounded-lg hover:bg-[#004a47] disabled:opacity-40" style={{ padding: '6px 14px' }}>추가</button>
+                    <button onClick={() => setShowNewTopicForm(false)} className="text-xs text-(--text-faint) border border-(--border) rounded-lg hover:bg-(--surface-2)" style={{ padding: '6px 14px' }}>취소</button>
+                    <button onClick={handleCreateTopic} disabled={!newTopic.name || !newTopic.label} className="text-xs font-bold bg-(--brand) text-white rounded-lg hover:bg-(--brand-hover) disabled:opacity-40" style={{ padding: '6px 14px' }}>추가</button>
                   </div>
                 </div>
               )}
@@ -1836,43 +1838,43 @@ export default function AdminPage() {
               {/* Topic 목록 */}
               <div className="flex-1 overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {topicList.length === 0 ? (
-                  <div className="flex items-center justify-center text-slate-300" style={{ padding: '60px 0' }}>
+                  <div className="flex items-center justify-center text-(--text-faint)" style={{ padding: '60px 0' }}>
                     <p className="text-sm">topic이 없습니다</p>
                   </div>
                 ) : topicList.map(t => (
-                  <div key={t.name} className="border border-slate-100 rounded-xl bg-slate-50/50 hover:bg-white transition" style={{ padding: '14px 16px' }}>
+                  <div key={t.name} className="border border-(--border) rounded-xl bg-(--surface-2)/50 hover:bg-(--surface-card) transition" style={{ padding: '14px 16px' }}>
                     {editingTopic?.name === t.name ? (
                       // 수정 폼
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '3px' }}>label</label>
-                            <input value={editingTopic.label} onChange={e => setEditingTopic(v => ({ ...v, label: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '5px 8px' }} />
+                            <label className="text-xs font-bold text-(--text-muted) block" style={{ marginBottom: '3px' }}>label</label>
+                            <input value={editingTopic.label} onChange={e => setEditingTopic(v => ({ ...v, label: e.target.value }))} className="w-full text-sm border border-(--border) rounded-lg outline-none focus:border-(--brand)" style={{ padding: '5px 8px' }} />
                           </div>
                           <div>
-                            <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '3px' }}>설명</label>
-                            <input value={editingTopic.description || ''} onChange={e => setEditingTopic(v => ({ ...v, description: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956]" style={{ padding: '5px 8px' }} />
+                            <label className="text-xs font-bold text-(--text-muted) block" style={{ marginBottom: '3px' }}>설명</label>
+                            <input value={editingTopic.description || ''} onChange={e => setEditingTopic(v => ({ ...v, description: e.target.value }))} className="w-full text-sm border border-(--border) rounded-lg outline-none focus:border-(--brand)" style={{ padding: '5px 8px' }} />
                           </div>
                         </div>
                         <div>
-                          <label className="text-xs font-bold text-slate-500 block" style={{ marginBottom: '3px' }}>분류 문장 (한 줄에 하나)</label>
+                          <label className="text-xs font-bold text-(--text-muted) block" style={{ marginBottom: '3px' }}>분류 문장 (한 줄에 하나)</label>
                           <textarea
                             value={editingTopic.sentences}
                             onChange={e => setEditingTopic(v => ({ ...v, sentences: e.target.value }))}
                             rows={4}
-                            className="w-full text-sm border border-slate-200 rounded-lg outline-none focus:border-[#005956] resize-none"
+                            className="w-full text-sm border border-(--border) rounded-lg outline-none focus:border-(--brand) resize-none"
                             style={{ padding: '6px 8px' }}
                           />
                         </div>
                         <div className="flex gap-2 justify-end">
-                          <button onClick={() => setEditingTopic(null)} className="text-xs text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-50" style={{ padding: '5px 12px' }}>취소</button>
+                          <button onClick={() => setEditingTopic(null)} className="text-xs text-(--text-faint) border border-(--border) rounded-lg hover:bg-(--surface-2)" style={{ padding: '5px 12px' }}>취소</button>
                           <button
                             onClick={() => handleUpdateTopic(t.name, {
                               label: editingTopic.label,
                               description: editingTopic.description,
                               sentences: editingTopic.sentences.split('\n').map(s => s.trim()).filter(Boolean),
                             })}
-                            className="text-xs font-bold bg-[#005956] text-white rounded-lg hover:bg-[#004a47]"
+                            className="text-xs font-bold bg-(--brand) text-white rounded-lg hover:bg-(--brand-hover)"
                             style={{ padding: '5px 12px' }}
                           >저장</button>
                         </div>
@@ -1882,25 +1884,25 @@ export default function AdminPage() {
                       <div className="flex items-start justify-between gap-4">
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div className="flex items-center gap-2" style={{ marginBottom: '4px' }}>
-                            <span className="text-sm font-black text-[#05263d]">{t.label}</span>
-                            <code className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t.name}</code>
+                            <span className="text-sm font-black text-(--text)">{t.label}</span>
+                            <code className="text-xs bg-(--surface-2) text-(--text-muted) px-1.5 py-0.5 rounded">{t.name}</code>
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                               t.handler_type === 'campus' ? 'bg-blue-100 text-blue-700' :
                               t.handler_type === 'graduation' ? 'bg-purple-100 text-purple-700' :
                               t.handler_type === 'scholarship' ? 'bg-yellow-100 text-yellow-700' :
-                              t.handler_type === 'general' ? 'bg-slate-100 text-slate-500' :
+                              t.handler_type === 'general' ? 'bg-(--surface-2) text-(--text-muted)' :
                               'bg-emerald-100 text-emerald-700'
                             }`}>{t.handler_type}</span>
                             {t.is_system && <span className="text-xs bg-orange-100 text-orange-600 font-bold px-2 py-0.5 rounded-full">시스템</span>}
                             {!t.is_active && <span className="text-xs bg-red-100 text-red-500 font-bold px-2 py-0.5 rounded-full">비활성</span>}
                           </div>
-                          {t.description && <p className="text-xs text-slate-400" style={{ marginBottom: '6px' }}>{t.description}</p>}
-                          <p className="text-xs text-slate-400">{t.sentences?.length || 0}개 분류 문장</p>
+                          {t.description && <p className="text-xs text-(--text-faint)" style={{ marginBottom: '6px' }}>{t.description}</p>}
+                          <p className="text-xs text-(--text-faint)">{t.sentences?.length || 0}개 분류 문장</p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             onClick={() => setEditingTopic({ name: t.name, label: t.label, description: t.description || '', sentences: (t.sentences || []).join('\n') })}
-                            className="text-xs text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-100 transition"
+                            className="text-xs text-(--text-muted) border border-(--border) rounded-lg hover:bg-(--surface-2) transition"
                             style={{ padding: '5px 10px' }}
                           >수정</button>
                           {!t.is_system && (

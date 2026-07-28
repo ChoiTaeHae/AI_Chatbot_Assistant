@@ -23,8 +23,8 @@ export function catStyle(e) {
   if (/등록|납부|분납|장학/.test(e)) return 'bg-emerald-100 text-emerald-700'
   if (/휴학|복학|자퇴|전과|재입학/.test(e)) return 'bg-amber-100 text-amber-700'
   if (/졸업|학위|입학/.test(e)) return 'bg-rose-100 text-rose-700'
-  if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-slate-200 text-slate-700'
-  return 'bg-slate-100 text-slate-600'
+  if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-(--border) text-(--text-body)'
+  return 'bg-(--surface-2) text-(--text-muted)'
 }
 
 // 좁은 사이드바용 — 텍스트 없이 '색 막대'만 그린다.
@@ -37,7 +37,7 @@ export function catBar(e) {
   if (/휴학|복학|자퇴|전과|재입학/.test(e)) return 'bg-[#F3CBA8]' // 소프트 피치
   if (/졸업|학위|입학/.test(e)) return 'bg-[#F0BAC8]'         // 소프트 로즈
   if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-[#C2D6A8]' // 소프트 세이지
-  return 'bg-[#CBD5E1]'                                       // 소프트 그레이
+  return 'bg-(--border-strong)'                                       // 소프트 그레이
 }
 
 // 한 달을 감싸는 주 배열(일요일 시작). 항상 6줄 고정 → 달마다 높이가 일정해져

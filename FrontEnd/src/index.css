@@ -1,73 +1,126 @@
 @import "tailwindcss";
 
+/* ── 테마 토큰 ─────────────────────────────────────────────
+   라이트값 = 기존 색 그대로(라이트 모드 변화 없음).
+   인라인/브래킷 hex는 이 변수들로 치환되고, Tailwind slate 클래스는
+   아래 --color-* 오버라이드로 다크에서 자동으로 뒤집힌다. */
+:root {
+  --page:         #f5f7fb;
+  --surface-card: #ffffff;
+  --surface-2:    #f8fafc;
+  --border:       #e2e8f0;
+  --border-strong:#cbd5e1;
+  --text:         #05263d;
+  --text-body:    #0f172a;
+  --text-muted:   #64748b;
+  --text-faint:   #94a3b8;
+  --brand:        #005956;
+  --brand-bright: #005956;   /* 다크에서만 밝게 — 사이드바 둘러보기 버튼 등 */
+  --brand-hover:  #004a47;
+  --brand-tint:   #f0f9f8;
+  --brand-tint2:  #e1f5ee;
+  --user-bubble:  #eaf2f2;
+  --surface-modal:#ffffff;   /* 장학금 모달 본문 — 라이트는 카드와 동일 */
+  --cat-header:   #e1f5ee;   /* 장학금 모달 카테고리 바 */
+  --modal-edge:   #cbd5e1;   /* 모달 테두리·그룹 외곽선 */
+  --scrim:        rgba(15,23,42,.5);  /* 모달 뒷배경 덮개 */
+  --item-bubble:  #f6f8fb;   /* 장학금 항목 방울 배경 */
+  --item-edge:    #e8edf4;
+  --item-shadow:  0 2px 8px rgba(15,23,42,.08);
+  --amber-tint:   #fef3c7;   /* 기간 배지 */
+  --amber-text:   #92400e;
+  --danger-tint:  #fee2e2;   /* 기간마감 배지 */
+  --danger-text:  #b91c1c;
+  --accent:       #8900ff;
+  --accent-tint:  #eee6ff;
+  --scrollbar:    #cbd5e1;
+  /* 브랜드 투명도 틴트 (rgba) */
+  --brand-a5:  rgba(0, 89, 86, 0.05);
+  --brand-a8:  rgba(0, 89, 86, 0.08);
+  --brand-a10: rgba(0, 89, 86, 0.10);
+  --brand-a15: rgba(0, 89, 86, 0.15);
+  --brand-a20: rgba(0, 89, 86, 0.20);
+  --brand-a25: rgba(0, 89, 86, 0.25);
+  --brand-a30: rgba(0, 89, 86, 0.30);
+  --brand-a40: rgba(0, 89, 86, 0.40);
+}
+
+:root[data-theme="dark"] {
+  --page:         #0b1220;
+  --surface-card: #131d30;
+  --surface-2:    #172033;
+  --border:       #27334c;
+  --border-strong:#3a475f;
+  --text:         #eaf1f9;
+  --text-body:    #dde5f0;
+  --text-muted:   #9aa8bd;
+  --text-faint:   #7c8aa0;
+  --brand:        #16a394;
+  --brand-bright: #2fd4c0;   /* 밝은 티일 — 다크 배경에서 또렷하게 */
+  --brand-hover:  #128a7c;
+  --brand-tint:   #10241f;
+  --brand-tint2:  #12281f;
+  --user-bubble:  #1c3330;
+  --surface-modal:#1d2841;   /* 카드(#131d30)보다 밝게 — 진한 스크림 위라 붕 뜨지 않고 또렷 */
+  --cat-header:   #2f4066;   /* 본문 위에서 또렷한 카테고리 바 */
+  --modal-edge:   #3d4a6a;   /* 명확한 테두리 — 진한 스크림 덕에 글로우 없이 경계만 */
+  --scrim:        rgba(2,5,11,.74);   /* 뒷배경 강하게 어둡게 → 모달이 확실히 분리돼 보임 */
+  --item-bubble:  #28395f;   /* 본문(#1d2841)보다 확실히 밝게 → 방울이 또렷이 떠오름 */
+  --item-edge:    #3d4f7a;
+  --item-shadow:  0 4px 12px rgba(0,0,0,.35);
+  --amber-tint:   #3a2f14;
+  --amber-text:   #f0c26b;
+  --danger-tint:  #3d1f1f;
+  --danger-text:  #f5a3a3;
+  --accent:       #b57bff;
+  --accent-tint:  #241a33;
+  --scrollbar:    #3a475f;
+  --brand-a5:  rgba(22, 163, 148, 0.10);
+  --brand-a8:  rgba(22, 163, 148, 0.14);
+  --brand-a10: rgba(22, 163, 148, 0.16);
+  --brand-a15: rgba(22, 163, 148, 0.20);
+  --brand-a20: rgba(22, 163, 148, 0.24);
+  --brand-a25: rgba(22, 163, 148, 0.28);
+  --brand-a30: rgba(22, 163, 148, 0.34);
+  --brand-a40: rgba(22, 163, 148, 0.42);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-html {
-  background: #f5f7fb;
-}
+html { background: var(--page); }
 
 body {
   min-width: 320px;
   font-family: 'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #f5f7fb;
-  color: #0f172a;
+  background: var(--page);
+  color: var(--text-body);
   text-rendering: geometricPrecision;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-}
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
 
-button {
-  cursor: pointer;
-}
+#root { width: 100%; min-height: 100svh; }
 
-button:disabled {
-  cursor: not-allowed;
-}
+::selection { background: rgba(37, 99, 235, 0.16); }
 
-#root {
-  width: 100%;
-  min-height: 100svh;
-}
-
-::selection {
-  background: rgba(37, 99, 235, 0.16);
-}
-
-/* 대화 전환 시 '다른 창' 느낌 — 살짝 아래에서 올라오며 페이드인 */
 @keyframes chatViewEnter {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.chat-view-enter {
-  animation: chatViewEnter 0.28s ease-out;
-}
+.chat-view-enter { animation: chatViewEnter 0.28s ease-out; }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--scrollbar);
   border: 2px solid transparent;
   border-radius: 9999px;
   background-clip: content-box;
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }

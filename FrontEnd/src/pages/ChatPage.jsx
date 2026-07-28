@@ -4,6 +4,7 @@ import ChatWindow from '../components/chat/ChatWindow'
 import ChatInput from '../components/chat/ChatInput'
 import Sidebar from '../components/chat/Sidebar'
 import MascotAvatar from '../components/common/MascotAvatar'
+import ThemeToggle from '../components/common/ThemeToggle'
 import { logout } from '../api/auth'
 import { useAuth } from '../store/AuthContext'
 import { useChat } from '../hooks/useChat'
@@ -54,7 +55,7 @@ export default function ChatPage() {
 
   return ( 
     // 배경을 흰색으로, 중앙 정렬 컨테이너를 조금 더 넓게 설정
-    <main className="flex min-h-[100dvh] bg-[#e8eaed] items-center justify-center py-4 px-2 sm:py-8 sm:px-6">
+    <main className="flex min-h-[100dvh] bg-(--page) items-center justify-center py-4 px-2 sm:py-8 sm:px-6">
       <div className="flex w-full max-w-6xl h-[calc(100dvh-2rem)] sm:h-[calc(100vh-4rem)]">
 
         {/* 사이드바 (슬라이드로 접기/펴기) */}
@@ -67,10 +68,10 @@ export default function ChatPage() {
         </div>
 
         {/* 채팅 카드 */}
-        <div className="flex flex-col flex-1 min-w-0 bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="flex flex-col flex-1 min-w-0 bg-(--surface-card) rounded-2xl shadow-2xl overflow-hidden">
 
         {/* 헤더 */}
-        <header className="shrink-0 bg-[#005956] flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>
+        <header className="shrink-0 bg-(--brand) flex items-center justify-between shadow-sm z-10" style={{ padding: '10px 25px' }}>
           <div className="flex items-center gap-3">
             {/* 사이드바 접기/펴기 (데스크톱) */}
             <button
@@ -88,6 +89,9 @@ export default function ChatPage() {
 
           <div className="flex items-center gap-3">
 
+            {/* 다크모드 토글 */}
+            <ThemeToggle className="inline-flex items-center justify-center h-9 w-9 rounded-lg text-white hover:bg-white/10 transition" />
+
             {/* 언어 선택 드롭다운 */}
             <select
               value={lang}
@@ -96,7 +100,7 @@ export default function ChatPage() {
               style={{ padding: '5px 8px' }}
             >
               {LANGUAGES.map(({ code, label }) => (
-                <option key={code} value={code} className="text-slate-800 bg-white">
+                <option key={code} value={code} className="text-(--text) bg-(--surface-card)">
                   {label}
                 </option>
               ))}
@@ -123,13 +127,13 @@ export default function ChatPage() {
               </button>
 
               {dropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden z-50">
+                <div className="absolute right-0 top-full mt-2 w-52 bg-(--surface-card) rounded-2xl shadow-lg border border-(--border) overflow-hidden z-50">
 
                   {/* 관리자 페이지 (admin만) */}
                   {user?.role === 'admin' && (
                     <button
                       onClick={() => { setDropdownOpen(false); navigate('/admin') }}
-                      className="w-full flex items-center text-sm text-slate-600 hover:bg-[#005956]/5 hover:text-[#005956] transition"
+                      className="w-full flex items-center text-sm text-(--text-muted) hover:bg-(--brand-a5) hover:text-(--brand) transition"
                       style={{ gap: '10px', padding: '12px 16px' }}
                     >
                       <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -142,7 +146,7 @@ export default function ChatPage() {
                   {/* 로그아웃 */}
                   <button
                     onClick={() => { setDropdownOpen(false); handleLogout() }}
-                    className="w-full flex items-center text-sm text-red-500 hover:bg-red-50 transition border-t border-slate-50"
+                    className="w-full flex items-center text-sm text-red-500 hover:bg-red-50 transition border-t border-(--border)"
                     style={{ gap: '10px', padding: '12px 16px' }}
                   >
                     <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>

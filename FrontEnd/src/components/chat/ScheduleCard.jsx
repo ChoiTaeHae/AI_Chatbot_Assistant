@@ -41,9 +41,9 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
   const grid = (
     <div className="flex-1 min-w-0">
       {/* 요일 헤더 */}
-      <div className="grid grid-cols-7 border-b border-slate-100">
+      <div className="grid grid-cols-7 border-b border-(--border)">
         {WD.map((w, k) => (
-          <div key={w} className={`text-center ${k === 0 ? 'text-red-400' : k === 6 ? 'text-blue-400' : 'text-slate-400'}`} style={{ fontSize: '11px', fontWeight: 700, padding: '5px 0' }}>{w}</div>
+          <div key={w} className={`text-center ${k === 0 ? 'text-red-400' : k === 6 ? 'text-blue-400' : 'text-(--text-faint)'}`} style={{ fontSize: '11px', fontWeight: 700, padding: '5px 0' }}>{w}</div>
         ))}
       </div>
       {/* 월 달력 그리드 */}
@@ -52,17 +52,17 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
         const BARS_TOP = 26, LANE_H = 19
         const cellH = Math.max(52, BARS_TOP + maxLanes * LANE_H + 5)
         return (
-          <div key={wi} className={wi < weeks.length - 1 ? 'border-b border-slate-50' : ''}>
+          <div key={wi} className={wi < weeks.length - 1 ? 'border-b border-(--border)' : ''}>
             <div className="relative">
               <div className="grid grid-cols-7">
                 {week.map((day, ci) => {
                   const inMonth = day.getMonth() === fm
                   const isToday = toISO(day) === todayISO
                   return (
-                    <div key={ci} className={`${ci !== 6 ? 'border-r border-slate-50' : ''} ${inMonth ? '' : 'bg-slate-50/40'}`} style={{ minHeight: `${cellH}px`, padding: '4px 5px' }}>
-                      <span className={`${!inMonth ? 'text-slate-300' : isToday ? '' : day.getDay() === 0 ? 'text-red-400' : day.getDay() === 6 ? 'text-blue-400' : 'text-slate-600'}`} style={{ fontSize: '11px', fontWeight: 700, position: 'relative', zIndex: 1 }}>
+                    <div key={ci} className={`${ci !== 6 ? 'border-r border-(--border)' : ''} ${inMonth ? '' : 'bg-(--surface-2)/40'}`} style={{ minHeight: `${cellH}px`, padding: '4px 5px' }}>
+                      <span className={`${!inMonth ? 'text-(--text-faint)' : isToday ? '' : day.getDay() === 0 ? 'text-red-400' : day.getDay() === 6 ? 'text-blue-400' : 'text-(--text-muted)'}`} style={{ fontSize: '11px', fontWeight: 700, position: 'relative', zIndex: 1 }}>
                         {isToday
-                          ? <span className="inline-flex items-center justify-center rounded-full bg-[#005956] text-white" style={{ width: '18px', height: '18px', fontSize: '10px' }}>{day.getDate()}</span>
+                          ? <span className="inline-flex items-center justify-center rounded-full bg-(--brand) text-white" style={{ width: '18px', height: '18px', fontSize: '10px' }}>{day.getDate()}</span>
                           : day.getDate()}
                       </span>
                     </div>
@@ -111,7 +111,7 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
       {/* 왼쪽 화살표 — 카드 바깥, 흰 배경 + 회색 테두리 원형 버튼 */}
       {multi && (
         <button onClick={() => setIdx(v => Math.max(0, v - 1))} disabled={i === 0}
-          className="shrink-0 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 shadow-sm hover:bg-slate-50 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-white transition"
+          className="shrink-0 flex items-center justify-center rounded-full bg-(--surface-card) border border-(--border) text-(--text-muted) shadow-sm hover:bg-(--surface-2) hover:text-(--text-body) disabled:opacity-30 disabled:hover:bg-(--surface-card) transition"
           style={{ width: '28px', height: '28px' }} aria-label={sc.prev}>
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -120,23 +120,23 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
       )}
 
       {/* 달력 카드 */}
-      <div className="flex-1 min-w-0 rounded-xl border border-[#005956]/20 overflow-hidden bg-white">
+      <div className="flex-1 min-w-0 rounded-xl border border-(--brand-a20) overflow-hidden bg-(--surface-card)">
         {/* 헤더: 제목 + 월 */}
-        <div className="flex items-center justify-between bg-[#f0f9f8]" style={{ padding: '9px 12px' }}>
+        <div className="flex items-center justify-between bg-(--brand-tint)" style={{ padding: '9px 12px' }}>
           <div className="flex items-center gap-1.5">
-            <svg className="h-4 w-4 text-[#005956]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="h-4 w-4 text-(--brand)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0V11.25A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
             </svg>
-            <span className="text-sm font-bold text-[#005956]">{sc.title}</span>
+            <span className="text-sm font-bold text-(--brand)">{sc.title}</span>
           </div>
-          <span className="text-sm font-black text-[#05263d]">{fy}년 {fm + 1}월{multi && <span className="text-[11px] font-medium text-slate-300" style={{ marginLeft: '6px' }}>{i + 1}/{events.length}</span>}</span>
+          <span className="text-sm font-black text-(--text)">{fy}년 {fm + 1}월{multi && <span className="text-[11px] font-medium text-(--text-faint)" style={{ marginLeft: '6px' }}>{i + 1}/{events.length}</span>}</span>
         </div>
 
         {/* 포커스 일정 — 이름 + 기간 강조, 지난 일정이면 '종료' 표시 */}
-        <div className="border-b border-slate-100 flex items-baseline flex-wrap" style={{ padding: '7px 12px', gap: '6px' }}>
-          <span className={`text-sm font-black ${focalPast ? 'text-slate-400 line-through' : 'text-[#05263d]'}`}>{focal.event}</span>
-          <span className={`text-xs font-bold ${focalPast ? 'text-slate-300' : 'text-[#005956]'}`}>{focalRange}</span>
-          {focalPast && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 rounded" style={{ padding: '1px 6px' }}>{sc.ended}</span>}
+      <div className="border-b border-(--border) flex items-baseline flex-wrap" style={{ padding: '7px 12px', gap: '6px' }}>
+          <span className={`text-sm font-black ${focalPast ? 'text-(--text-faint) line-through' : 'text-(--text)'}`}>{focal.event}</span>
+          <span className={`text-xs font-bold ${focalPast ? 'text-(--text-faint)' : 'text-(--brand)'}`}>{focalRange}</span>
+          {focalPast && <span className="text-[10px] font-bold text-(--text-muted) bg-(--surface-2) rounded" style={{ padding: '1px 6px' }}>{sc.ended}</span>}
         </div>
 
         {grid}
@@ -145,7 +145,7 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
       {/* 오른쪽 화살표 — 카드 바깥, 흰 배경 + 회색 테두리 원형 버튼 */}
       {multi && (
         <button onClick={() => setIdx(v => Math.min(events.length - 1, v + 1))} disabled={i === events.length - 1}
-          className="shrink-0 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 shadow-sm hover:bg-slate-50 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-white transition"
+          className="shrink-0 flex items-center justify-center rounded-full bg-(--surface-card) border border-(--border) text-(--text-muted) shadow-sm hover:bg-(--surface-2) hover:text-(--text-body) disabled:opacity-30 disabled:hover:bg-(--surface-card) transition"
           style={{ width: '28px', height: '28px' }} aria-label={sc.next}>
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />

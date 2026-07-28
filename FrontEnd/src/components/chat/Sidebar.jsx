@@ -228,13 +228,13 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
 
   return (
     <>
-    <aside className="flex flex-col w-[264px] h-full bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+    <aside className="flex flex-col w-[264px] h-full bg-(--surface-card) rounded-2xl border border-(--border) shadow-lg overflow-hidden">
       <div className="flex flex-col h-full" style={{ padding: '14px 12px' }}>
 
         {/* 새 대화 */}
         <button
           onClick={onNewChat}
-          className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white bg-[#005956] hover:bg-[#004d4a] transition shrink-0"
+          className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white bg-(--brand) hover:bg-[#004d4a] transition shrink-0"
           style={{ padding: '12px' }}
         >
           <svg viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
@@ -244,7 +244,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         {/* 장학금 둘러보기 — 모달 오픈 (RAG 아님, DB 카탈로그 조회) */}
         <button
           onClick={() => setScholarshipModal(true)}
-          className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-[#005956] bg-white border border-[#005956] hover:bg-[#f0f9f8] transition shrink-0"
+          className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-(--brand-bright) bg-(--brand-a10) border border-(--brand-bright) hover:bg-(--brand-a20) transition shrink-0"
           style={{ padding: '11px', marginTop: '10px' }}
         >
           <span style={{ fontSize: '15px' }}>🎓</span>
@@ -253,18 +253,18 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
 
         {/* 학점 진행률 (남은 학점만 · 백분율 없음) */}
         {credit && (
-          <section className="border border-slate-200 rounded-xl bg-white shrink-0" style={{ padding: '12px', marginTop: '14px' }}>
+          <section className="border border-(--border) rounded-xl bg-(--surface-card) shrink-0" style={{ padding: '12px', marginTop: '14px' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
-              <span className="text-xs font-bold text-slate-800">🎓 {t.credit}</span>
-              <button onClick={() => setCreditModal(true)} className="font-semibold text-[#005956] hover:underline" style={{ fontSize: '11px' }}>{t.detail}</button>
+              <span className="text-xs font-bold text-(--text)">🎓 {t.credit}</span>
+              <button onClick={() => setCreditModal(true)} className="font-semibold text-(--brand) hover:underline" style={{ fontSize: '11px' }}>{t.detail}</button>
             </div>
-            <p className="text-slate-400" style={{ fontSize: '11px' }}>{t.toGrad}</p>
-            <p className="font-extrabold text-[#005956]" style={{ fontSize: '22px', lineHeight: 1.1 }}>{credit.remaining}{t.unit}</p>
-            <p className="text-slate-500" style={{ fontSize: '11px', marginTop: '5px' }}>
+            <p className="text-(--text-faint)" style={{ fontSize: '11px' }}>{t.toGrad}</p>
+            <p className="font-extrabold text-(--brand)" style={{ fontSize: '22px', lineHeight: 1.1 }}>{credit.remaining}{t.unit}</p>
+            <p className="text-(--text-muted)" style={{ fontSize: '11px', marginTop: '5px' }}>
               {t.earned} {credit.total_earned} / {credit.total_required}{t.unit}
             </p>
             {credit.dept_name && (
-              <p className="text-slate-400" style={{ fontSize: '11px', marginTop: '2px' }}>
+              <p className="text-(--text-faint)" style={{ fontSize: '11px', marginTop: '2px' }}>
                 {credit.dept_name}{credit.student_no ? ` · ${t.classOf(credit.student_no.slice(2, 4))}` : ''}
               </p>
             )}
@@ -272,16 +272,16 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         )}
 
         {/* 학생식단 */}
-        <section className="border border-slate-200 rounded-xl bg-white shrink-0 overflow-hidden" style={{ marginTop: '14px' }}>
+        <section className="border border-(--border) rounded-xl bg-(--surface-card) shrink-0 overflow-hidden" style={{ marginTop: '14px' }}>
           <div style={{ padding: '12px' }}>
             {/* 헤더: 제목 + 식당 선택 */}
             <div className="flex items-center justify-between" style={{ marginBottom: rest?.location ? '4px' : '10px' }}>
-              <span className="text-xs font-bold text-slate-800">🍱 {t.meal}</span>
+              <span className="text-xs font-bold text-(--text)">🍱 {t.meal}</span>
               {restaurants.length > 0 && (
                 <select
                   value={restIdx}
                   onChange={(e) => selectRestaurant(Number(e.target.value))}
-                  className="border border-slate-200 rounded-lg text-slate-600 bg-white outline-none cursor-pointer hover:border-[#005956]/40"
+                  className="border border-(--border) rounded-lg text-(--text-muted) bg-(--surface-card) outline-none cursor-pointer hover:border-(--brand-a40)"
                   style={{ padding: '3px 6px', maxWidth: '118px', fontSize: '11px' }}
                 >
                   {restaurants.map((r, i) => <option key={r.name} value={i}>{restaurantName(r.name, lang)}</option>)}
@@ -293,7 +293,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
               <>
                 {/* 위치 */}
                 {rest.location && (
-                  <p className="flex items-center gap-1 text-slate-400" style={{ fontSize: '11px', marginBottom: '10px' }}>
+                  <p className="flex items-center gap-1 text-(--text-faint)" style={{ fontSize: '11px', marginBottom: '10px' }}>
                     <span>📍</span>{locationName(rest.location, lang)}
                   </p>
                 )}
@@ -306,7 +306,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                         key={d.date}
                         onClick={() => { setDayIdx(i); setOpenMeals({}) }}
                         className={`flex-1 rounded-lg text-xs font-semibold transition ${
-                          i === dayIdx ? 'bg-[#005956] text-white' : 'text-slate-500 hover:bg-slate-100'
+                          i === dayIdx ? 'bg-(--brand) text-white' : 'text-(--text-muted) hover:bg-(--surface-2)'
                         }`}
                         style={{ padding: '3px 0' }}
                       >
@@ -321,7 +321,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                   const wrapStyle = {
                     marginTop: gi === 0 ? '0' : '10px',
                     paddingTop: gi === 0 ? '0' : '10px',
-                    borderTop: gi === 0 ? 'none' : '1px solid #f1f5f9',
+                    borderTop: gi === 0 ? 'none' : '1px solid var(--surface-2)',
                   }
                   // 코너 1개 → 일반 카드 (기숙사 조/중/석, 천원의아침밥, 샘플 중식)
                   if (g.corners.length === 1) {
@@ -331,9 +331,9 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                     const title = c.name.includes('아침') ? c.name : g.meal
                     return (
                       <div key={g.meal} style={wrapStyle}>
-                        <span className="text-sm font-bold text-[#005956]">{title}</span>
-                        <p className="text-slate-600" style={{ fontSize: '12px', marginTop: '4px', lineHeight: 1.5 }}>{c.items.join(', ')}</p>
-                        {c.price && <p className="text-right font-bold text-slate-800" style={{ fontSize: '13px', marginTop: '4px' }}>{c.price}</p>}
+                        <span className="text-sm font-bold text-(--brand)">{title}</span>
+                        <p className="text-(--text-muted)" style={{ fontSize: '12px', marginTop: '4px', lineHeight: 1.5 }}>{c.items.join(', ')}</p>
+                        {c.price && <p className="text-right font-bold text-(--text)" style={{ fontSize: '13px', marginTop: '4px' }}>{c.price}</p>}
                       </div>
                     )
                   }
@@ -342,10 +342,10 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                   return (
                     <div key={g.meal} style={wrapStyle}>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-bold text-[#005956]">{g.meal}</span>
+                        <span className="text-sm font-bold text-(--brand)">{g.meal}</span>
                         <button
                           onClick={() => setOpenMeals((p) => ({ ...p, [g.meal]: !p[g.meal] }))}
-                          className="shrink-0 inline-flex items-center gap-1 font-bold text-[#005956] bg-[#005956]/10 hover:bg-[#005956]/15 rounded-full transition"
+                          className="shrink-0 inline-flex items-center gap-1 font-bold text-(--brand) bg-(--brand-a10) hover:bg-(--brand-a15) rounded-full transition"
                           style={{ fontSize: '11px', padding: '3px 9px' }}
                         >
                           {opened ? t.collapse : t.detail}
@@ -353,7 +353,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                         </button>
                       </div>
                       {!opened && (
-                        <p className="text-slate-400" style={{ fontSize: '11px', marginTop: '4px', lineHeight: 1.5 }}>
+                        <p className="text-(--text-faint)" style={{ fontSize: '11px', marginTop: '4px', lineHeight: 1.5 }}>
                           {g.corners.map((c) => c.name).join(' · ')}
                         </p>
                       )}
@@ -365,12 +365,12 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                               style={{
                                 marginTop: ci === 0 ? '0' : '8px',
                                 paddingTop: ci === 0 ? '0' : '8px',
-                                borderTop: ci === 0 ? 'none' : '1px dashed #e2e8f0',
+                                borderTop: ci === 0 ? 'none' : '1px dashed var(--border)',
                               }}
                             >
                               <span className="font-bold text-[#0f766e]" style={{ fontSize: '12.5px' }}>{c.name}</span>
-                              <p className="text-slate-600" style={{ fontSize: '12px', marginTop: '2px', lineHeight: 1.5 }}>{c.items.join(', ')}</p>
-                              {c.price && <p className="text-right font-bold text-slate-800" style={{ fontSize: '13px', marginTop: '4px' }}>{c.price}</p>}
+                              <p className="text-(--text-muted)" style={{ fontSize: '12px', marginTop: '2px', lineHeight: 1.5 }}>{c.items.join(', ')}</p>
+                              {c.price && <p className="text-right font-bold text-(--text)" style={{ fontSize: '13px', marginTop: '4px' }}>{c.price}</p>}
                             </div>
                           ))}
                         </div>
@@ -378,11 +378,11 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                     </div>
                   )
                 }) : (
-                  <p className="text-xs text-slate-400">{t.noMeal}</p>
+                  <p className="text-xs text-(--text-faint)">{t.noMeal}</p>
                 )}
               </>
             ) : (
-              <p className="text-xs text-slate-400">{t.noMeal}</p>
+              <p className="text-xs text-(--text-faint)">{t.noMeal}</p>
             )}
           </div>
         </section>
@@ -394,14 +394,14 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         {/* 최근 대화 + topic 필터 */}
         <div className="flex flex-col min-h-0 flex-1" style={{ marginTop: '16px' }}>
           <div className="flex items-center justify-between shrink-0" style={{ marginBottom: '8px', padding: '0 2px' }}>
-            <span className="text-slate-400 font-semibold uppercase tracking-wide" style={{ fontSize: '11px' }}>
+            <span className="text-(--text-faint) font-semibold uppercase tracking-wide" style={{ fontSize: '11px' }}>
               {t.recent}
             </span>
             {presentTopics.length > 0 && (
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="text-xs border border-slate-200 rounded-lg text-slate-600 bg-white outline-none cursor-pointer hover:border-[#005956]/40"
+                className="text-xs border border-(--border) rounded-lg text-(--text-muted) bg-(--surface-card) outline-none cursor-pointer hover:border-(--brand-a40)"
                 style={{ padding: '3px 6px' }}
               >
                 <option value="all">{t.all}</option>
@@ -412,7 +412,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
 
           <div className="flex-1 min-h-0 overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="text-xs text-slate-400" style={{ padding: '8px' }}>{t.empty}</p>
+              <p className="text-xs text-(--text-faint)" style={{ padding: '8px' }}>{t.empty}</p>
             ) : filtered.map((s) => {
               const active = s.id === activeSessionId
               return (
@@ -420,15 +420,15 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                   key={s.id}
                   className={`group relative rounded-lg transition border ${
                     active
-                      ? 'bg-[#005956]/10 border-[#005956]/25 shadow-sm'
-                      : 'border-transparent hover:bg-[#005956]/8 hover:border-[#005956]/20'
+                      ? 'bg-(--brand-a10) border-(--brand-a25) shadow-sm'
+                      : 'border-transparent hover:bg-(--brand-a8) hover:border-(--brand-a20)'
                   }`}
                   style={{ marginBottom: '2px' }}
                 >
                   <button
                     onClick={() => s.id > 0 && onSelectSession?.(s.id)}
                     className={`w-full flex items-center gap-1 text-left truncate transition ${
-                      active ? 'text-[#005956] font-medium' : 'text-slate-600 group-hover:text-[#005956]'
+                      active ? 'text-(--brand) font-medium' : 'text-(--text-muted) group-hover:text-(--brand)'
                     }`}
                     style={{ padding: '7px 30px 7px 0px', fontSize: '13px' }}
                   >
@@ -439,7 +439,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                     onClick={(e) => { e.stopPropagation(); setDeleteTarget(s) }}
                     aria-label="대화 삭제"
                     title="삭제"
-                    className="absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded-md text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-500 transition"
+                    className="absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded-md text-(--text-faint) opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-500 transition"
                     style={{ right: '4px', width: '22px', height: '22px' }}
                   >
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -457,13 +457,13 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
     {/* 학점 진행률 자세히 — 항목별 (백분율 없음, 학점 기준) */}
     {creditModal && credit && (
       <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(15,23,42,.5)', padding: '16px' }} onClick={() => setCreditModal(false)}>
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" style={{ maxHeight: '85vh' }} onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between border-b border-slate-100" style={{ padding: '16px 18px' }}>
+        <div className="bg-(--surface-card) rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" style={{ maxHeight: '85vh' }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between border-b border-(--border)" style={{ padding: '16px 18px' }}>
             <div>
-              <p className="text-slate-400" style={{ fontSize: '11px' }}>{credit.dept_name}{credit.student_no ? ` · ${t.classOf(credit.student_no.slice(2, 4))}` : ''}</p>
-              <p className="font-bold text-slate-800" style={{ fontSize: '16px' }}>🎓 {t.credit}</p>
+              <p className="text-(--text-faint)" style={{ fontSize: '11px' }}>{credit.dept_name}{credit.student_no ? ` · ${t.classOf(credit.student_no.slice(2, 4))}` : ''}</p>
+              <p className="font-bold text-(--text)" style={{ fontSize: '16px' }}>🎓 {t.credit}</p>
             </div>
-            <button onClick={() => setCreditModal(false)} className="text-slate-400 hover:text-slate-700 text-lg" aria-label="닫기">✕</button>
+            <button onClick={() => setCreditModal(false)} className="text-(--text-faint) hover:text-(--text-body) text-lg" aria-label="닫기">✕</button>
           </div>
           <div style={{ padding: '18px', overflowY: 'auto' }}>
             {(credit.categories || []).map((c) => {
@@ -473,32 +473,32 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
               return (
                 <div key={c.name} style={{ marginBottom: '14px' }}>
                   <div className="flex items-center justify-between" style={{ marginBottom: '6px' }}>
-                    <span className="text-sm font-semibold text-slate-700">{categoryName(c.name, lang)}</span>
-                    <span className="text-sm font-bold text-slate-800">{c.earned} <span className="text-slate-400 font-medium">/ {c.required}</span></span>
+                    <span className="text-sm font-semibold text-(--text-body)">{categoryName(c.name, lang)}</span>
+                    <span className="text-sm font-bold text-(--text)">{c.earned} <span className="text-(--text-faint) font-medium">/ {c.required}</span></span>
                   </div>
-                  <div className="rounded-full bg-slate-100 overflow-hidden" style={{ height: '7px' }}>
-                    <div style={{ height: '100%', width: `${pct}%`, background: met ? '#22a06b' : '#005956' }} />
+                  <div className="rounded-full bg-(--surface-2) overflow-hidden" style={{ height: '7px' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: met ? '#22a06b' : 'var(--brand)' }} />
                   </div>
                   <p className="font-medium" style={{ fontSize: '11px', marginTop: '5px', color: met ? '#22a06b' : '#b45309' }}>{met ? t.met : t.shortMsg(short)}</p>
                 </div>
               )
             })}
-            <div className="border-t border-slate-100" style={{ marginTop: '4px', paddingTop: '14px' }}>
+            <div className="border-t border-(--border)" style={{ marginTop: '4px', paddingTop: '14px' }}>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-700">{t.totalLabel}</span>
-                <span className="text-sm font-bold text-slate-800">{credit.total_earned} <span className="text-slate-400 font-medium">/ {credit.total_required}</span></span>
+                <span className="text-sm font-semibold text-(--text-body)">{t.totalLabel}</span>
+                <span className="text-sm font-bold text-(--text)">{credit.total_earned} <span className="text-(--text-faint) font-medium">/ {credit.total_required}</span></span>
               </div>
               {/* 총 이수학점 진행 바 — 카테고리(teal/green)와 구분되는 앰버 색 */}
-              <div className="rounded-full bg-slate-100 overflow-hidden" style={{ height: '9px', marginTop: '8px' }}>
+              <div className="rounded-full bg-(--surface-2) overflow-hidden" style={{ height: '9px', marginTop: '8px' }}>
                 <div style={{
                   height: '100%',
                   width: `${credit.total_required > 0 ? Math.min(100, (credit.total_earned / credit.total_required) * 100) : 0}%`,
                   background: '#f59e0b',
                 }} />
               </div>
-              <p className="font-bold" style={{ fontSize: '13px', marginTop: '8px', color: '#005956' }}>{t.remainMsg(credit.remaining)}</p>
+              <p className="font-bold" style={{ fontSize: '13px', marginTop: '8px', color: 'var(--brand)' }}>{t.remainMsg(credit.remaining)}</p>
             </div>
-            <p className="text-slate-400" style={{ fontSize: '11px', marginTop: '14px' }}>{t.note}</p>
+            <p className="text-(--text-faint)" style={{ fontSize: '11px', marginTop: '14px' }}>{t.note}</p>
           </div>
         </div>
       </div>
@@ -509,23 +509,23 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
     {/* 대화 삭제 확인 */}
     {deleteTarget && (
       <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(15,23,42,.5)', padding: '16px' }} onClick={() => setDeleteTarget(null)}>
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-(--surface-card) rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden" onClick={(e) => e.stopPropagation()}>
           <div style={{ padding: '20px 20px 16px' }}>
-            <p className="font-bold text-slate-800" style={{ fontSize: '15px' }}>대화를 삭제할까요?</p>
-            <p className="text-slate-500 truncate" style={{ fontSize: '13px', marginTop: '6px' }}>{deleteTarget.title}</p>
-            <p className="text-slate-400" style={{ fontSize: '11px', marginTop: '8px' }}>삭제하면 되돌릴 수 없어요.</p>
+            <p className="font-bold text-(--text)" style={{ fontSize: '15px' }}>대화를 삭제할까요?</p>
+            <p className="text-(--text-muted) truncate" style={{ fontSize: '13px', marginTop: '6px' }}>{deleteTarget.title}</p>
+            <p className="text-(--text-faint)" style={{ fontSize: '11px', marginTop: '8px' }}>삭제하면 되돌릴 수 없어요.</p>
           </div>
-          <div className="flex border-t border-slate-100">
+          <div className="flex border-t border-(--border)">
             <button
               onClick={() => setDeleteTarget(null)}
-              className="flex-1 font-semibold text-slate-600 hover:bg-slate-50 transition"
+              className="flex-1 font-semibold text-(--text-muted) hover:bg-(--surface-2) transition"
               style={{ padding: '12px', fontSize: '13px' }}
             >
               취소
             </button>
             <button
               onClick={confirmDeleteSession}
-              className="flex-1 font-semibold text-red-500 border-l border-slate-100 hover:bg-red-50 transition"
+              className="flex-1 font-semibold text-red-500 border-l border-(--border) hover:bg-red-50 transition"
               style={{ padding: '12px', fontSize: '13px' }}
             >
               삭제

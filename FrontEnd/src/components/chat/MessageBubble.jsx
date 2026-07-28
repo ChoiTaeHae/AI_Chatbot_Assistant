@@ -46,7 +46,7 @@ function FeedbackModal({ type, onSubmit, onClose }) {
   }
 
   const isLike = type === 'like'
-  const accentColor = isLike ? '#005956' : '#e53e3e'
+  const accentColor = isLike ? 'var(--brand)' : '#e53e3e'
 
   return (
     <div
@@ -59,7 +59,7 @@ function FeedbackModal({ type, onSubmit, onClose }) {
     >
       <div
         style={{
-          background: '#fff', borderRadius: '16px', padding: '24px 28px',
+          background: 'var(--surface-card)', borderRadius: '16px', padding: '24px 28px',
           width: '340px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
           position: 'relative',
         }}
@@ -85,8 +85,8 @@ function FeedbackModal({ type, onSubmit, onClose }) {
         <form onSubmit={handleSubmit}>
           {/* 별점 */}
           <div style={{ marginBottom: '14px' }}>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
-              평점 <span style={{ color: '#94a3b8' }}>(선택)</span>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+              평점 <span style={{ color: 'var(--text-faint)' }}>(선택)</span>
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>
               {[1, 2, 3, 4, 5].map(n => (
@@ -107,7 +107,7 @@ function FeedbackModal({ type, onSubmit, onClose }) {
                 </button>
               ))}
               {rating && (
-                <span style={{ fontSize: '12px', color: '#64748b', alignSelf: 'center', marginLeft: '4px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '4px' }}>
                   {rating}점
                 </span>
               )}
@@ -116,8 +116,8 @@ function FeedbackModal({ type, onSubmit, onClose }) {
 
           {/* 코멘트 */}
           <div style={{ marginBottom: '18px' }}>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
-              의견 <span style={{ color: '#94a3b8' }}>(선택)</span>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+              의견 <span style={{ color: 'var(--text-faint)' }}>(선택)</span>
             </div>
             <textarea
               value={comment}
@@ -126,7 +126,7 @@ function FeedbackModal({ type, onSubmit, onClose }) {
               rows={3}
               style={{
                 width: '100%', resize: 'none', padding: '10px 12px',
-                borderRadius: '10px', border: '1px solid #e2e8f0',
+                borderRadius: '10px', border: '1px solid var(--border)',
                 fontSize: '13px', outline: 'none', boxSizing: 'border-box',
                 fontFamily: 'inherit', color: '#334155',
               }}
@@ -139,8 +139,8 @@ function FeedbackModal({ type, onSubmit, onClose }) {
               type="button"
               onClick={onClose}
               style={{
-                padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0',
-                background: '#f8fafc', color: '#64748b', fontSize: '13px',
+                padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--border)',
+                background: 'var(--surface-2)', color: 'var(--text-muted)', fontSize: '13px',
                 cursor: 'pointer', fontWeight: 500,
               }}
             >
@@ -195,13 +195,13 @@ function RewriteFeedbackPanel({ question, rewrite, messageId }) {
   return (
     <div style={{
       marginTop: '6px', maxWidth: '320px', width: '100%',
-      border: '1px dashed #cbd5e1', borderRadius: '10px',
-      background: '#f8fafc', padding: '8px 10px', fontSize: '12px',
+      border: '1px dashed var(--border-strong)', borderRadius: '10px',
+      background: 'var(--surface-2)', padding: '8px 10px', fontSize: '12px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '5px', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '10px', fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: '999px' }}>DEV</span>
-        <span style={{ color: '#64748b' }}>재작성:</span>
-        <span style={{ color: '#0f172a', fontWeight: 600 }}>{rewrite}</span>
+        <span style={{ color: 'var(--text-muted)' }}>재작성:</span>
+        <span style={{ color: 'var(--text)', fontWeight: 600 }}>{rewrite}</span>
       </div>
       {saved !== null ? (
         <div style={{ color: saved ? '#059669' : '#e53e3e', fontWeight: 600 }}>
@@ -213,13 +213,13 @@ function RewriteFeedbackPanel({ question, rewrite, messageId }) {
             value={corrected}
             onChange={e => setCorrected(e.target.value)}
             placeholder="정답 rewrite 입력"
-            style={{ flex: 1, padding: '5px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', outline: 'none' }}
+            style={{ flex: 1, padding: '5px 8px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '12px', outline: 'none' }}
           />
           <button type="button" disabled={busy} onClick={() => save(false, corrected.trim())} style={btn('#e53e3e', '#e53e3e', '#fff')}>저장</button>
         </div>
       ) : (
         <div style={{ display: 'flex', gap: '6px' }}>
-          <button type="button" disabled={busy} onClick={() => save(true, null)} style={btn('#f0f9f8', '#005956', '#005956')}>👍 좋음</button>
+          <button type="button" disabled={busy} onClick={() => save(true, null)} style={btn('var(--brand-tint)', 'var(--brand)', 'var(--brand)')}>👍 좋음</button>
           <button type="button" disabled={busy} onClick={() => setEditing(true)} style={btn('#fff5f5', '#e53e3e', '#e53e3e')}>👎 교정</button>
         </div>
       )}
@@ -269,9 +269,9 @@ function MessageActions({ messageId, content }) {
           onClose={() => setModalType(null)}
         />
       )}
-      <div className="flex items-center gap-3 text-slate-400" style={{ marginTop: '12px' }}>
+      <div className="flex items-center gap-3 text-(--text-faint)" style={{ marginTop: '12px' }}>
         {/* 복사 */}
-        <button type="button" onClick={handleCopy} className="hover:text-slate-600 transition" title="복사">
+        <button type="button" onClick={handleCopy} className="hover:text-(--text-muted) transition" title="복사">
           {copied ? (
             <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -287,7 +287,7 @@ function MessageActions({ messageId, content }) {
           type="button"
           onClick={() => handleFeedbackClick('like')}
           className="transition"
-          style={{ color: feedback === 'like' ? '#005956' : undefined }}
+          style={{ color: feedback === 'like' ? 'var(--brand)' : undefined }}
           title="좋아요"
         >
           <svg className="h-5 w-5" fill={feedback === 'like' ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -331,12 +331,12 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
       <div className="flex justify-end items-start gap-3" style={{ marginBottom: '15px', paddingRight: '8px' }}>
         <div className="flex flex-col items-end gap-1">
           <div
-            className="rounded-2xl rounded-tr-sm bg-[#eaf2f2] text-slate-800 whitespace-pre-wrap break-words"
+            className="rounded-2xl rounded-tr-sm bg-(--user-bubble) text-(--text) whitespace-pre-wrap break-words"
             style={{ padding: '12px 16px', fontSize: '15px', lineHeight: '1.6', maxWidth: '320px' }}
           >
             {message.content}
           </div>
-          <span className="text-xs text-slate-400" style={{ marginTop: '4px' }}>{message.time}</span>
+          <span className="text-xs text-(--text-faint)" style={{ marginTop: '4px' }}>{message.time}</span>
           {/* [DEV-ONLY] rewrite 피드백 패널 — 배포 시 이 블록 제거 */}
           {import.meta.env.DEV && message.rewrittenQuery && (
             <RewriteFeedbackPanel
@@ -346,8 +346,8 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
             />
           )}
         </div>
-        <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200" style={{ marginTop: '4px' }}>
-          <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="h-9 w-9 rounded-full bg-(--surface-2) flex items-center justify-center shrink-0 border border-(--border)" style={{ marginTop: '4px' }}>
+          <svg className="h-5 w-5 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
           </svg>
         </div>
@@ -360,15 +360,15 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
       <MascotAvatar className="h-12 w-12 shrink-0 object-contain" style={{ marginTop: '4px' }} />
       <div style={{ flex: 1, maxWidth: '80%' }}>
         <div
-          className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white text-slate-800 shadow-sm"
+          className="rounded-2xl rounded-tl-sm border border-(--border) bg-(--surface-card) text-(--text) shadow-sm"
           style={{ padding: '16px 20px', fontSize: '15px', lineHeight: '1.7' }}
         >
           <ReactMarkdown
-            className="prose prose-slate max-w-none text-slate-800"
+            className="prose prose-slate max-w-none text-(--text)"
             components={{
               a: ({ href, children }) => (
                 <a href={href} target="_blank" rel="noopener noreferrer"
-                  className="text-[#005956] underline underline-offset-2 hover:text-[#004a47] transition">
+                  className="text-(--brand) underline underline-offset-2 hover:text-(--brand-hover) transition">
                   {children}
                 </a>
               ),
@@ -390,7 +390,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                   <li style={{
                     marginBottom: '6px',
                     lineHeight: '1.6',
-                    color: '#1e293b',
+                    color: 'var(--text)',
                     ...(hasCircleNum ? { listStyleType: 'none', marginLeft: '-1rem' } : {}),
                   }}>
                     {children}
@@ -401,7 +401,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                 <p style={{ margin: '6px 0', lineHeight: '1.6' }}>{children}</p>
               ),
               strong: ({ children }) => (
-                <strong style={{ fontWeight: 600, color: '#0f172a' }}>{children}</strong>
+                <strong style={{ fontWeight: 600, color: 'var(--text)' }}>{children}</strong>
               ),
             }}
           >
@@ -411,20 +411,20 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
           {/* 캠퍼스 지도 카드 */}
           {message.mapCard && (
             <div
-              className="rounded-xl border border-[#005956]/20 overflow-hidden"
+              className="rounded-xl border border-(--brand-a20) overflow-hidden"
               style={{ marginTop: '14px' }}
             >
               {/* 건물 정보 헤더 */}
-              <div className="flex items-center gap-2 bg-[#f0f9f8]" style={{ padding: '10px 14px' }}>
-                <div className="shrink-0 rounded-lg bg-[#005956] flex items-center justify-center" style={{ width: '32px', height: '32px' }}>
+              <div className="flex items-center gap-2 bg-(--brand-tint)" style={{ padding: '10px 14px' }}>
+                <div className="shrink-0 rounded-lg bg-(--brand) flex items-center justify-center" style={{ width: '32px', height: '32px' }}>
                   <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-[#005956] truncate">{message.mapCard.title}</p>
-                  <p className="text-xs text-slate-500 truncate">{message.mapCard.address}</p>
+                  <p className="text-sm font-bold text-(--brand) truncate">{message.mapCard.title}</p>
+                  <p className="text-xs text-(--text-muted) truncate">{message.mapCard.address}</p>
                 </div>
               </div>
 
@@ -440,7 +440,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                   <>
                     {/* iframe을 컨테이너보다 크게 잡아 OSM 기본 푸터(문제점 보고·기부 링크 등)를
                         아래로 밀어 잘라낸다. 출처 표기는 ODbL 의무라 아래에 한 줄로 대체 표시. */}
-                    <div className="relative overflow-hidden bg-slate-100" style={{ height: '190px' }}>
+                    <div className="relative overflow-hidden bg-(--surface-2)" style={{ height: '190px' }}>
                       <iframe
                         title={`${message.mapCard.title} ${ct.mapAria}`}
                         src={`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`}
@@ -449,7 +449,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                         style={{ height: '226px', border: 0 }}
                       />
                     </div>
-                    <p className="text-slate-300 bg-white text-right" style={{ fontSize: '9px', padding: '2px 8px 0' }}>
+                    <p className="text-(--text-faint) bg-(--surface-card) text-right" style={{ fontSize: '9px', padding: '2px 8px 0' }}>
                       © OpenStreetMap
                     </p>
                   </>
@@ -462,7 +462,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                   href={message.mapCard.place_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-1.5 text-xs font-medium text-[#005956] hover:bg-[#e4f4f3] transition bg-white"
+                  className="flex items-center justify-center gap-1.5 text-xs font-medium text-(--brand) hover:bg-(--brand-tint) transition bg-(--surface-card)"
                   style={{ padding: '8px', textDecoration: 'none' }}
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -481,32 +481,32 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
           {/* 학과/학부/단과대 안내 카드 — 소개 본문은 담지 않고 소속 정보 + 홈페이지 링크만 */}
           {message.deptCard && (
             <div
-              className="rounded-xl border border-[#005956]/20 overflow-hidden"
+              className="rounded-xl border border-(--brand-a20) overflow-hidden"
               style={{ marginTop: '14px' }}
             >
-              <div className="flex items-center gap-2 bg-[#f0f9f8]" style={{ padding: '10px 14px' }}>
-                <div className="shrink-0 rounded-lg bg-[#005956] flex items-center justify-center" style={{ width: '32px', height: '32px' }}>
+              <div className="flex items-center gap-2 bg-(--brand-tint)" style={{ padding: '10px 14px' }}>
+                <div className="shrink-0 rounded-lg bg-(--brand) flex items-center justify-center" style={{ width: '32px', height: '32px' }}>
                   <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-[#005956] truncate">{message.deptCard.title}</p>
-                  <p className="text-xs text-slate-500 truncate">{message.deptCard.subtitle}</p>
+                  <p className="text-sm font-bold text-(--brand) truncate">{message.deptCard.title}</p>
+                  <p className="text-xs text-(--text-muted) truncate">{message.deptCard.subtitle}</p>
                 </div>
               </div>
 
               {/* 형제 학과 / 소속 학과 목록 */}
               {message.deptCard.items?.length > 0 && (
-                <div className="bg-white" style={{ padding: '10px 14px' }}>
-                  <p className="text-slate-400" style={{ fontSize: '11px', marginBottom: '5px' }}>
+                <div className="bg-(--surface-card)" style={{ padding: '10px 14px' }}>
+                  <p className="text-(--text-faint)" style={{ fontSize: '11px', marginBottom: '5px' }}>
                     {message.deptCard.items_label}
                   </p>
                   <div className="flex flex-wrap" style={{ gap: '4px' }}>
                     {message.deptCard.items.map((it) => (
                       <span
                         key={it}
-                        className="rounded-full bg-slate-100 text-slate-600"
+                        className="rounded-full bg-(--surface-2) text-(--text-muted)"
                         style={{ fontSize: '11px', padding: '2px 8px' }}
                       >
                         {it}
@@ -518,13 +518,13 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
 
               {/* 학과 사무실 전화 — 모바일에서 눌러서 바로 걸 수 있게 tel: 링크 */}
               {message.deptCard.phone && (
-                <div className="bg-white border-t border-slate-100" style={{ padding: '8px 14px' }}>
-                  <p className="flex items-center gap-1.5 text-slate-500" style={{ fontSize: '11px' }}>
+                <div className="bg-(--surface-card) border-t border-(--border)" style={{ padding: '8px 14px' }}>
+                  <p className="flex items-center gap-1.5 text-(--text-muted)" style={{ fontSize: '11px' }}>
                     <span>📞</span>
                     {message.deptCard.phone.split(',').map((num, i) => (
                       <span key={num}>
-                        {i > 0 && <span className="text-slate-300" style={{ margin: '0 4px' }}>·</span>}
-                        <a href={`tel:${num.trim()}`} className="text-slate-600 hover:text-[#005956]" style={{ textDecoration: 'none' }}>
+                        {i > 0 && <span className="text-(--text-faint)" style={{ margin: '0 4px' }}>·</span>}
+                        <a href={`tel:${num.trim()}`} className="text-(--text-muted) hover:text-(--brand)" style={{ textDecoration: 'none' }}>
                           {num.trim()}
                         </a>
                       </span>
@@ -539,7 +539,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                   href={message.deptCard.homepage_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-1.5 text-xs font-medium text-[#005956] hover:bg-[#e4f4f3] transition bg-white border-t border-slate-100"
+                  className="flex items-center justify-center gap-1.5 text-xs font-medium text-(--brand) hover:bg-(--brand-tint) transition bg-(--surface-card) border-t border-(--border)"
                   style={{ padding: '8px', textDecoration: 'none' }}
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -578,13 +578,13 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 onClick={() => onConfirmFile(pendingFile, true)}
-                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-[#005956] text-[#005956] bg-[#f0f9f8] hover:bg-[#e2f1f0]"
+                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-(--brand) text-(--brand) bg-(--brand-tint) hover:bg-[#e2f1f0]"
               >
                 {ct.yes}
               </button>
               <button
                 onClick={() => onConfirmFile(pendingFile, false)}
-                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-slate-300 text-slate-600 bg-slate-50 hover:bg-slate-100"
+                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-(--border-strong) text-(--text-muted) bg-(--surface-2) hover:bg-(--surface-2)"
               >
                 {ct.no}
               </button>
@@ -594,7 +594,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
           {/* 파일 선택 버튼 (사용자가 '응' 확인 후에만 표시) */}
           {message.fileOffer && message.fileOffer.show_buttons && message.fileOffer.files && message.fileOffer.files.length > 0 && (
             <div style={{ marginTop: '14px' }}>
-              <p className="text-xs text-slate-400" style={{ marginBottom: '8px' }}>{ct.pickFile}</p>
+              <p className="text-xs text-(--text-faint)" style={{ marginBottom: '8px' }}>{ct.pickFile}</p>
               <div className="flex flex-wrap gap-2">
                 {message.fileOffer.files.map((filename) => {
                   const stem = filename.replace(/\.[^/.]+$/, '')
@@ -612,9 +612,9 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                       className="flex items-center gap-1.5 rounded-lg border text-sm font-medium transition"
                       style={{
                         padding: '6px 12px',
-                        borderColor: isDone ? '#a0aec0' : '#005956',
-                        color: isDone ? '#a0aec0' : '#005956',
-                        backgroundColor: isDone ? '#f8f8f8' : '#f0f9f8',
+                        borderColor: isDone ? 'var(--text-faint)' : 'var(--brand)',
+                        color: isDone ? 'var(--text-faint)' : 'var(--brand)',
+                        backgroundColor: isDone ? '#f8f8f8' : 'var(--brand-tint)',
                         cursor: isDone ? 'default' : 'pointer',
                       }}
                     >
@@ -643,8 +643,8 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                     className="flex items-center gap-1.5 rounded-lg border text-sm font-medium transition"
                     style={{
                       padding: '6px 12px',
-                      borderColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '#a0aec0' : '#1a5276',
-                      color: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '#a0aec0' : '#1a5276',
+                      borderColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'var(--text-faint)' : '#1a5276',
+                      color: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'var(--text-faint)' : '#1a5276',
                       backgroundColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '#f8f8f8' : '#eaf2f8',
                       cursor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'default' : 'pointer',
                     }}
@@ -660,7 +660,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
           )}
 
           <div className="flex justify-between items-end" style={{ marginTop: '12px' }}>
-            <span className="text-xs text-slate-400">{message.time}</span>
+            <span className="text-xs text-(--text-faint)">{message.time}</span>
             <MessageActions messageId={message.messageId} content={message.content} />
           </div>
         </div>
