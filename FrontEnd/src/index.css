@@ -5,6 +5,9 @@
    인라인/브래킷 hex는 이 변수들로 치환되고, Tailwind slate 클래스는
    아래 --color-* 오버라이드로 다크에서 자동으로 뒤집힌다. */
 :root {
+  /* 네이티브 UI(셀렉트 팝업 목록·날짜 피커·기본 스크롤바·입력창 캐럿)를 테마에 맞춤.
+     이게 없으면 다크모드에서 select 드롭다운만 흰 패널로 튀어나온다. */
+  color-scheme: light;
   --page:         #f5f7fb;
   --surface-card: #ffffff;
   --surface-2:    #f8fafc;
@@ -33,6 +36,8 @@
   --danger-text:  #b91c1c;
   --accent:       #8900ff;
   --accent-tint:  #eee6ff;
+  --info:         #1a5276;   /* '전체 다운로드' 등 브랜드와 구분되는 보조 액션 */
+  --info-tint:    #eaf2f8;
   --scrollbar:    #cbd5e1;
   /* 브랜드 투명도 틴트 (rgba) */
   --brand-a5:  rgba(0, 89, 86, 0.05);
@@ -45,44 +50,56 @@
   --brand-a40: rgba(0, 89, 86, 0.40);
 }
 
+/* 다크 팔레트 — 무채색 차콜 기반.
+   이전에는 남색 계열(#0b1220~#3a475f)이었는데, 배경 hue(≈220)와 브랜드 티일
+   hue(≈172)가 둘 다 한색이라 서로 간섭해 화면 전체가 탁해 보였다.
+   배경에서 색을 빼면 hue 충돌이 사라져 티일이 유일한 색 포인트로 남는다.
+   → 서피스 계열은 채도 0에 가깝게, 색은 브랜드/상태 배지에만 쓴다. */
 :root[data-theme="dark"] {
-  --page:         #0b1220;
-  --surface-card: #131d30;
-  --surface-2:    #172033;
-  --border:       #27334c;
-  --border-strong:#3a475f;
-  --text:         #eaf1f9;
-  --text-body:    #dde5f0;
-  --text-muted:   #9aa8bd;
-  --text-faint:   #7c8aa0;
-  --brand:        #16a394;
-  --brand-bright: #2fd4c0;   /* 밝은 티일 — 다크 배경에서 또렷하게 */
-  --brand-hover:  #128a7c;
-  --brand-tint:   #10241f;
-  --brand-tint2:  #12281f;
-  --user-bubble:  #1c3330;
-  --surface-modal:#1d2841;   /* 카드(#131d30)보다 밝게 — 진한 스크림 위라 붕 뜨지 않고 또렷 */
-  --cat-header:   #2f4066;   /* 본문 위에서 또렷한 카테고리 바 */
-  --modal-edge:   #3d4a6a;   /* 명확한 테두리 — 진한 스크림 덕에 글로우 없이 경계만 */
-  --scrim:        rgba(2,5,11,.74);   /* 뒷배경 강하게 어둡게 → 모달이 확실히 분리돼 보임 */
-  --item-bubble:  #28395f;   /* 본문(#1d2841)보다 확실히 밝게 → 방울이 또렷이 떠오름 */
-  --item-edge:    #3d4f7a;
-  --item-shadow:  0 4px 12px rgba(0,0,0,.35);
-  --amber-tint:   #3a2f14;
+  color-scheme: dark;
+  --page:         #17181b;   /* 가장 어두운 바닥 — 카드가 이 위에 떠 보인다 */
+  --surface-card: #1e1f23;
+  --surface-2:    #25262b;
+  --border:       #2f3137;
+  --border-strong:#43464e;
+  --text:         #ecedee;   /* 카드 대비 13.7:1 */
+  --text-body:    #dfe0e2;
+  --text-muted:   #a0a2a8;   /* 6.3:1 */
+  --text-faint:   #86898f;   /* 4.6:1 — AA 하한을 지키는 선까지만 흐리게 */
+  /* 헤더·주요 버튼 면 채움. 이전 #16a394는 흰 글씨 대비가 3.1:1로 AA(4.5) 미달이었고
+     넓은 면적에 쓰기엔 채도가 높아 시선을 다 뺏었다. #0f8578은 흰 글씨 4.5:1. */
+  --brand:        #0f8578;
+  --brand-bright: #33c9b6;   /* 어두운 면 '위의' 글자·아이콘용 (카드 대비 7.8:1) */
+  --brand-hover:  #0c6f65;   /* 라이트와 같은 방향(어두워짐) — 대비는 오히려 올라간다 */
+  --brand-tint:   #17211f;   /* 서피스에 티일 기운만 얹은 정도 */
+  --brand-tint2:  #1b2a27;
+  --user-bubble:  #1d2f2c;
+  --surface-modal:#24262b;   /* 카드(#1e1f23)보다 밝게 — 진한 스크림 위라 붕 뜨지 않고 또렷 */
+  --cat-header:   #33363d;   /* 본문 위에서 또렷한 카테고리 바 */
+  --modal-edge:   #41454e;   /* 명확한 테두리 — 진한 스크림 덕에 글로우 없이 경계만 */
+  --scrim:        rgba(0,0,0,.72);    /* 뒷배경 강하게 어둡게 → 모달이 확실히 분리돼 보임 */
+  --item-bubble:  #2c2f36;   /* 본문(#24262b)보다 확실히 밝게 → 방울이 또렷이 떠오름 */
+  --item-edge:    #3d4149;
+  --item-shadow:  0 4px 12px rgba(0,0,0,.45);
+  --amber-tint:   #35291a;
   --amber-text:   #f0c26b;
-  --danger-tint:  #3d1f1f;
+  --danger-tint:  #3a2020;
   --danger-text:  #f5a3a3;
   --accent:       #b57bff;
-  --accent-tint:  #241a33;
-  --scrollbar:    #3a475f;
-  --brand-a5:  rgba(22, 163, 148, 0.10);
-  --brand-a8:  rgba(22, 163, 148, 0.14);
-  --brand-a10: rgba(22, 163, 148, 0.16);
-  --brand-a15: rgba(22, 163, 148, 0.20);
-  --brand-a20: rgba(22, 163, 148, 0.24);
-  --brand-a25: rgba(22, 163, 148, 0.28);
-  --brand-a30: rgba(22, 163, 148, 0.34);
-  --brand-a40: rgba(22, 163, 148, 0.42);
+  --accent-tint:  #292233;
+  --info:         #7fb3d5;   /* 라이트(#1a5276)를 뒤집어 글자 쪽을 밝게 */
+  --info-tint:    #1f2833;
+  --scrollbar:    #3d4046;
+  /* 알파 틴트는 밝은 쪽(brand-bright) rgb로 — 어두운 티일을 저알파로 깔면
+     차콜 배경에 묻혀 아예 보이지 않는다. */
+  --brand-a5:  rgba(51, 201, 182, 0.06);
+  --brand-a8:  rgba(51, 201, 182, 0.09);
+  --brand-a10: rgba(51, 201, 182, 0.11);
+  --brand-a15: rgba(51, 201, 182, 0.15);
+  --brand-a20: rgba(51, 201, 182, 0.19);
+  --brand-a25: rgba(51, 201, 182, 0.23);
+  --brand-a30: rgba(51, 201, 182, 0.28);
+  --brand-a40: rgba(51, 201, 182, 0.36);
 }
 
 * {
@@ -108,6 +125,19 @@ button:disabled { cursor: not-allowed; }
 #root { width: 100%; min-height: 100svh; }
 
 ::selection { background: rgba(37, 99, 235, 0.16); }
+/* 다크에서는 파란 선택색이 무채색 배경 위에서 유일한 이질적 hue가 된다 → 브랜드 틴트로 */
+:root[data-theme="dark"] ::selection { background: rgba(51, 201, 182, 0.26); }
+
+/* 이모지는 폰트가 색을 직접 그려서 테마를 따르지 않는다. 🎓(검정 학사모)·💼·📞·🔗처럼
+   어두운 이모지는 차콜 배경에 그대로 묻혀 형태가 안 보인다.
+   → 다크에서만 얇은 흰 윤곽을 둘러 실루엣을 살린다. brightness/invert 같은 색 필터는
+     컬러 이모지(🍱·📍)까지 바래거나 색이 뒤집혀서, 형태만 건드리는 drop-shadow를 적층한다.
+   흰 이모지(📄 등)에는 흰 그림자라 시각적으로 no-op이므로 그냥 다 붙여도 안전하다. */
+:root[data-theme="dark"] .emoji {
+  filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.95))
+          drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.95))
+          drop-shadow(0 0 2px rgba(255, 255, 255, 0.35));
+}
 
 @keyframes chatViewEnter {
   from { opacity: 0; transform: translateY(8px); }

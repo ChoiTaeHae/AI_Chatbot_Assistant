@@ -154,7 +154,7 @@ export default function ScholarshipManager() {
           <div className="flex-1 overflow-y-auto flex flex-col" style={{ gap: '18px' }}>
             {['장학금', '근로'].map((k) => (grouped[k] || []).length > 0 && (
               <div key={k}>
-                <p className="text-sm font-bold" style={{ marginBottom: '8px', color: TEAL }}>{k === '근로' ? '💼' : '🎓'} {k} <span className="text-(--text-faint) font-normal">({grouped[k].length})</span></p>
+                <p className="text-sm font-bold" style={{ marginBottom: '8px', color: TEAL }}><span className="emoji">{k === '근로' ? '💼' : '🎓'}</span> {k} <span className="text-(--text-faint) font-normal">({grouped[k].length})</span></p>
                 <div className="border border-(--border) rounded-xl overflow-hidden">
                   {grouped[k].map((s) => (
                     <div key={s.id} className="flex items-center gap-3 border-b border-(--border) last:border-b-0 hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
@@ -167,8 +167,8 @@ export default function ScholarshipManager() {
                           {s.expired && <span className="text-[11px] font-semibold text-red-600 bg-red-50 rounded-full" style={{ padding: '1px 8px' }}>기간마감</span>}
                         </div>
                         <div className="flex items-center gap-2 text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
-                          {s.period && <span>🗓 {s.period}</span>}
-                          <span>📎 파일 {s.files?.length || 0}</span>
+                          {s.period && <span><span className="emoji">🗓</span> {s.period}</span>}
+                          <span><span className="emoji">📎</span> 파일 {s.files?.length || 0}</span>
                         </div>
                       </div>
                       <button onClick={() => openEdit(s)} className="text-xs font-semibold text-(--brand) hover:underline shrink-0">수정</button>

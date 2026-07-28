@@ -128,7 +128,7 @@ function FeedbackModal({ type, onSubmit, onClose }) {
                 width: '100%', resize: 'none', padding: '10px 12px',
                 borderRadius: '10px', border: '1px solid var(--border)',
                 fontSize: '13px', outline: 'none', boxSizing: 'border-box',
-                fontFamily: 'inherit', color: '#334155',
+                fontFamily: 'inherit', color: 'var(--text-body)', background: 'var(--surface-2)',
               }}
             />
           </div>
@@ -520,7 +520,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
               {message.deptCard.phone && (
                 <div className="bg-(--surface-card) border-t border-(--border)" style={{ padding: '8px 14px' }}>
                   <p className="flex items-center gap-1.5 text-(--text-muted)" style={{ fontSize: '11px' }}>
-                    <span>📞</span>
+                    <span className="emoji">📞</span>
                     {message.deptCard.phone.split(',').map((num, i) => (
                       <span key={num}>
                         {i > 0 && <span className="text-(--text-faint)" style={{ margin: '0 4px' }}>·</span>}
@@ -578,7 +578,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 onClick={() => onConfirmFile(pendingFile, true)}
-                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-(--brand) text-(--brand) bg-(--brand-tint) hover:bg-[#e2f1f0]"
+                className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-(--brand) text-(--brand) bg-(--brand-tint) hover:bg-(--brand-tint2)"
               >
                 {ct.yes}
               </button>
@@ -614,7 +614,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                         padding: '6px 12px',
                         borderColor: isDone ? 'var(--text-faint)' : 'var(--brand)',
                         color: isDone ? 'var(--text-faint)' : 'var(--brand)',
-                        backgroundColor: isDone ? '#f8f8f8' : 'var(--brand-tint)',
+                        backgroundColor: isDone ? 'var(--surface-2)' : 'var(--brand-tint)',
                         cursor: isDone ? 'default' : 'pointer',
                       }}
                     >
@@ -643,9 +643,9 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
                     className="flex items-center gap-1.5 rounded-lg border text-sm font-medium transition"
                     style={{
                       padding: '6px 12px',
-                      borderColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'var(--text-faint)' : '#1a5276',
-                      color: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'var(--text-faint)' : '#1a5276',
-                      backgroundColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '#f8f8f8' : '#eaf2f8',
+                      borderColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'var(--text-faint)' : 'var(--info)',
+                      color: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'var(--text-faint)' : 'var(--info)',
+                      backgroundColor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'var(--surface-2)' : 'var(--info-tint)',
                       cursor: message.fileOffer.files.every(f => downloadedFiles.has(f)) ? 'default' : 'pointer',
                     }}
                   >

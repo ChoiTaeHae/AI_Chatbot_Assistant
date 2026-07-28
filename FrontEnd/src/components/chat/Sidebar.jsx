@@ -234,7 +234,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         {/* 새 대화 */}
         <button
           onClick={onNewChat}
-          className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white bg-(--brand) hover:bg-[#004d4a] transition shrink-0"
+          className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white bg-(--brand) hover:bg-(--brand-hover) transition shrink-0"
           style={{ padding: '12px' }}
         >
           <svg viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
@@ -247,7 +247,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
           className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-(--brand-bright) bg-(--brand-a10) border border-(--brand-bright) hover:bg-(--brand-a20) transition shrink-0"
           style={{ padding: '11px', marginTop: '10px' }}
         >
-          <span style={{ fontSize: '15px' }}>🎓</span>
+          <span className="emoji" style={{ fontSize: '15px' }}>🎓</span>
           장학금·근로 둘러보기
         </button>
 
@@ -255,7 +255,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         {credit && (
           <section className="border border-(--border) rounded-xl bg-(--surface-card) shrink-0" style={{ padding: '12px', marginTop: '14px' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
-              <span className="text-xs font-bold text-(--text)">🎓 {t.credit}</span>
+              <span className="text-xs font-bold text-(--text)"><span className="emoji">🎓</span> {t.credit}</span>
               <button onClick={() => setCreditModal(true)} className="font-semibold text-(--brand) hover:underline" style={{ fontSize: '11px' }}>{t.detail}</button>
             </div>
             <p className="text-(--text-faint)" style={{ fontSize: '11px' }}>{t.toGrad}</p>
@@ -276,7 +276,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
           <div style={{ padding: '12px' }}>
             {/* 헤더: 제목 + 식당 선택 */}
             <div className="flex items-center justify-between" style={{ marginBottom: rest?.location ? '4px' : '10px' }}>
-              <span className="text-xs font-bold text-(--text)">🍱 {t.meal}</span>
+              <span className="text-xs font-bold text-(--text)"><span className="emoji">🍱</span> {t.meal}</span>
               {restaurants.length > 0 && (
                 <select
                   value={restIdx}
@@ -294,7 +294,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                 {/* 위치 */}
                 {rest.location && (
                   <p className="flex items-center gap-1 text-(--text-faint)" style={{ fontSize: '11px', marginBottom: '10px' }}>
-                    <span>📍</span>{locationName(rest.location, lang)}
+                    <span className="emoji">📍</span>{locationName(rest.location, lang)}
                   </p>
                 )}
 
@@ -368,7 +368,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                                 borderTop: ci === 0 ? 'none' : '1px dashed var(--border)',
                               }}
                             >
-                              <span className="font-bold text-[#0f766e]" style={{ fontSize: '12.5px' }}>{c.name}</span>
+                              <span className="font-bold text-(--brand-bright)" style={{ fontSize: '12.5px' }}>{c.name}</span>
                               <p className="text-(--text-muted)" style={{ fontSize: '12px', marginTop: '2px', lineHeight: 1.5 }}>{c.items.join(', ')}</p>
                               {c.price && <p className="text-right font-bold text-(--text)" style={{ fontSize: '13px', marginTop: '4px' }}>{c.price}</p>}
                             </div>
@@ -432,7 +432,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                     }`}
                     style={{ padding: '7px 30px 7px 0px', fontSize: '13px' }}
                   >
-                    <span className="shrink-0">💬</span>
+                    <span className="emoji shrink-0">💬</span>
                     <span className="truncate">{s.title}</span>
                   </button>
                   <button
@@ -461,7 +461,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
           <div className="flex items-center justify-between border-b border-(--border)" style={{ padding: '16px 18px' }}>
             <div>
               <p className="text-(--text-faint)" style={{ fontSize: '11px' }}>{credit.dept_name}{credit.student_no ? ` · ${t.classOf(credit.student_no.slice(2, 4))}` : ''}</p>
-              <p className="font-bold text-(--text)" style={{ fontSize: '16px' }}>🎓 {t.credit}</p>
+              <p className="font-bold text-(--text)" style={{ fontSize: '16px' }}><span className="emoji">🎓</span> {t.credit}</p>
             </div>
             <button onClick={() => setCreditModal(false)} className="text-(--text-faint) hover:text-(--text-body) text-lg" aria-label="닫기">✕</button>
           </div>
@@ -479,7 +479,7 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
                   <div className="rounded-full bg-(--surface-2) overflow-hidden" style={{ height: '7px' }}>
                     <div style={{ height: '100%', width: `${pct}%`, background: met ? '#22a06b' : 'var(--brand)' }} />
                   </div>
-                  <p className="font-medium" style={{ fontSize: '11px', marginTop: '5px', color: met ? '#22a06b' : '#b45309' }}>{met ? t.met : t.shortMsg(short)}</p>
+                  <p className="font-medium" style={{ fontSize: '11px', marginTop: '5px', color: met ? '#22a06b' : 'var(--amber-text)' }}>{met ? t.met : t.shortMsg(short)}</p>
                 </div>
               )
             })}

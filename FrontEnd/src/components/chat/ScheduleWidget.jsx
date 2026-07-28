@@ -116,7 +116,7 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
         {/* 헤더: 제목(=접기/펼치기 토글) + 월 이동(펼쳤을 때만) */}
         <div className="flex items-center justify-between" style={{ marginBottom: open ? '8px' : '6px' }}>
           <button onClick={toggleOpen} className="flex items-center hover:opacity-70 transition" style={{ gap: '3px' }}>
-            <span className="text-xs font-bold text-(--text)">📅 {t.title}</span>
+            <span className="text-xs font-bold text-(--text)"><span className="emoji">📅</span> {t.title}</span>
             <svg className={`text-(--text-faint) transition-transform ${open ? 'rotate-180' : ''}`}
               style={{ width: '11px', height: '11px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />

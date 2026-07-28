@@ -714,7 +714,7 @@ export default function AdminPage() {
                       ].map(({ label, value }) => (
                         <div key={label} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-start', justifyContent: 'space-between', borderBottom: '1px solid var(--surface-2)', paddingBottom: '10px', gap: '12px' }}>
                           <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-faint)', flexShrink: 0, width: '80px' }}>{label}</span>
-                          <span style={{ fontSize: '12px', color: '#334155', fontFamily: 'monospace', textAlign: 'right', wordBreak: 'break-all' }}>{value}</span>
+                          <span style={{ fontSize: '12px', color: 'var(--text-body)', fontFamily: 'monospace', textAlign: 'right', wordBreak: 'break-all' }}>{value}</span>
                         </div>
                       ))}
                     </div>
