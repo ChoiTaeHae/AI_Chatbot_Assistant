@@ -34,9 +34,9 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#e8eaed]">
-      <div className="flex items-center justify-center w-full max-w-[500px] min-h-[900px] bg-[#ffffff] p-12 shadow-2xl  rounded-3xl">
-      <section className="w-full max-w-[400px] bg-white px-10 py-12">
+    <main className="flex min-h-screen items-center justify-center bg-(--page)">
+      <div className="flex items-center justify-center w-full max-w-[500px] min-h-[900px] bg-(--surface-card) p-12 shadow-2xl  rounded-3xl">
+      <section className="w-full max-w-[400px] bg-(--surface-card) px-10 py-12">
 
         {/* 마스코트 */}
         <div className="flex justify-center pt-4">
@@ -45,11 +45,11 @@ export default function LoginPage() {
 
         {/* 타이틀 */}
         <div className="mt-14 text-center">
-          <h1 className="break-keep text-[1.6rem] font-black leading-snug text-[#05263d]">
+          <h1 className="break-keep text-[1.6rem] font-black leading-snug text-(--text)">
             우송대학교 학사 지원<br />AI 어시스턴트 시스템
           </h1>
           <div className="h-5" />
-          <p className="text-sm font-medium leading-6 text-slate-400">
+          <p className="text-sm font-medium leading-6 text-(--text-faint)">
             RAG 기반 LLM 엔진·정보 검색 및 맞춤형 학사 지원 서비스
           </p>
         </div>
@@ -60,8 +60,8 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
 
           {/* 아이디 */}
-          <label className="flex h-14 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 focus-within:border-[#006b67] focus-within:ring-2 focus-within:ring-[#006b67]/15 transition">
-            <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <label className="flex h-14 items-center gap-3 rounded-xl border border-(--border) bg-(--surface-card) px-4 focus-within:border-(--brand) focus-within:ring-2 focus-within:ring-(--brand-a15) transition">
+            <svg className="h-5 w-5 shrink-0 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.5 7.5 0 0 1 15 0" />
             </svg>
             <input
@@ -69,14 +69,14 @@ export default function LoginPage() {
               placeholder="아이디를 입력하세요"
               value={studentNo}
               onChange={(e) => setStudentNo(e.target.value)}
-              className="flex-1 bg-transparent text-base font-medium text-slate-900 outline-none placeholder:text-slate-400"
+              className="flex-1 bg-transparent text-base font-medium text-(--text) outline-none placeholder:text-(--text-faint)"
               autoComplete="username"
             />
           </label>
 
           {/* 비밀번호 */}
-          <label className="flex h-14 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 focus-within:border-[#006b67] focus-within:ring-2 focus-within:ring-[#006b67]/15 transition">
-            <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <label className="flex h-14 items-center gap-3 rounded-xl border border-(--border) bg-(--surface-card) px-4 focus-within:border-(--brand) focus-within:ring-2 focus-within:ring-(--brand-a15) transition">
+            <svg className="h-5 w-5 shrink-0 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
             </svg>
             <input
@@ -84,13 +84,13 @@ export default function LoginPage() {
               placeholder="비밀번호를 입력하세요"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="flex-1 bg-transparent text-base font-medium text-slate-900 outline-none placeholder:text-slate-400"
+              className="flex-1 bg-transparent text-base font-medium text-(--text) outline-none placeholder:text-(--text-faint)"
               autoComplete="current-password"
             />
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
-              className="shrink-0 text-slate-400 hover:text-slate-600 transition"
+              className="shrink-0 text-(--text-faint) hover:text-(--text-muted) transition"
               tabIndex={-1}
             >
               {showPassword ? (
@@ -117,7 +117,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="flex h-14 w-full items-center justify-center rounded-xl bg-[#006b67] text-base font-black text-white shadow-sm transition hover:bg-[#005b57] disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex h-14 w-full items-center justify-center rounded-xl bg-(--brand) text-base font-black text-white shadow-sm transition hover:bg-[#005b57] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? (
               <span className="flex items-center gap-2">
@@ -135,9 +135,9 @@ export default function LoginPage() {
 
         {/* 구분선 */}
         <div className="flex items-center gap-4">
-          <div className="h-px flex-1 bg-slate-200" />
-          <span className="text-sm font-medium text-slate-400">또는</span>
-          <div className="h-px flex-1 bg-slate-200" />
+          <div className="h-px flex-1 bg-(--border)" />
+          <span className="text-sm font-medium text-(--text-faint)">또는</span>
+          <div className="h-px flex-1 bg-(--border)" />
         </div>
 
         <div className="h-5" />
@@ -145,9 +145,9 @@ export default function LoginPage() {
         {/* SSO 버튼 */}
         <button
           type="button"
-          className="flex h-14 w-full items-center justify-center gap-2.5 rounded-xl border border-slate-200 bg-white text-base font-black text-[#05263d] transition hover:bg-slate-50"
+          className="flex h-14 w-full items-center justify-center gap-2.5 rounded-xl border border-(--border) bg-(--surface-card) text-base font-black text-(--text) transition hover:bg-(--surface-2)"
         >
-          <svg className="h-5 w-5 shrink-0 text-[#006b67]" fill="currentColor" viewBox="0 0 24 24">
+          <svg className="h-5 w-5 shrink-0 text-(--brand)" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 2.25 5 5.1v5.92c0 4.45 2.85 8.45 7 9.88 4.15-1.43 7-5.43 7-9.88V5.1l-7-2.85Zm2.9 7.85-3.45 4.35a1 1 0 0 1-1.52.05l-1.8-1.9 1.45-1.38 1 1.05 2.75-3.47 1.57 1.3Z" />
           </svg>
           통합인증(SSO) 로그인
@@ -156,10 +156,10 @@ export default function LoginPage() {
         <div className="h-5" />
 
         {/* 하단 링크 */}
-        <div className="flex items-center justify-center gap-5 text-sm font-medium text-slate-400">
-          <button type="button" className="hover:text-slate-600 transition">아이디 찾기</button>
-          <span className="text-slate-300">|</span>
-          <button type="button" className="hover:text-slate-600 transition">비밀번호 찾기</button>
+        <div className="flex items-center justify-center gap-5 text-sm font-medium text-(--text-faint)">
+          <button type="button" className="hover:text-(--text-muted) transition">아이디 찾기</button>
+          <span className="text-(--text-faint)">|</span>
+          <button type="button" className="hover:text-(--text-muted) transition">비밀번호 찾기</button>
         </div>
 
       </section>

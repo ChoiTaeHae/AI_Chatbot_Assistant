@@ -5,7 +5,7 @@ import {
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 const DEFAULT_URL = 'https://www.wsu.ac.kr/page/haksa_list.jsp'
-const ACCENT = '#005956'
+const ACCENT = 'var(--brand)'
 
 function toISO(d) {
   const y = d.getFullYear()
@@ -22,8 +22,8 @@ function catStyle(event) {
   if (/등록|납부|분납|장학/.test(e)) return 'bg-emerald-50 text-emerald-700 border border-emerald-100'
   if (/휴학|복학|자퇴|전과|재입학/.test(e)) return 'bg-amber-50 text-amber-700 border border-amber-100'
   if (/졸업|학위|입학/.test(e)) return 'bg-rose-50 text-rose-700 border border-rose-100'
-  if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-slate-100 text-slate-600 border border-slate-200'
-  return 'bg-slate-50 text-slate-500 border border-slate-200'
+  if (/방학|개강|종강|개학|공휴일|연휴/.test(e)) return 'bg-(--surface-2) text-(--text-muted) border border-(--border)'
+  return 'bg-(--surface-2) text-(--text-muted) border border-(--border)'
 }
 
 // 해당 월을 감싸는 6주 그리드(일요일 시작) 생성 → Date[][]
@@ -203,20 +203,20 @@ export default function ScheduleManager() {
     }
   }
 
-  const inputCls = 'border border-slate-200 text-sm outline-none focus:border-[#005956] transition'
+  const inputCls = 'border border-(--border) text-sm outline-none focus:border-(--brand) transition'
   const inputStyle = { borderRadius: '8px', padding: '8px 10px' }
 
   return (
     <div className="flex flex-col" style={{ gap: '16px' }}>
       {/* ── 상단: URL 크롤 입력 (문서관리 패널과 동일 스타일) ─────── */}
-      <section className="bg-white rounded-2xl shadow-sm border border-slate-100 shrink-0" style={{ padding: '20px 24px' }}>
+      <section className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) shrink-0" style={{ padding: '20px 24px' }}>
         <div style={{ marginBottom: '14px' }}>
-          <h2 className="text-base font-black text-[#05263d]">학사일정 불러오기</h2>
-          <p className="text-xs text-slate-400" style={{ marginTop: '2px' }}>학사일정 페이지 URL을 크롤링해 달력에 반영합니다 · 같은 URL 재실행 시 최신 데이터로 교체</p>
+          <h2 className="text-base font-black text-(--text)">학사일정 불러오기</h2>
+          <p className="text-xs text-(--text-faint)" style={{ marginTop: '2px' }}>학사일정 페이지 URL을 크롤링해 달력에 반영합니다 · 같은 URL 재실행 시 최신 데이터로 교체</p>
         </div>
         <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
           <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
-            <label className="text-xs font-bold text-slate-500">크롤링 URL</label>
+            <label className="text-xs font-bold text-(--text-muted)">크롤링 URL</label>
             <input
               type="url"
               value={url}
@@ -229,7 +229,7 @@ export default function ScheduleManager() {
           <button
             onClick={handleCrawl}
             disabled={crawling}
-            className="flex items-center justify-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            className="flex items-center justify-center bg-(--brand) text-white text-sm font-black hover:bg-(--brand-hover) transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             style={{ gap: '6px', borderRadius: '8px', padding: '10px 18px' }}
           >
             {crawling ? (
@@ -251,7 +251,7 @@ export default function ScheduleManager() {
           </button>
         </div>
         {crawlMsg && (
-          <p className={`text-xs font-medium ${crawlMsg.type === 'success' ? 'text-[#005956]' : 'text-red-500'}`} style={{ marginTop: '10px' }}>
+          <p className={`text-xs font-medium ${crawlMsg.type === 'success' ? 'text-(--brand)' : 'text-red-500'}`} style={{ marginTop: '10px' }}>
             {crawlMsg.type === 'success' && '✅ '}{crawlMsg.text}
           </p>
         )}
@@ -259,12 +259,12 @@ export default function ScheduleManager() {
 
       {/* ── 툴바: 트랙 / 월 이동 / 추가 ─────────────────── */}
       <div className="flex flex-wrap items-center justify-between" style={{ gap: '12px' }}>
-        <div className="flex items-center bg-slate-100 rounded-lg" style={{ padding: '4px', gap: '2px' }}>
+        <div className="flex items-center bg-(--surface-2) rounded-lg" style={{ padding: '4px', gap: '2px' }}>
           {['학부', '대학원'].map(t => (
             <button
               key={t}
               onClick={() => setTrack(t)}
-              className={`text-sm font-bold rounded-md transition ${track === t ? 'bg-white shadow-sm text-[#005956]' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`text-sm font-bold rounded-md transition ${track === t ? 'bg-(--surface-card) shadow-sm text-(--brand)' : 'text-(--text-muted) hover:text-(--text-body)'}`}
               style={{ padding: '6px 16px' }}
             >
               {t}
@@ -273,11 +273,11 @@ export default function ScheduleManager() {
         </div>
 
         <div className="flex items-center" style={{ gap: '8px' }}>
-          <button onClick={() => moveMonth(-1)} className="flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition" style={{ width: '34px', height: '34px' }}>‹</button>
+          <button onClick={() => moveMonth(-1)} className="flex items-center justify-center rounded-lg border border-(--border) text-(--text-muted) hover:bg-(--surface-2) transition" style={{ width: '34px', height: '34px' }}>‹</button>
           <select
             value={cursor.getFullYear()}
             onChange={e => setCursor(new Date(Number(e.target.value), cursor.getMonth(), 1))}
-            className="border border-slate-200 rounded-lg text-sm font-black text-[#05263d] bg-white outline-none focus:border-[#005956] transition cursor-pointer"
+            className="border border-(--border) rounded-lg text-sm font-black text-(--text) bg-(--surface-card) outline-none focus:border-(--brand) transition cursor-pointer"
             style={{ padding: '7px 8px' }}
           >
             {yearOptions.map(y => <option key={y} value={y}>{y}년</option>)}
@@ -285,18 +285,18 @@ export default function ScheduleManager() {
           <select
             value={cursor.getMonth()}
             onChange={e => setCursor(new Date(cursor.getFullYear(), Number(e.target.value), 1))}
-            className="border border-slate-200 rounded-lg text-sm font-black text-[#05263d] bg-white outline-none focus:border-[#005956] transition cursor-pointer"
+            className="border border-(--border) rounded-lg text-sm font-black text-(--text) bg-(--surface-card) outline-none focus:border-(--brand) transition cursor-pointer"
             style={{ padding: '7px 8px' }}
           >
             {Array.from({ length: 12 }, (_, i) => i).map(m => <option key={m} value={m}>{m + 1}월</option>)}
           </select>
-          <button onClick={() => moveMonth(1)} className="flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition" style={{ width: '34px', height: '34px' }}>›</button>
-          <button onClick={goToday} className="rounded-lg border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition" style={{ padding: '7px 14px', marginLeft: '4px' }}>오늘</button>
+          <button onClick={() => moveMonth(1)} className="flex items-center justify-center rounded-lg border border-(--border) text-(--text-muted) hover:bg-(--surface-2) transition" style={{ width: '34px', height: '34px' }}>›</button>
+          <button onClick={goToday} className="rounded-lg border border-(--border) text-sm font-bold text-(--text-muted) hover:bg-(--surface-2) transition" style={{ padding: '7px 14px', marginLeft: '4px' }}>오늘</button>
         </div>
 
         <button
           onClick={() => openNew('')}
-          className="flex items-center bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] transition"
+          className="flex items-center bg-(--brand) text-white text-sm font-black hover:bg-(--brand-hover) transition"
           style={{ gap: '6px', borderRadius: '8px', padding: '9px 16px' }}
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
@@ -307,10 +307,10 @@ export default function ScheduleManager() {
       </div>
 
       {/* ── 달력 그리드 ─────────────────────────────────── */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/50">
+      <div className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) overflow-hidden">
+        <div className="grid grid-cols-7 border-b border-(--border) bg-(--surface-2)/50">
           {WEEKDAYS.map((w, i) => (
-            <div key={w} className={`text-center text-xs font-bold ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}`} style={{ padding: '10px 0' }}>{w}</div>
+            <div key={w} className={`text-center text-xs font-bold ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-(--text-faint)'}`} style={{ padding: '10px 0' }}>{w}</div>
           ))}
         </div>
         <div>
@@ -320,7 +320,7 @@ export default function ScheduleManager() {
             const LANE_H = 26        // 막대(22) + 세로 간격(4)
             const cellH = Math.max(118, BARS_TOP + maxLanes * LANE_H + 8)
             return (
-              <div key={wi} className={`relative ${wi < weeks.length - 1 ? 'border-b border-slate-100' : ''}`}>
+              <div key={wi} className={`relative ${wi < weeks.length - 1 ? 'border-b border-(--border)' : ''}`}>
                 {/* 배경 셀: 테두리 · 날짜 숫자 · 더블클릭 추가 */}
                 <div className="grid grid-cols-7">
                   {week.map((day, ci) => {
@@ -329,13 +329,13 @@ export default function ScheduleManager() {
                     return (
                       <div
                         key={ci}
-                        className={`${ci !== 6 ? 'border-r border-slate-100' : ''} ${inMonth ? 'bg-white hover:bg-slate-50/40' : 'bg-slate-50/40'} transition`}
+                        className={`${ci !== 6 ? 'border-r border-(--border)' : ''} ${inMonth ? 'bg-(--surface-card) hover:bg-(--surface-2)/40' : 'bg-(--surface-2)/40'} transition`}
                         style={{ minHeight: `${cellH}px`, padding: '8px' }}
                         onDoubleClick={() => inMonth && openNew(toISO(day))}
                       >
-                        <span className={`text-xs font-bold ${!inMonth ? 'text-slate-300' : day.getDay() === 0 ? 'text-red-400' : day.getDay() === 6 ? 'text-blue-400' : 'text-slate-500'}`}>
+                        <span className={`text-xs font-bold ${!inMonth ? 'text-(--text-faint)' : day.getDay() === 0 ? 'text-red-400' : day.getDay() === 6 ? 'text-blue-400' : 'text-(--text-muted)'}`}>
                           {isToday
-                            ? <span className="inline-flex items-center justify-center rounded-full bg-[#005956] text-white" style={{ width: '22px', height: '22px' }}>{day.getDate()}</span>
+                            ? <span className="inline-flex items-center justify-center rounded-full bg-(--brand) text-white" style={{ width: '22px', height: '22px' }}>{day.getDate()}</span>
                             : day.getDate()}
                         </span>
                       </div>
@@ -374,39 +374,39 @@ export default function ScheduleManager() {
           })}
         </div>
       </div>
-      <p className="text-xs text-slate-400">일정을 클릭하면 수정·삭제, 빈 날짜를 더블클릭하면 그 날짜로 추가할 수 있어요.{loading && ' · 불러오는 중…'}</p>
+      <p className="text-xs text-(--text-faint)">일정을 클릭하면 수정·삭제, 빈 날짜를 더블클릭하면 그 날짜로 추가할 수 있어요.{loading && ' · 불러오는 중…'}</p>
 
       {/* ── 추가/수정 모달 ─────────────────────────────── */}
       {form && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" style={{ padding: '16px' }} onClick={() => !saving && setForm(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md" style={{ padding: '24px' }} onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-black text-[#05263d]" style={{ marginBottom: '18px' }}>{form.id ? '일정 수정' : '일정 추가'}</h3>
+          <div className="bg-(--surface-card) rounded-2xl shadow-xl w-full max-w-md" style={{ padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-black text-(--text)" style={{ marginBottom: '18px' }}>{form.id ? '일정 수정' : '일정 추가'}</h3>
             <div className="flex flex-col" style={{ gap: '14px' }}>
               <div className="flex flex-col" style={{ gap: '4px' }}>
-                <label className="text-xs font-bold text-slate-500">일정 이름</label>
+                <label className="text-xs font-bold text-(--text-muted)">일정 이름</label>
                 <input value={form.event} onChange={e => setForm({ ...form, event: e.target.value })}
                   className={inputCls} style={inputStyle} placeholder="예: 2학기 수강신청 기간" />
               </div>
               <div className="flex" style={{ gap: '12px' }}>
                 <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
-                  <label className="text-xs font-bold text-slate-500">시작일</label>
+                  <label className="text-xs font-bold text-(--text-muted)">시작일</label>
                   <input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} className={inputCls} style={inputStyle} />
                 </div>
                 <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
-                  <label className="text-xs font-bold text-slate-500">종료일 <span className="text-slate-300 font-medium">(하루면 비움)</span></label>
+                  <label className="text-xs font-bold text-(--text-muted)">종료일 <span className="text-(--text-faint) font-medium">(하루면 비움)</span></label>
                   <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} className={inputCls} style={inputStyle} />
                 </div>
               </div>
               <div className="flex" style={{ gap: '12px' }}>
                 <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
-                  <label className="text-xs font-bold text-slate-500">트랙</label>
-                  <select value={form.track} onChange={e => setForm({ ...form, track: e.target.value })} className={`${inputCls} bg-white`} style={inputStyle}>
+                  <label className="text-xs font-bold text-(--text-muted)">트랙</label>
+                  <select value={form.track} onChange={e => setForm({ ...form, track: e.target.value })} className={`${inputCls} bg-(--surface-card)`} style={inputStyle}>
                     <option value="학부">학부</option>
                     <option value="대학원">대학원</option>
                   </select>
                 </div>
                 <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
-                  <label className="text-xs font-bold text-slate-500">학년도</label>
+                  <label className="text-xs font-bold text-(--text-muted)">학년도</label>
                   <input type="number" value={form.academic_year} onChange={e => setForm({ ...form, academic_year: e.target.value })} className={inputCls} style={inputStyle} placeholder="2026" />
                 </div>
               </div>
@@ -417,8 +417,8 @@ export default function ScheduleManager() {
                 ? <button onClick={handleDelete} disabled={saving} className="text-sm font-bold text-red-500 hover:bg-red-50 rounded-lg transition disabled:opacity-50" style={{ padding: '9px 12px' }}>삭제</button>
                 : <span />}
               <div className="flex" style={{ gap: '8px' }}>
-                <button onClick={() => setForm(null)} disabled={saving} className="border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-lg transition" style={{ padding: '9px 16px' }}>취소</button>
-                <button onClick={handleSave} disabled={saving} className="bg-[#005956] text-white text-sm font-black hover:bg-[#004a47] rounded-lg transition disabled:opacity-50" style={{ padding: '9px 18px' }}>{saving ? '저장 중…' : '저장'}</button>
+                <button onClick={() => setForm(null)} disabled={saving} className="border border-(--border) text-sm font-bold text-(--text-muted) hover:bg-(--surface-2) rounded-lg transition" style={{ padding: '9px 16px' }}>취소</button>
+                <button onClick={handleSave} disabled={saving} className="bg-(--brand) text-white text-sm font-black hover:bg-(--brand-hover) rounded-lg transition disabled:opacity-50" style={{ padding: '9px 18px' }}>{saving ? '저장 중…' : '저장'}</button>
               </div>
             </div>
           </div>

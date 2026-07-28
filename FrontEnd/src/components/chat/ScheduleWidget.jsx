@@ -111,13 +111,13 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
   const selEvents = sel ? eventsOn(sel.iso) : []
 
   return (
-    <section className="border border-slate-200 rounded-xl bg-white shrink-0 overflow-hidden" style={{ marginTop: '14px' }}>
+    <section className="border border-(--border) rounded-xl bg-(--surface-card) shrink-0 overflow-hidden" style={{ marginTop: '14px' }}>
       <div style={{ padding: '12px' }}>
         {/* 헤더: 제목(=접기/펼치기 토글) + 월 이동(펼쳤을 때만) */}
         <div className="flex items-center justify-between" style={{ marginBottom: open ? '8px' : '6px' }}>
           <button onClick={toggleOpen} className="flex items-center hover:opacity-70 transition" style={{ gap: '3px' }}>
-            <span className="text-xs font-bold text-slate-800">📅 {t.title}</span>
-            <svg className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+            <span className="text-xs font-bold text-(--text)">📅 {t.title}</span>
+            <svg className={`text-(--text-faint) transition-transform ${open ? 'rotate-180' : ''}`}
               style={{ width: '11px', height: '11px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
             </svg>
@@ -125,13 +125,13 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
           {open && (
           <div className="flex items-center" style={{ gap: '2px' }}>
             <button onClick={() => setCursor(c => new Date(c.getFullYear(), c.getMonth() - 1, 1))}
-              className="rounded text-slate-400 hover:text-[#005956] hover:bg-slate-50 transition"
+              className="rounded text-(--text-faint) hover:text-(--brand) hover:bg-(--surface-2) transition"
               style={{ width: '18px', height: '18px', fontSize: '13px', lineHeight: 1 }} aria-label="이전 달">‹</button>
-            <span className="text-slate-600 text-center" style={{ fontSize: '11px', fontWeight: 700, minWidth: '56px' }}>
+            <span className="text-(--text-muted) text-center" style={{ fontSize: '11px', fontWeight: 700, minWidth: '56px' }}>
               {cursor.getFullYear()}.{String(cursor.getMonth() + 1).padStart(2, '0')}
             </span>
             <button onClick={() => setCursor(c => new Date(c.getFullYear(), c.getMonth() + 1, 1))}
-              className="rounded text-slate-400 hover:text-[#005956] hover:bg-slate-50 transition"
+              className="rounded text-(--text-faint) hover:text-(--brand) hover:bg-(--surface-2) transition"
               style={{ width: '18px', height: '18px', fontSize: '13px', lineHeight: 1 }} aria-label="다음 달">›</button>
           </div>
           )}
@@ -142,7 +142,7 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
         <>
         <div className="grid grid-cols-7">
           {WD.map((w, i) => (
-            <div key={w} className={`text-center ${i === 0 ? 'text-red-300' : i === 6 ? 'text-blue-300' : 'text-slate-300'}`}
+            <div key={w} className={`text-center ${i === 0 ? 'text-red-300' : i === 6 ? 'text-blue-300' : 'text-(--text-faint)'}`}
               style={{ fontSize: '10px', fontWeight: 700, paddingBottom: '3px' }}>{w}</div>
           ))}
         </div>
@@ -187,15 +187,15 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
                     onClick={() => setSel(
                       has && !isSel ? { iso, weekIdx: wi, colIdx: ci } : null   // 빈 날짜/같은 날짜 → 닫기
                     )}
-                    className={`flex flex-col items-center justify-start rounded ${has ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                    className={`flex flex-col items-center justify-start rounded ${has ? 'cursor-pointer hover:bg-(--surface-2)' : ''}`}
                     style={{ paddingTop: '3px' }}
                   >
                     <span
                       className={`inline-flex items-center justify-center rounded-full ${
-                        isToday ? 'bg-[#005956] text-white'
-                        : isSel ? 'bg-[#005956]/10 text-[#005956]'
-                        : !inMonth ? 'text-slate-200'
-                        : day.getDay() === 0 ? 'text-red-400' : day.getDay() === 6 ? 'text-blue-400' : 'text-slate-600'
+                        isToday ? 'bg-(--brand) text-white'
+                        : isSel ? 'bg-(--brand-a10) text-(--brand)'
+                        : !inMonth ? 'text-(--text-faint)'
+                        : day.getDay() === 0 ? 'text-red-400' : day.getDay() === 6 ? 'text-blue-400' : 'text-(--text-muted)'
                       }`}
                       style={{ width: '18px', height: '18px', fontSize: '10px', fontWeight: 700 }}
                     >
@@ -228,18 +228,18 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
               </div>
             )
             const box = (
-              <div className="rounded-lg bg-white border border-[#005956]/30 shadow-lg" style={{ padding: '7px 9px' }}>
+              <div className="rounded-lg bg-(--surface-card) border border-(--brand-a30) shadow-lg" style={{ padding: '7px 9px' }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
-                  <p className="font-bold text-[#005956]" style={{ fontSize: '11px' }}>{fmtMD(sel.iso)}</p>
+                  <p className="font-bold text-(--brand)" style={{ fontSize: '11px' }}>{fmtMD(sel.iso)}</p>
                   <button onClick={() => setSel(null)}
-                    className="text-slate-300 hover:text-slate-500 transition"
+                    className="text-(--text-faint) hover:text-(--text-muted) transition"
                     style={{ fontSize: '13px', lineHeight: 1 }} aria-label="닫기">×</button>
                 </div>
                 <div className="flex flex-col" style={{ gap: '4px' }}>
                   {selEvents.map(ev => (
                     <div key={ev.id}>
-                      <p className="text-slate-700 leading-snug" style={{ fontSize: '11px' }}>{ev.event}</p>
-                      <p className="text-slate-400" style={{ fontSize: '10px' }}>{fmtRange(ev.start_date, ev.end_date)}</p>
+                      <p className="text-(--text-body) leading-snug" style={{ fontSize: '11px' }}>{ev.event}</p>
+                      <p className="text-(--text-faint)" style={{ fontSize: '10px' }}>{fmtRange(ev.start_date, ev.end_date)}</p>
                     </div>
                   ))}
                 </div>
@@ -260,19 +260,19 @@ export default function ScheduleWidget({ lang = 'ko', refreshKey = 0 }) {
         )}
 
         {/* 다가오는 일정 — 접혀 있어도 항상 표시 (위젯의 핵심 정보) */}
-        <div className={open ? 'border-t border-slate-100' : ''} style={{ marginTop: open ? '8px' : '0', paddingTop: open ? '8px' : '0' }}>
-          <p className="text-slate-400" style={{ fontSize: '10px', fontWeight: 700, marginBottom: '5px' }}>{t.upcoming}</p>
+        <div className={open ? 'border-t border-(--border)' : ''} style={{ marginTop: open ? '8px' : '0', paddingTop: open ? '8px' : '0' }}>
+          <p className="text-(--text-faint)" style={{ fontSize: '10px', fontWeight: 700, marginBottom: '5px' }}>{t.upcoming}</p>
           {upcoming.length === 0 ? (
-            <p className="text-slate-300" style={{ fontSize: '11px' }}>{t.none}</p>
+            <p className="text-(--text-faint)" style={{ fontSize: '11px' }}>{t.none}</p>
           ) : (
             <div className="flex flex-col" style={{ gap: '4px' }}>
               {upcoming.map(ev => (
                 <div key={ev.id} className="flex items-start" style={{ gap: '6px' }}>
-                  <span className="shrink-0 rounded text-[#005956] bg-[#005956]/10 text-center"
+                  <span className="shrink-0 rounded text-(--brand) bg-(--brand-a10) text-center"
                     style={{ fontSize: '10px', fontWeight: 700, padding: '1px 4px', minWidth: '34px' }}>
                     {fmtMD(ev.start_date)}
                   </span>
-                  <span className="text-slate-600 leading-snug" style={{ fontSize: '11px' }}>{ev.event}</span>
+                  <span className="text-(--text-muted) leading-snug" style={{ fontSize: '11px' }}>{ev.event}</span>
                 </div>
               ))}
             </div>

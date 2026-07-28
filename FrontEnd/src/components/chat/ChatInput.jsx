@@ -35,9 +35,9 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
   }
 
   return (
-    <div style={{ flexShrink: 0, background: '#fff', padding: '10px 16px 16px' }}>
+    <div style={{ flexShrink: 0, background: 'var(--surface-card)', padding: '10px 16px 16px' }}>
       <form onSubmit={handleSubmit}>
-        <div style={{ position: 'relative', borderRadius: '16px', border: '1px solid #e2e8f0', background: '#fff', padding: '10px 14px', boxShadow: '0 2px 8px -4px rgba(0,0,0,0.06)' }}>
+        <div style={{ position: 'relative', borderRadius: '16px', border: '1px solid var(--border)', background: 'var(--surface-2)', padding: '10px 14px', boxShadow: '0 2px 8px -4px rgba(0,0,0,0.06)' }}>
           <textarea
             ref={textareaRef}
             value={text}
@@ -53,7 +53,7 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
               fontSize: '14px',
               fontWeight: 500,
               lineHeight: '1.5',
-              color: '#1e293b',
+              color: 'var(--text)',
               outline: 'none',
               paddingLeft: '4px',
               paddingRight: '44px',
@@ -67,7 +67,7 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
             }}
           />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: '4px', marginTop: '-4px' }}>
-            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 500 }}>{text.length} / {MAX_LENGTH}</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontWeight: 500 }}>{text.length} / {MAX_LENGTH}</span>
             <button
               type="submit"
               disabled={!text.trim() || disabled}
@@ -78,7 +78,7 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
                 height: '34px',
                 width: '34px',
                 borderRadius: '50%',
-                background: '#004d4a',
+                background: 'var(--brand)',
                 color: '#fff',
                 display: 'flex',
                 alignItems: 'center',
@@ -96,7 +96,7 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
             </button>
           </div>
         </div>
-        <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '11px', color: '#94a3b8' }}>
+        <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '11px', color: 'var(--text-faint)' }}>
           {T[lang].disclaimer}
         </p>
       </form>

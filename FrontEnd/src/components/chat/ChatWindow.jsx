@@ -22,7 +22,7 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
   }, [messages, isLoading])
 
   return (
-    <section className="flex-1 overflow-y-auto bg-[#fdfdfd] flex flex-col items-center chat-view-enter">
+    <section className="flex-1 overflow-y-auto bg-(--surface-card) flex flex-col items-center chat-view-enter">
       {messages.length === 0 ? (
         /* 시작 화면 — 중앙 정렬 인사 + 질문칩 */
         <div className="flex-1 w-full max-w-3xl flex flex-col items-center justify-center" style={{ padding: '24px' }}>
@@ -31,8 +31,8 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
             <div style={{ marginBottom: '18px' }}>
               <MascotAvatar className="h-[124px] w-[124px] object-contain" />
             </div>
-            <p className="font-bold text-slate-800" style={{ fontSize: '24px' }}>{T[lang].greeting}</p>
-            <p className="text-slate-500" style={{ marginTop: '9px', fontSize: '15px' }}>{T[lang].subtitle}</p>
+            <p className="font-bold text-(--text)" style={{ fontSize: '24px' }}>{T[lang].greeting}</p>
+            <p className="text-(--text-muted)" style={{ marginTop: '9px', fontSize: '15px' }}>{T[lang].subtitle}</p>
 
             {/* 추천 질문 칩 (2x2 균일 그리드) — 졸업 현황도 동일 스타일로 통일 */}
             <div className="grid grid-cols-2 gap-3.5 w-full" style={{ marginTop: '26px' }}>
@@ -41,7 +41,7 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
                   key={label}
                   onClick={() => (label === T[lang].grad ? onCheckGraduation?.() : onSendQuestion?.(label))}
                   disabled={isLoading}
-                  className="w-full flex items-center justify-center text-center font-medium text-slate-600 border border-slate-200 rounded-full hover:border-[#005956]/40 hover:text-[#005956] hover:bg-[#005956]/5 transition disabled:opacity-50"
+                  className="w-full flex items-center justify-center text-center font-medium text-(--text-muted) border border-(--border) rounded-full hover:border-(--brand-a40) hover:text-(--brand) hover:bg-(--brand-a5) transition disabled:opacity-50"
                   style={{ minHeight: '44px', padding: '9px 18px', fontSize: '15px' }}
                 >
                   {label}
@@ -56,9 +56,9 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
           {/* 대화 중에도 상단 인사 말풍선 유지 — 첫 메시지 후 휑해 보이지 않도록 */}
           <div className="flex items-start gap-4" style={{ marginBottom: '20px', paddingLeft: '8px' }}>
             <MascotAvatar className="h-12 w-12 shrink-0 object-contain mt-1" />
-            <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white shadow-sm" style={{ padding: '14px 18px', maxWidth: '80%' }}>
-              <p className="font-bold text-slate-800" style={{ fontSize: '15px' }}>{T[lang].greeting}</p>
-              <p className="text-slate-500" style={{ marginTop: '4px', fontSize: '13px' }}>{T[lang].subtitle}</p>
+            <div className="rounded-2xl rounded-tl-sm border border-(--border) bg-(--surface-card) shadow-sm" style={{ padding: '14px 18px', maxWidth: '80%' }}>
+              <p className="font-bold text-(--text)" style={{ fontSize: '15px' }}>{T[lang].greeting}</p>
+              <p className="text-(--text-muted)" style={{ marginTop: '4px', fontSize: '13px' }}>{T[lang].subtitle}</p>
             </div>
           </div>
 
@@ -77,7 +77,7 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
           {isLoading && (
             <div className="flex items-start gap-4 mb-8 pl-4">
               <MascotAvatar className="h-12 w-12 shrink-0 object-contain mt-1" />
-              <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <div className="rounded-2xl rounded-tl-sm border border-(--border) bg-(--surface-card) px-5 py-4 shadow-sm">
                 <LoadingDots />
               </div>
             </div>
