@@ -167,7 +167,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
         {/* 헤더 */}
         <div className="flex items-center gap-3 border-b border-(--border) shrink-0" style={{ padding: '16px 18px' }}>
           <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: '34px', height: '34px', background: TEAL }}>
-            <span style={{ fontSize: '18px' }}>🎓</span>
+            <span className="emoji" style={{ fontSize: '18px' }}>🎓</span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-(--text)" style={{ fontSize: '15px' }}>{mt.title}</p>
@@ -191,7 +191,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
                   color: active ? '#fff' : 'var(--text-muted)',
                 }}
               >
-                <span>{icon}</span>{k === '장학금' ? mt.scholarship : mt.work}{kindCounts[k] != null ? ` ${kindCounts[k]}` : ''}
+                <span className="emoji">{icon}</span>{k === '장학금' ? mt.scholarship : mt.work}{kindCounts[k] != null ? ` ${kindCounts[k]}` : ''}
               </button>
             )
           })}
@@ -280,7 +280,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
                           <div className="flex items-center flex-wrap gap-2" style={{ marginTop: '6px' }}>
                             {it.period && (
                               <span className="rounded-full inline-flex items-center gap-1" style={{ fontSize: '11px', padding: '2px 9px', background: it.expired ? 'var(--danger-tint)' : 'var(--amber-tint)', color: it.expired ? 'var(--danger-text)' : 'var(--amber-text)' }}>
-                                🗓 {it.period}
+                                <span className="emoji">🗓</span> {it.period}
                               </span>
                             )}
                             {it.expired && (
@@ -310,7 +310,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
                                 className="inline-flex items-center gap-1 rounded-full hover:bg-(--brand-tint) transition"
                                 style={{ fontSize: '11px', padding: '3px 11px', color: TEAL, border: `1px solid ${TEAL}` }}
                               >
-                                📎 {mt.files} {files.length}
+                                <span className="emoji">📎</span> {mt.files} {files.length}
                                 <Chevron open={filesOpen} size={12} />
                               </button>
                             )}
@@ -320,7 +320,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
                                 className="inline-flex items-center gap-1 rounded-full hover:bg-(--brand-tint) transition"
                                 style={{ fontSize: '11px', padding: '3px 11px', color: TEAL, border: `1px solid ${TEAL}`, textDecoration: 'none' }}
                               >
-                                🔗 {mt.viewNotice}
+                                <span className="emoji">🔗</span> {mt.viewNotice}
                               </a>
                             )}
                           </div>
@@ -337,7 +337,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
                                 style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '2px 0' }}
                                 title={f.name}
                               >
-                                <span className="shrink-0" style={{ color: TEAL }}>📄</span>
+                                <span className="emoji shrink-0" style={{ color: TEAL }}>📄</span>
                                 <span className="truncate" style={{ maxWidth: '340px' }}>{stripExt(f.name)}</span>
                               </button>
                             ))}
