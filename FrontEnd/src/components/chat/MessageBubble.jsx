@@ -311,7 +311,18 @@ function MessageActions({ messageId, content }) {
   )
 }
 
-export default function MessageBubble({ message, onClearPendingFile, pendingFile, onConfirmFile, isLatest }) {
+// 카드 정적 라벨 다국어 (동적 데이터(건물명·학과명 등)는 백엔드 값 그대로 — 프론트는 '틀'만 번역).
+const CT = {
+  ko: { viewMap: '카카오맵에서 크게 보기', mapAria: '위치 지도', deptHome: '학과 홈페이지 바로가기',
+        yes: '예', no: '아니요', pickFile: '원하시는 파일을 선택해 주세요.', downloadAll: '전부 다운로드', allDone: '모두 다운로드 완료 ✓' },
+  en: { viewMap: 'View on Kakao Map', mapAria: 'location map', deptHome: 'Department homepage',
+        yes: 'Yes', no: 'No', pickFile: 'Please select a file.', downloadAll: 'Download all', allDone: 'All downloaded ✓' },
+  zh: { viewMap: '在Kakao地图查看', mapAria: '位置地图', deptHome: '前往学科主页',
+        yes: '是', no: '否', pickFile: '请选择所需文件。', downloadAll: '全部下载', allDone: '全部下载完成 ✓' },
+}
+
+export default function MessageBubble({ message, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, isLatest }) {
+  const ct = CT[lang] || CT.ko
   const isUser = message.role === 'user'
   const [downloadedFiles, setDownloadedFiles] = useState(new Set())
 
@@ -431,7 +442,7 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
                         아래로 밀어 잘라낸다. 출처 표기는 ODbL 의무라 아래에 한 줄로 대체 표시. */}
                     <div className="relative overflow-hidden bg-slate-100" style={{ height: '190px' }}>
                       <iframe
-                        title={`${message.mapCard.title} 위치 지도`}
+                        title={`${message.mapCard.title} ${ct.mapAria}`}
                         src={`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`}
                         loading="lazy"
                         className="absolute top-0 left-0 w-full"
@@ -457,7 +468,7 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                   </svg>
-                  카카오맵에서 크게 보기
+                  {ct.viewMap}
                 </a>
               )}
             </div>
@@ -465,7 +476,7 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
 
 
           {/* 학사일정 미니 달력 카드 (일정이 걸친 주만) */}
-          {message.scheduleCard && <ScheduleCard card={message.scheduleCard} />}
+          {message.scheduleCard && <ScheduleCard card={message.scheduleCard} lang={lang} />}
 
           {/* 학과/학부/단과대 안내 카드 — 소개 본문은 담지 않고 소속 정보 + 홈페이지 링크만 */}
           {message.deptCard && (
@@ -534,7 +545,7 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                   </svg>
-                  학과 홈페이지 바로가기
+                  {ct.deptHome}
                 </a>
               )}
             </div>
@@ -569,13 +580,13 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
                 onClick={() => onConfirmFile(pendingFile, true)}
                 className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-[#005956] text-[#005956] bg-[#f0f9f8] hover:bg-[#e2f1f0]"
               >
-                예
+                {ct.yes}
               </button>
               <button
                 onClick={() => onConfirmFile(pendingFile, false)}
                 className="flex items-center justify-center gap-1.5 rounded-lg border text-sm font-bold transition w-20 py-2 border-slate-300 text-slate-600 bg-slate-50 hover:bg-slate-100"
               >
-                아니요
+                {ct.no}
               </button>
               </div>
            )}
@@ -583,7 +594,7 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
           {/* 파일 선택 버튼 (사용자가 '응' 확인 후에만 표시) */}
           {message.fileOffer && message.fileOffer.show_buttons && message.fileOffer.files && message.fileOffer.files.length > 0 && (
             <div style={{ marginTop: '14px' }}>
-              <p className="text-xs text-slate-400" style={{ marginBottom: '8px' }}>원하시는 파일을 선택해 주세요.</p>
+              <p className="text-xs text-slate-400" style={{ marginBottom: '8px' }}>{ct.pickFile}</p>
               <div className="flex flex-wrap gap-2">
                 {message.fileOffer.files.map((filename) => {
                   const stem = filename.replace(/\.[^/.]+$/, '')
@@ -641,7 +652,7 @@ export default function MessageBubble({ message, onClearPendingFile, pendingFile
                     <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                     </svg>
-                    {message.fileOffer.files.every(f => downloadedFiles.has(f)) ? '모두 다운로드 완료 ✓' : '전부 다운로드'}
+                    {message.fileOffer.files.every(f => downloadedFiles.has(f)) ? ct.allDone : ct.downloadAll}
                   </button>
                 )}
               </div>

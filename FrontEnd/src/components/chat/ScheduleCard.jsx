@@ -2,7 +2,15 @@ import { useState, useMemo } from 'react'
 // 달력 공통 로직은 scheduleUtils에 모아 ScheduleWidget(사이드바)과 공유한다.
 import { WD, toISO, fmtDate, catStyle, buildMonthWeeks, segsForWeek } from './scheduleUtils'
 
-export default function ScheduleCard({ card }) {
+// 카드 정적 라벨 다국어 (일정명 등 동적 데이터는 백엔드 값 그대로).
+const SC = {
+  ko: { title: '학사일정', ended: '종료', prev: '이전 일정', next: '다음 일정' },
+  en: { title: 'Academic Calendar', ended: 'Ended', prev: 'Previous', next: 'Next' },
+  zh: { title: '学事日程', ended: '已结束', prev: '上一个', next: '下一个' },
+}
+
+export default function ScheduleCard({ card, lang = 'ko' }) {
+  const sc = SC[lang] || SC.ko
   const todayISO = card?.today
   const events = useMemo(() => (card?.events || [])
     .filter(e => e.start_date)
@@ -104,7 +112,7 @@ export default function ScheduleCard({ card }) {
       {multi && (
         <button onClick={() => setIdx(v => Math.max(0, v - 1))} disabled={i === 0}
           className="shrink-0 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 shadow-sm hover:bg-slate-50 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-white transition"
-          style={{ width: '28px', height: '28px' }} aria-label="이전 일정">
+          style={{ width: '28px', height: '28px' }} aria-label={sc.prev}>
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
@@ -119,7 +127,7 @@ export default function ScheduleCard({ card }) {
             <svg className="h-4 w-4 text-[#005956]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0V11.25A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
             </svg>
-            <span className="text-sm font-bold text-[#005956]">학사일정</span>
+            <span className="text-sm font-bold text-[#005956]">{sc.title}</span>
           </div>
           <span className="text-sm font-black text-[#05263d]">{fy}년 {fm + 1}월{multi && <span className="text-[11px] font-medium text-slate-300" style={{ marginLeft: '6px' }}>{i + 1}/{events.length}</span>}</span>
         </div>
@@ -128,7 +136,7 @@ export default function ScheduleCard({ card }) {
         <div className="border-b border-slate-100 flex items-baseline flex-wrap" style={{ padding: '7px 12px', gap: '6px' }}>
           <span className={`text-sm font-black ${focalPast ? 'text-slate-400 line-through' : 'text-[#05263d]'}`}>{focal.event}</span>
           <span className={`text-xs font-bold ${focalPast ? 'text-slate-300' : 'text-[#005956]'}`}>{focalRange}</span>
-          {focalPast && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 rounded" style={{ padding: '1px 6px' }}>종료</span>}
+          {focalPast && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 rounded" style={{ padding: '1px 6px' }}>{sc.ended}</span>}
         </div>
 
         {grid}
@@ -138,7 +146,7 @@ export default function ScheduleCard({ card }) {
       {multi && (
         <button onClick={() => setIdx(v => Math.min(events.length - 1, v + 1))} disabled={i === events.length - 1}
           className="shrink-0 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 shadow-sm hover:bg-slate-50 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-white transition"
-          style={{ width: '28px', height: '28px' }} aria-label="다음 일정">
+          style={{ width: '28px', height: '28px' }} aria-label={sc.next}>
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
           </svg>

@@ -49,8 +49,9 @@ class ChatService:
                 file_confirm=request.file_confirm,
             )
             await db.commit()   # 세션 생성분만 커밋 (메시지는 저장 안 함)
+            from app.services.translation_service import translate_answer
             return ChatResponse(
-                answer=result.answer,
+                answer=await translate_answer(result.answer, request.lang),
                 session_id=session.id,
                 message_id=None,
                 file_offer=result.file_offer,
@@ -121,11 +122,16 @@ class ChatService:
             }.items() if v
         } or None
 
+        # 답변을 화면에 보일 언어로 번역한 뒤, DB에도 '그 번역본'을 저장한다 — 과거 대화를 다시
+        # 열었을 때 채팅했던 언어 그대로 보이게 하기 위함(한국어면 번역 없이 원문 그대로).
+        from app.services.translation_service import translate_answer
+        localized_answer = await translate_answer(result.answer, request.lang)
+
         asst_msg = ChatMessage(
             session_id=session.id,
             student_id=current_user.id,
             role="assistant",
-            content=result.answer,
+            content=localized_answer,
             intent=getattr(result, "intent", None),
             topic=getattr(result, "topic", None),
             source=getattr(result, "source", None),
@@ -140,7 +146,7 @@ class ChatService:
         await db.refresh(asst_msg)
 
         return ChatResponse(
-            answer=result.answer,
+            answer=localized_answer,   # 저장한 번역본과 동일 (번역 1회)
             session_id=session.id,
             message_id=asst_msg.id,
             file_offer=result.file_offer,
