@@ -21,7 +21,7 @@ from app.agents.topic_router import topic_router, SIMILARITY_THRESHOLD
 from app.models.DB_Table import ChatLog
 from app.services.llm_service import llm_service
 from app.prompts import GENERAL_HANDLER_PROMPT
-from app.services.school.campus import CampusService
+from app.services.school.campus import CampusService, has_building_hit
 from app.services.school.department import answer_department_question
 from app.services.school.graduation import graduation_service
 from app.services.school.schedule import schedule_service
@@ -47,6 +47,19 @@ _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
 def _is_campus_question(q: str) -> bool:
     return bool(_BUILDING_CODE_RE.search(q))
+
+
+# 위치 의도어 — '어디/위치/어딨/가는 길' 등.
+_LOCATION_INTENT_RE = re.compile(r'어디|어딨|어디에|위치|찾아가|가는\s*길|어느\s*건물|몇\s*층|몇\s*호')
+# 정보·절차 의도어 — 이게 있으면 '위치'가 아니라 그 주제의 정보/절차 질문이다.
+# 건물명이 매칭돼도 정보의도가 있으면 campus로 보내지 않는다.
+# ('학군단 뭐야/소개/모집 언제' → RAG, '학군단'·'학군단 어디' → campus 위치)
+_INFO_INTENT_RE = re.compile(
+    r'뭐|뭔|무엇|어떤|소개|알려|설명|신청|방법|어떻게|언제|얼마|며칠|기간|'
+    r'지원|모집|혜택|자격|조건|정보|대해|되나|하나요|인가요|추천|목록|'
+    # 시설 이용·대여·예약 등 '서비스/절차' 질문 — 위치가 아니라 그 정보(RAG)를 원하는 것
+    r'대여|대관|예약|이용|사용|빌리|운영|시간|요금|가격|비용'
+)
 
 
 # 학사일정 '날짜 질문' fast-path — 날짜 의도(언제/며칠/언제까지…) + 학사 이벤트 키워드면
@@ -445,6 +458,13 @@ async def _keyword_classify(state: AgentState) -> dict:
     """규칙 기반 fast-path 분류 (0ms) — campus 건물코드 / 학사일정 날짜질문"""
     if _is_campus_question(state["question"]):
         print("[Graph] 키워드 분류 → campus")
+        return {"intent": "campus"}
+    # 건물명이 DB에 매칭되고, 위치 의도가 있거나(→위치) '정보·절차 의도가 없으면'(건물명만 침) campus.
+    #   '동캠학생회관'·'학군단 어디' → campus / '학군단 뭐야'·'학군단 모집 언제' → RAG로 넘김.
+    # (regex 먼저 걸러 대부분의 질문은 DB 조회 없이 통과 — 정보의도어가 있으면 즉시 skip)
+    q = state["question"]
+    if (_LOCATION_INTENT_RE.search(q) or not _INFO_INTENT_RE.search(q)) and await has_building_hit(q):
+        print("[Graph] 키워드 분류 → campus (건물명 매칭)")
         return {"intent": "campus"}
     if _is_schedule_date_question(state["question"]):
         print("[Graph] 키워드 분류 → schedule (날짜 질문 fast-path)")

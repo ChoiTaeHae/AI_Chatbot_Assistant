@@ -45,6 +45,84 @@ def strip_table_separators(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", cleaned)
 
 
+# 표의 '구분선 셀'(대시/콜론뿐) 판정 — 데이터 '-'(예: 인원 0명)와 구별하기 위해 셀 단위로 본다.
+_SEP_CELL_RE = re.compile(r"^:?-{1,}:?$")
+
+
+def _row_cells(line: str) -> list[str]:
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _is_separator_row(cells: list[str]) -> bool:
+    nonempty = [c for c in cells if c]
+    return bool(nonempty) and all(_SEP_CELL_RE.match(c) for c in nonempty)
+
+
+def _convert_table_block(block: list[str]) -> str | None:
+    """여러 줄 마크다운 표(헤더 + | --- | 구분선 + 데이터행) → 행지향 텍스트.
+    구분선이 없으면(표준 표가 아니면) None을 반환해 원본을 유지한다."""
+    rows = [_row_cells(l) for l in block]
+    sep = next((k for k, r in enumerate(rows) if _is_separator_row(r)), None)
+    if not sep:                      # 구분선이 없거나 맨 앞이면 표준 표가 아님
+        return None
+    header = rows[sep - 1]
+    data = rows[sep + 1:]
+    if not data:
+        return None
+    out: list[str] = []
+    for r in data:
+        lead, pairs = None, []
+        for idx, val in enumerate(r):
+            if not val or _SEP_CELL_RE.match(val):   # 빈 셀·구분선 잔재는 건너뜀
+                continue
+            h = header[idx] if idx < len(header) else ""
+            if lead is None and idx == 0:
+                lead = val                            # 첫 열 값을 행의 앞머리로
+            else:
+                pairs.append(f"{h}: {val}" if h else val)
+        if lead and pairs:
+            out.append(f"- {lead} — " + " · ".join(pairs))
+        elif lead:
+            out.append(f"- {lead}")
+        elif pairs:
+            out.append("- " + " · ".join(pairs))
+    return "\n".join(out) if out else None
+
+
+def markdown_table_to_text(text: str) -> str:
+    """참고 문서의 여러 줄 마크다운 표를 '행지향 텍스트'로 변환한다.
+
+    작은 모델(8B)은 표를 '항목: 값'으로 풀라는 지시를 못 지키고 파이프 표를 그대로 복사하며
+    한 줄로 뭉개(|- |-|) 답변을 망친다. 원본 청크의 표는 깨끗한 여러 줄 마크다운이므로
+    (구분선이 명확한 | --- | 줄) LLM에 주기 전에 여기서 미리 텍스트로 바꿔 '복사할 표'를 없앤다.
+    표가 아닌 파이프(구분선 잔재 등)는 이후 strip_table_separators가 정리한다."""
+    if not text or "|" not in text:
+        return text
+    lines = text.split("\n")
+    out: list[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        is_tbl = lines[i].strip().startswith("|") and lines[i].count("|") >= 2
+        if is_tbl:
+            j = i
+            block: list[str] = []
+            while j < n and lines[j].strip().startswith("|") and lines[j].count("|") >= 2:
+                block.append(lines[j])
+                j += 1
+            converted = _convert_table_block(block)
+            out.append(converted if converted is not None else "\n".join(block))
+            i = j
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out)
+
+
 def strip_files_tag(text: str) -> str:
     """답변에서 <FILES> 태그를 제거한다. 파일 제안은 임베딩 필터로 확정하므로 LLM이 뽑은
     태그는 화면에서 지우기만 한다.
