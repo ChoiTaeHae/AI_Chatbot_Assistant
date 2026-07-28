@@ -190,7 +190,9 @@ def _parse_certificate_blocks(context: str) -> dict[str, str]:
             start = m.end()
             end = marks[i + 1].start() if i + 1 < len(marks) else len(segment)
             body = _clip_at_nonblock_header(segment[start:end].strip())
-            if name and body and name not in blocks:      # 먼저 나온(고득점) 청크 우선
+            # 이름에 '증명'이 든 블록만 인정 — 딴 문서의 '[공지]' 같은 대괄호 줄을 증명서로
+            # 오인하지 않게 한다(토픽 가드를 뗀 뒤의 안전장치). 이 프로젝트 증명서는 모두 '~증명서'.
+            if name and body and "증명" in name and name not in blocks:   # 먼저 나온(고득점) 청크 우선
                 blocks[name] = body
     return blocks
 
@@ -762,7 +764,11 @@ async def answer_rag_general_question_with_metadata(
     is_club = "동아리" in question and effective_topic == "student_support"
     _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
     is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
-    is_certificate = any(k in question for k in ("증명서", "제증명")) and effective_topic == "rag_general"
+    # 제증명 코드 렌더링 게이트: 토픽 분류에 의존하지 않는다(예전 == "rag_general"은 제증명이
+    # '미분류'로 떨어질 때만 성립해, 나중에 증명서 토픽을 추가하면 조용히 죽는 시한폭탄이었다).
+    # 질문에 증명서 언급이 있으면 시도만 하고, 실제 발동은 format_certificate_info가 컨텍스트에서
+    # '[증명서명]' 블록을 파싱했을 때만(블록 없으면 "" 반환 → LLM 폴백). 어느 토픽이든 견고하게 동작.
+    is_certificate = any(k in question for k in ("증명서", "제증명"))
     print(f"[RAG_GENERAL] is_club={is_club}, is_club_list={is_club_list}, is_certificate={is_certificate}, topic={effective_topic}")
 
     from pathlib import Path
