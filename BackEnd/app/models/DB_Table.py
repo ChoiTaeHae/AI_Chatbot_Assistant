@@ -409,3 +409,52 @@ class DocumentFile(Base):
         Index("ix_document_file_topic", "topic"),
         UniqueConstraint("topic", "filename", name="uq_document_file_topic_filename"),
     )
+
+# ==========================================
+# 23. 장학금 카탈로그 (scholarship_catalog)
+# ==========================================
+# '장학금 둘러보기' UI 전용. 위의 scholarship 테이블(자격 매칭용, min_gpa 등)과 별개다.
+# 장학금은 RAG에 잘 안 맞아(넓은 목록 질문 실패·마감 지난 공고 노출·과다 청킹) DB 카탈로그로
+# 빼고, 프론트 모달에서 교내/교외 탭 + 카테고리 + 검색으로 보여준다. 마감 지난 교외 장학금은
+# deadline 기준으로 코드가 자동으로 걸러낸다(교내 상시 장학금은 deadline NULL → 항상 노출).
+class ScholarshipCatalog(Base):
+    __tablename__ = "scholarship_catalog"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(200), nullable=False)   # 이름
+    kind          = Column(String(10), nullable=False, server_default="장학금")  # '장학금' | '근로' (모달 상단 전환)
+    scope         = Column(String(10), nullable=False)     # '교내' | '교외' (탭 구분)
+    category      = Column(String(50), nullable=True)      # 성적우수·복지·근로·특별 / 교외는 지자체명 등 (아코디언 그룹)
+    amount        = Column(String(100), nullable=True)     # 금액 표기 (예: '전액', '100만원', '전액/70%/50만')
+    eligibility   = Column(String(300), nullable=True)     # 한 줄 조건 요약 (예: '공인어학성적 차등 · 4년')
+    period        = Column(String(100), nullable=True)     # 신청 기간 표시 텍스트 (예: '2026. 3. 24(화) 10:00 ~ 31(화) 16:00')
+    end_at        = Column(DateTime, nullable=True)         # 마감 판정용(화면 비표시, KST 벽시계). 지금 > end_at → '기간마감'. NULL=상시
+    link          = Column(String(500), nullable=True)     # 외부 공고 URL (파일 대신 링크로 넘길 때)
+    # 정렬은 마감일 임박순(코드에서 처리) — 수동 순서 컬럼 없음
+
+    __table_args__ = (
+        Index("ix_scholarship_catalog_scope", "scope"),
+    )
+
+
+# ==========================================
+# 24. 장학금-파일 연결 (scholarship_file)
+# ==========================================
+# 장학금 하나에 딸린 파일 세트(공고문 + 신청서 + 양식 등)를 연결한다. 파일관리에서 파일을
+# 업로드할 때 '소속 장학금'을 지정하면 여기에 행이 생긴다. 모달은 대표(is_primary) 파일을
+# 기본 표시하고, 나머지는 펼침 목록으로 보여준다. 한 파일은 한 장학금에만 소속(문서 단일 유니크).
+# document_file / scholarship_catalog 삭제 시 연결도 함께 삭제(CASCADE).
+class ScholarshipFile(Base):
+    __tablename__ = "scholarship_file"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    scholarship_id   = Column(Integer, ForeignKey("scholarship_catalog.id", ondelete="CASCADE"), nullable=False)
+    document_file_id = Column(Integer, ForeignKey("document_file.id", ondelete="CASCADE"), nullable=False)
+    is_primary       = Column(Boolean, nullable=False, default=False, server_default="false")  # 대표 파일(모달 기본 표시)
+    display_order    = Column(Integer, nullable=False, server_default="0")                      # 펼침 목록 정렬
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("document_file_id", name="uq_scholarship_file_document"),  # 파일당 장학금 1개
+        Index("ix_scholarship_file_scholarship", "scholarship_id"),
+    )

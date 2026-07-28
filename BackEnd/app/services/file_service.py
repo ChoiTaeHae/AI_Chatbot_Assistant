@@ -85,14 +85,15 @@ class FileService:
     async def list_files(self) -> dict:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(DocumentFile.topic, DocumentFile.filename, DocumentFile.size)
+                select(DocumentFile.id, DocumentFile.topic, DocumentFile.filename, DocumentFile.size)
                 .order_by(DocumentFile.filename)
             )
             rows = result.all()
 
         files: dict[str, list[dict]] = {topic: [] for topic in _valid_topics}
-        for topic, filename, size in rows:
+        for file_id, topic, filename, size in rows:
             files.setdefault(topic, []).append({
+                "id": file_id,
                 "name": filename,
                 "size": size,
                 "topic": topic,
@@ -120,15 +121,16 @@ class FileService:
                 "content_type": content_type,
                 "size": len(content),
             },
-        )
+        ).returning(DocumentFile.id)
         async with AsyncSessionLocal() as session:
-            await session.execute(stmt)
+            file_id = (await session.execute(stmt)).scalar_one()
             await session.commit()
 
         await refresh_available_files()   # 캐시 갱신
 
         return {
             "success": True,
+            "id": file_id,
             "topic": topic,
             "filename": clean_name,
             "size": len(content),
