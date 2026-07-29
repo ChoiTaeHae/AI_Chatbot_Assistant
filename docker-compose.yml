@@ -42,6 +42,10 @@ services:
       - ./FrontEnd/src:/app/src
       # vite.config.js도 마운트 — 프록시/allowedHosts 설정 변경을 재빌드 없이 반영
       - ./FrontEnd/vite.config.js:/app/vite.config.js
+    environment:
+      # Windows 바인드 마운트는 파일 변경 이벤트가 컨테이너로 안 넘어와 HMR이 죽는다.
+      # 폴링 감시로 전환(vite.config.js에서 이 값을 보고 켬). 네이티브 실행엔 영향 없음.
+      - VITE_USE_POLLING=1
     depends_on:
       - backend
     restart: unless-stopped

@@ -28,6 +28,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     host: '0.0.0.0',
+    // Windows 호스트를 컨테이너에 바인드 마운트하면 inotify 이벤트가 넘어오지 않는다.
+    // → 파일을 고쳐도 Vite가 눈치채지 못해 HMR이 안 돌고, 새로고침해도 캐시된 옛 코드가
+    //   계속 나온다(컨테이너를 재시작해야만 반영됨). 폴링으로 바꾸면 저장 즉시 반영된다.
+    // 네이티브(npm run dev)는 inotify가 정상이라 폴링이 CPU만 축내므로,
+    // docker-compose에서 VITE_USE_POLLING을 준 경우에만 켠다.
+    watch: process.env.VITE_USE_POLLING
+      ? { usePolling: true, interval: 300 }
+      : undefined,
     // Cloudflare Tunnel 등 외부 호스트에서 접속 허용(임시 URL이 매번 바뀌므로 전체 허용).
     // 시연용 설정 — 상시 서비스로 갈 땐 특정 도메인만 허용하도록 좁힌다.
     allowedHosts: true,

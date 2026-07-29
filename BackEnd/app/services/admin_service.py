@@ -33,6 +33,10 @@ from app.schemas.admins import (
     DocumentDeleteResponse,
     DocumentUpdateRequest,
     DocumentUpdateResponse,
+    ChunkItem,
+    ChunkListResponse,
+    ChunkUpdateRequest,
+    ChunkUpdateResponse,
     ChatSessionItem,
     ChatSessionListResponse,
     ChatMessageItem,
@@ -591,6 +595,63 @@ class AdminService:
             source=source,
             updated_chunks=updated,
             message=f"'{source}' 메타데이터 수정 완료 ({updated}개 청크 갱신, 본문·임베딩 유지)",
+        )
+
+    def list_chunks(self, source: str) -> ChunkListResponse:
+        """문서가 실제로 어떻게 쪼개져 저장됐는지 조회한다."""
+        chunks = rag_service.vector_store.list_chunks(source)
+        if not chunks:
+            raise LookupError(f"'{source}' 문서를 찾을 수 없습니다.")
+        items = [ChunkItem(chars=len(c["text"]), **c) for c in chunks]
+        return ChunkListResponse(source=source, chunks=items, total=len(items))
+
+    def update_chunk(self, source: str, chunk_index: int, body: ChunkUpdateRequest) -> ChunkUpdateResponse:
+        """청크 본문 수정 — 그 청크의 본문과 벡터를 함께 갱신한다.
+
+        문서 재업로드와 달리 다른 청크는 건드리지 않으므로, 손으로 정리해 둔 청크가
+        재청킹으로 흐트러지지 않는다. 대신 임베딩을 다시 계산해야 해서 메타데이터
+        수정보다 느리다(BGE-M3 인코딩 1회).
+        """
+        text = (body.text or "").strip()
+        if not text:
+            raise ValueError("청크 본문은 비워 둘 수 없습니다.")
+
+        chunk = rag_service.vector_store.get_chunk(source, chunk_index)
+        if chunk is None:
+            raise LookupError(f"'{source}' 문서의 {chunk_index}번 청크를 찾을 수 없습니다.")
+        if text == chunk["text"]:
+            # 내용이 같은데 재임베딩하는 건 수 초를 그냥 버리는 일이라 여기서 끊는다
+            return ChunkUpdateResponse(
+                success=True, source=source, chunk_index=chunk_index,
+                chars=len(text), message="변경된 내용이 없습니다.",
+            )
+
+        # 인제스트와 같은 규칙으로 임베딩 텍스트를 만든다(chunker._make_chunk와 동일).
+        # 여기서 규칙이 어긋나면 이 청크만 다른 기준으로 임베딩돼 검색 순위가 틀어진다.
+        path = chunk.get("path") or ""
+        embedding_text = f"{path}\n{text}" if path else text
+
+        sparse_vector = None
+        if settings.HYBRID_SEARCH:
+            embeddings, sparse_vectors = rag_service.embedding.embed_hybrid([embedding_text])
+            sparse_vector = sparse_vectors[0]
+        else:
+            embeddings = rag_service.embedding.embed_texts([embedding_text])
+
+        rag_service.vector_store.update_chunk_text(
+            point_id=chunk["point_id"],
+            text=text,
+            embedding=embeddings[0],
+            sparse_vector=sparse_vector,
+        )
+        print(f"[AdminService] 청크 수정: {source}#{chunk_index} "
+              f"({len(chunk['text'])}자 → {len(text)}자, 재임베딩 완료)")
+        return ChunkUpdateResponse(
+            success=True,
+            source=source,
+            chunk_index=chunk_index,
+            chars=len(text),
+            message=f"{chunk_index}번 청크 수정 완료 ({len(chunk['text'])}자 → {len(text)}자, 재임베딩 반영)",
         )
 
     def delete_document(self, source: str) -> DocumentDeleteResponse:

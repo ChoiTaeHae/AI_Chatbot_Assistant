@@ -54,6 +54,40 @@ class DocumentUpdateResponse(BaseModel):
     message: str
 
 
+class ChunkItem(BaseModel):
+    """저장된 청크 하나. point_id는 Qdrant 포인트 식별자로, 화면 key와 수정 대상 지정에 쓴다."""
+    point_id: str
+    chunk_index: int
+    text: str
+    chars: int
+    path: Optional[str] = None
+    chapter: Optional[str] = None
+    article: Optional[str] = None
+
+
+class ChunkListResponse(BaseModel):
+    source: str
+    chunks: list[ChunkItem]
+    total: int
+
+
+class ChunkUpdateRequest(BaseModel):
+    """청크 본문 수정 — 저장하면 이 청크 하나만 다시 임베딩된다.
+
+    본문이 바뀌면 벡터도 같이 바뀌어야 검색이 맞는다(메타데이터 수정과 다른 점).
+    나머지 청크는 손대지 않으므로 문서 재업로드처럼 전체가 다시 쪼개지지 않는다.
+    """
+    text: str
+
+
+class ChunkUpdateResponse(BaseModel):
+    success: bool
+    source: str
+    chunk_index: int
+    chars: int
+    message: str
+
+
 class DocumentDeleteResponse(BaseModel):
     success: bool
     source: str

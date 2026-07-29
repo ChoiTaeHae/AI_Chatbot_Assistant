@@ -9,6 +9,9 @@ from app.schemas.admins import (
     DocumentDeleteResponse,
     DocumentUpdateRequest,
     DocumentUpdateResponse,
+    ChunkListResponse,
+    ChunkUpdateRequest,
+    ChunkUpdateResponse,
     TopicItem,
     TopicCreateRequest,
     TopicUpdateRequest,
@@ -229,6 +232,39 @@ async def update_document(source: str, body: DocumentUpdateRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"문서 수정 중 오류: {e}")
+
+
+@router.get("/documents/{source}/chunks", response_model=ChunkListResponse, summary="문서 청크 목록 조회")
+async def list_document_chunks(source: str):
+    """문서가 실제로 어떻게 쪼개져 저장됐는지 조회한다(본문 포함, 벡터 제외)."""
+    try:
+        return admin_service.list_chunks(source)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"청크 조회 실패: {e}")
+
+
+@router.patch(
+    "/documents/{source}/chunks/{chunk_index}",
+    response_model=ChunkUpdateResponse,
+    summary="청크 본문 수정(해당 청크만 재임베딩)",
+)
+def update_document_chunk(source: str, chunk_index: int, body: ChunkUpdateRequest):
+    """청크 본문을 고치고 그 청크만 다시 임베딩한다.
+
+    다른 청크는 건드리지 않으므로 문서 재업로드처럼 전체가 다시 쪼개지지 않는다.
+    이 핸들러만 async가 아닌 def인 것은 의도적이다 — 임베딩 계산이 수 초 걸려서
+    async 안에서 돌리면 그동안 서버 전체가 멈춘다. def면 FastAPI가 스레드풀로 넘긴다.
+    """
+    try:
+        return admin_service.update_chunk(source, chunk_index, body)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"청크 수정 중 오류: {e}")
 
 
 @router.delete("/documents/{source}", response_model=DocumentDeleteResponse, summary="문서 삭제")
