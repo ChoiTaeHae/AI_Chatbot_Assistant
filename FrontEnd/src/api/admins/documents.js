@@ -122,6 +122,21 @@ export async function deleteTopic(name) {
   return res.json()
 }
 
+// 문서 메타데이터 수정 — 본문·임베딩은 그대로 두고 payload만 갱신하므로 재인제스트가 없다.
+// data에 담은 키만 반영된다(빈 문자열은 '값 비우기'로 처리).
+export async function updateDocument(source, data) {
+  const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '문서 수정에 실패했습니다.')
+  }
+  return res.json()
+}
+
 export async function deleteDocument(source) {
   const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
     method: 'DELETE',

@@ -31,6 +31,8 @@ from app.schemas.admins import (
     DocumentListItem,
     DocumentListResponse,
     DocumentDeleteResponse,
+    DocumentUpdateRequest,
+    DocumentUpdateResponse,
     ChatSessionItem,
     ChatSessionListResponse,
     ChatMessageItem,
@@ -559,6 +561,37 @@ class AdminService:
         }
         _ingest_executor.submit(self._run_crawl, job_id, url, source, topic, doc_date, contact_name, contact_phone)
         return job_id
+
+    def update_document(self, source: str, body: DocumentUpdateRequest) -> DocumentUpdateResponse:
+        """문서 메타데이터 수정 — 본문·벡터는 건드리지 않는다.
+
+        보낸 필드만 갱신한다(exclude_unset). 빈 문자열은 '값 비우기'로 보고 None으로 넘겨
+        payload에서 키 자체를 지운다 — 화면에서 지운 값이 ''로 남아 '-' 대신 빈칸이 보이는
+        일을 막기 위함.
+        """
+        fields = body.model_dump(exclude_unset=True)
+        if not fields:
+            raise ValueError("수정할 항목이 없습니다.")
+
+        topic = fields.get("topic")
+        if topic and not _is_valid_topic(topic):
+            raise ValueError(f"유효하지 않은 주제: {topic}.")
+
+        normalized = {}
+        for key, value in fields.items():
+            if isinstance(value, str):
+                value = value.strip() or None      # 공백만 입력한 것도 비우기로 취급
+            normalized[key] = value
+
+        updated = rag_service.vector_store.update_source_metadata(source, normalized)
+        if updated == 0:
+            raise LookupError(f"'{source}' 문서를 찾을 수 없습니다.")
+        return DocumentUpdateResponse(
+            success=True,
+            source=source,
+            updated_chunks=updated,
+            message=f"'{source}' 메타데이터 수정 완료 ({updated}개 청크 갱신, 본문·임베딩 유지)",
+        )
 
     def delete_document(self, source: str) -> DocumentDeleteResponse:
         deleted = rag_service.vector_store.delete_by_source(source)

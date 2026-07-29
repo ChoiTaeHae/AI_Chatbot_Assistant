@@ -21,12 +21,37 @@ class DocumentListItem(BaseModel):
     file_name: Optional[str] = None
     chunks: int
     topic: Optional[str] = None
-    doc_date: Optional[str] = None 
+    doc_date: Optional[str] = None
+    # 수정 폼 초기값 채우기용 — 목록 한 번으로 폼을 열 수 있게 함께 내려준다
+    url: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
 
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentListItem]
     total: int
+
+
+class DocumentUpdateRequest(BaseModel):
+    """문서 메타데이터 수정 — 보낸 필드만 갱신한다(exclude_unset).
+
+    본문(text)·벡터는 건드리지 않으므로 재임베딩이 없고, 손으로 정리해 둔 청크도 보존된다.
+    문서명(source)과 파일 내용은 이 경로로 바꿀 수 없다(문서명은 point id를 결정하므로
+    전 청크 재적재가 필요 — 필요해지면 별도 엔드포인트로 다룬다).
+    """
+    topic: Optional[str] = None
+    doc_date: Optional[str] = None
+    url: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+class DocumentUpdateResponse(BaseModel):
+    success: bool
+    source: str
+    updated_chunks: int
+    message: str
 
 
 class DocumentDeleteResponse(BaseModel):

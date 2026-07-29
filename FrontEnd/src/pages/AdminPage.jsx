@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
-import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus, crawlDocument, fetchTopics, fetchTopicList, createTopic, updateTopic, deleteTopic } from '../api/admins/documents'
+import { uploadDocument, fetchDocuments, deleteDocument, updateDocument, pollUploadStatus, crawlDocument, fetchTopics, fetchTopicList, createTopic, updateTopic, deleteTopic } from '../api/admins/documents'
 import { fetchDashboard, fetchStats, fetchChatStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
@@ -114,6 +114,11 @@ export default function AdminPage() {
   const [docUrl, setDocUrl] = useState('')
   const [docContactName, setDocContactName] = useState('')
   const [docContactPhone, setDocContactPhone] = useState('')
+  // 문서 목록 인라인 수정 — 열린 행의 source, 폼 값, 저장 상태
+  const [editingSource, setEditingSource] = useState(null)
+  const [editForm, setEditForm] = useState({})
+  const [editSaving, setEditSaving] = useState(false)
+  const [editMsg, setEditMsg] = useState(null)
   const [crawling, setCrawling] = useState(false)
   const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
   const [topicFilter, setTopicFilter] = useState('all')
@@ -432,6 +437,35 @@ export default function AdminPage() {
       await loadDocuments()
     } catch (e) {
       alert(e.message)
+    }
+  }
+
+  // 문서명을 누르면 그 행 아래에 수정 폼이 펼쳐진다. 같은 행을 다시 누르면 닫힌다.
+  // 메타데이터만 수정하므로 본문·임베딩은 그대로다(재업로드와 달리 청크가 다시 만들어지지 않음).
+  function toggleEditRow(doc) {
+    if (editingSource === doc.source) { setEditingSource(null); return }
+    setEditingSource(doc.source)
+    setEditMsg(null)
+    setEditForm({
+      topic: doc.topic || '',
+      doc_date: doc.doc_date || '',
+      url: doc.url || '',
+      contact_name: doc.contact_name || '',
+      contact_phone: doc.contact_phone || '',
+    })
+  }
+
+  async function handleUpdateDocument(source) {
+    setEditSaving(true)
+    setEditMsg(null)
+    try {
+      const result = await updateDocument(source, editForm)
+      await loadDocuments()
+      setEditMsg({ type: 'success', text: result.message })
+    } catch (e) {
+      setEditMsg({ type: 'error', text: e.message })
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -1276,7 +1310,8 @@ export default function AdminPage() {
                       </tr>
                     )}
                     {filtered.map((doc, i) => (
-                      <tr key={i} className="border-b border-(--border) hover:bg-(--surface-2) transition">
+                      <Fragment key={doc.source}>
+                      <tr className="border-b border-(--border) hover:bg-(--surface-2) transition">
                         <td className="font-medium text-(--text-body) truncate" style={{ padding: '13px 16px' }}>{doc.source}</td>
                         <td className="text-(--text-muted) text-xs truncate" style={{ padding: '13px 16px' }}>{doc.file_name || '-'}</td>
                         <td style={{ padding: '13px 16px', overflow: 'hidden' }}>
@@ -1291,17 +1326,133 @@ export default function AdminPage() {
                         <td className="text-(--text-muted) text-xs" style={{ padding: '13px 16px' }}>{doc.doc_date || '-'}</td>
                         <td className="text-right text-(--text-body) font-medium" style={{ padding: '13px 16px' }}>{doc.chunks}</td>
                         <td style={{ padding: '13px 16px' }}>
-                          <button
-                            onClick={() => handleDelete(doc.source)}
-                            className="hover:text-red-500 transition text-(--text-faint)"
-                            title="삭제"
-                          >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
+                          <div className="flex items-center gap-2.5">
+                            <button
+                              onClick={() => toggleEditRow(doc)}
+                              className={`transition ${editingSource === doc.source ? 'text-(--brand)' : 'text-(--text-faint) hover:text-(--brand)'}`}
+                              title="수정"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleDelete(doc.source)}
+                              className="hover:text-red-500 transition text-(--text-faint)"
+                              title="삭제"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                       </tr>
+
+                      {/* 인라인 수정 폼 — 메타데이터만 바꾸므로 본문·임베딩은 그대로 유지된다 */}
+                      {editingSource === doc.source && (
+                        <tr className="border-b border-(--border) bg-(--surface-2)">
+                          <td colSpan={6} style={{ padding: '18px 20px' }}>
+                            <div className="flex items-center justify-between" style={{ marginBottom: '14px' }}>
+                              <span className="text-sm font-bold text-(--text)">문서 정보 수정</span>
+                              <span className="text-xs text-(--text-faint)">
+                                본문·임베딩은 그대로 두고 정보만 갱신해요 (청크 {doc.chunks}개)
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3" style={{ marginBottom: '12px' }}>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">주제 분류</span>
+                                <select
+                                  value={editForm.topic ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, topic: e.target.value })}
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                >
+                                  <option value="">미분류 (전체 검색 대상)</option>
+                                  {Object.entries(topicLabels).map(([key, label]) => (
+                                    <option key={key} value={key}>{label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">기준 날짜</span>
+                                <input
+                                  type="date"
+                                  value={editForm.doc_date ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, doc_date: e.target.value })}
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">담당 부서</span>
+                                <input
+                                  type="text"
+                                  value={editForm.contact_name ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, contact_name: e.target.value })}
+                                  placeholder="예: 학사팀"
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3">
+                              <label className="flex flex-col gap-1.5 col-span-2 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">출처 URL</span>
+                                <input
+                                  type="text"
+                                  value={editForm.url ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, url: e.target.value })}
+                                  placeholder="https://wsu.ac.kr/..."
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">전화번호</span>
+                                <input
+                                  type="text"
+                                  value={editForm.contact_phone ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, contact_phone: e.target.value })}
+                                  placeholder="예: 042-630-9114"
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3" style={{ marginTop: '14px' }}>
+                              <span className={`text-xs min-w-0 truncate ${
+                                editMsg?.type === 'error' ? 'text-red-500'
+                                : editMsg?.type === 'success' ? 'text-(--brand)'
+                                : 'text-transparent'
+                              }`}>
+                                {editMsg?.text || '.'}
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  onClick={() => setEditingSource(null)}
+                                  className="rounded-lg border border-(--border) text-sm text-(--text-muted) hover:bg-(--surface) transition"
+                                  style={{ padding: '7px 16px' }}
+                                >
+                                  취소
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateDocument(doc.source)}
+                                  disabled={editSaving}
+                                  className="rounded-lg bg-(--brand) text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
+                                  style={{ padding: '7px 18px' }}
+                                >
+                                  {editSaving ? '저장 중...' : '저장'}
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

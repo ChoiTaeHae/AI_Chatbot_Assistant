@@ -305,7 +305,12 @@ class QdrantVectorStore:
         return result.count
 
     def list_sources(self) -> list[dict]:
-        """저장된 문서 source 목록 반환."""
+        """저장된 문서 source 목록 반환.
+
+        url·contact_name·contact_phone도 함께 반환한다 — 관리자 페이지의 '문서 수정'
+        폼에 기존값을 채우려면 목록만으로 충분해야 하기 때문(문서별 상세 조회 왕복 불필요).
+        같은 source의 청크는 값이 동일하므로 첫 청크 기준으로 담는다.
+        """
         if not self._exists():
             return []
         result = qdrant_client.scroll(
@@ -323,9 +328,60 @@ class QdrantVectorStore:
                     "source": source,
                     "file_name": payload.get("file_name", ""),
                     "topic": payload.get("topic", ""),
-                    "doc_date": payload.get("doc_date"), 
+                    "doc_date": payload.get("doc_date"),
+                    "url": payload.get("url"),
+                    "contact_name": payload.get("contact_name"),
+                    "contact_phone": payload.get("contact_phone"),
                     "chunks": 1,
                 }
             else:
                 seen[source]["chunks"] += 1
         return list(seen.values())
+
+    # 문서 수정으로 갱신할 수 있는 payload 필드 — 화이트리스트로 고정한다.
+    # text/chunk_index/source 등 검색 구조에 관여하는 키는 여기에 넣지 않는다
+    # (source는 point id를 결정하므로 payload만 바꾸면 데이터가 어긋난다).
+    EDITABLE_META_FIELDS = ("topic", "doc_date", "url", "contact_name", "contact_phone")
+
+    def update_source_metadata(self, source: str, fields: dict) -> int:
+        """source에 속한 모든 청크의 메타데이터를 일괄 갱신하고 갱신된 청크 수를 반환.
+
+        set_payload는 지정한 키만 덮어쓰므로 **본문(text)과 벡터는 그대로 유지**된다.
+        기존에는 메타 하나를 고치려 해도 '삭제 후 재업로드'뿐이라, 재청킹·재임베딩이
+        일어나면서 손으로 정리해 둔 청크 본문까지 함께 날아갔다. 이 경로는 그 위험이 없다.
+        """
+        if not self._exists():
+            return 0
+        self._ensure_source_index()
+        payload = {k: v for k, v in fields.items() if k in self.EDITABLE_META_FIELDS}
+        if not payload:
+            return 0
+
+        source_filter = Filter(
+            must=[FieldCondition(key="source", match=MatchValue(value=source))]
+        )
+        count = qdrant_client.count(
+            collection_name=self.collection_name,
+            count_filter=source_filter,
+            exact=True,
+        ).count
+        if count == 0:
+            return 0
+
+        # None은 '값 비우기' 의도이므로 set_payload가 아니라 delete_payload로 처리한다
+        # (set_payload에 None을 주면 null이 그대로 박혀 필드 유무 판정이 흔들린다).
+        to_set = {k: v for k, v in payload.items() if v is not None}
+        to_clear = [k for k, v in payload.items() if v is None]
+        if to_set:
+            qdrant_client.set_payload(
+                collection_name=self.collection_name,
+                payload=to_set,
+                points=FilterSelector(filter=source_filter).filter,
+            )
+        if to_clear:
+            qdrant_client.delete_payload(
+                collection_name=self.collection_name,
+                keys=to_clear,
+                points=FilterSelector(filter=source_filter).filter,
+            )
+        return count

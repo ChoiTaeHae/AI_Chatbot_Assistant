@@ -7,6 +7,8 @@ from app.core.deps import get_db
 from app.schemas.admins import (
     DocumentListResponse,
     DocumentDeleteResponse,
+    DocumentUpdateRequest,
+    DocumentUpdateResponse,
     TopicItem,
     TopicCreateRequest,
     TopicUpdateRequest,
@@ -210,6 +212,23 @@ async def list_documents():
         return admin_service.list_documents()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"문서 목록 조회 실패: {e}")
+
+
+@router.patch("/documents/{source}", response_model=DocumentUpdateResponse, summary="문서 메타데이터 수정")
+async def update_document(source: str, body: DocumentUpdateRequest):
+    """주제 분류·기준 날짜·출처 URL·담당 부서·전화번호를 수정한다.
+
+    본문과 임베딩은 그대로 두고 payload만 갱신하므로 재인제스트가 없다
+    (기존에는 메타 하나를 고치려면 삭제 후 재업로드뿐이라 청크가 전부 다시 만들어졌다).
+    """
+    try:
+        return admin_service.update_document(source, body)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"문서 수정 중 오류: {e}")
 
 
 @router.delete("/documents/{source}", response_model=DocumentDeleteResponse, summary="문서 삭제")
