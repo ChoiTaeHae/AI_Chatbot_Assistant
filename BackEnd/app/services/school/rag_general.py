@@ -58,6 +58,10 @@ _GENERIC_TERMS = (
     # 지시대명사 — 이전 주제를 가리키는 말이라 주제어가 아니다("그건 얼마야?")
     "그건", "그거", "그것", "이건", "이거", "이것", "저건", "저거", "저것",
     "거기", "여기", "그때", "그럼", "그러면",
+    # 수정 요청·조사 — 주제가 아니라 '다시 해줘' 류의 요청/연결어라 주제어가 아니다.
+    # ('2025학번으로 다시 부탁해' 같은 순수 수정요청이 주제어를 가진 새 질문으로 오인되면
+    #  이전 주제(간호학과)를 못 붙여 가드가 정답 재작성을 폐기했다. 실측)
+    "다시", "부탁", "으로",
 )
 # 서술어(동사·형용사) 어미 — 주제어가 아니므로 제외한다.
 # 예: '내야해'(언제까지 내야해?)를 주제어로 오인하면 정상적인 맥락 보충까지 폐기된다.
@@ -73,6 +77,11 @@ _PREDICATE_SUFFIXES = (
 )
 _TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 
+# 입학년도·학년 한정어('2025학번', '2025년도', '2학년') — 졸업요건 등의 '속성'이지 주제가 아니다.
+# _GENERIC_TERMS는 startswith라 숫자로 시작하는 이 토큰들을 못 걸러 별도 정규식으로 처리한다.
+# (졸업 핸들러는 detect_admission_year로 년도를 따로 감지하므로 주제어에서 빠져도 무관)
+_YEAR_QUALIFIER_RE = re.compile(r"^\d{1,4}(학번|학년도|년도|학년)")
+
 
 def _distinctive_terms(question: str) -> list[str]:
     """질문에서 '주제를 식별하는' 토큰만 추출 (일반어·서술어 제외).
@@ -82,6 +91,8 @@ def _distinctive_terms(question: str) -> list[str]:
     terms = []
     for tok in _TOKEN_RE.findall(question or ""):
         if len(tok) < 2:
+            continue
+        if _YEAR_QUALIFIER_RE.match(tok):     # '2025학번'·'2학년' 등 입학년도/학년 한정어는 주제 아님
             continue
         if any(tok.startswith(g) for g in _GENERIC_TERMS):
             continue
