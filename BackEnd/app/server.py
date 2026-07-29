@@ -176,6 +176,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"topic 라우터 워밍업 실패 (무시): {e}")
 
+    # 학과생활 FAQ 인덱스 워밍업 (임베딩 준비된 뒤 — 질문 벡터를 메모리에 상주)
+    try:
+        from app.services.faq_index import warmup as faq_warmup
+        await faq_warmup()
+    except Exception as e:
+        print(f"[Server] FAQ 인덱스 워밍업 실패 (무시): {e}")
+
     # 학사일정 날짜-게이트 키워드 로드 (app_config, 어드민 편집분 반영)
     try:
         await _load_schedule_gate()

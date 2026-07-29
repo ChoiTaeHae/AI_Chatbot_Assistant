@@ -783,6 +783,16 @@ async def answer_rag_general_question_with_metadata(
                 metadata,
             )
 
+        # 최후 보류: 토픽/문서로 못 잡은 질문이라도 큐레이션 FAQ에 있으면 검수 답변을 그대로.
+        # (general 경로에서 놓친 FAQ감이 rag_general로 샌 경우를 마지막에 한 번 더 건진다)
+        from app.services.faq_index import faq_lookup
+        loop = asyncio.get_event_loop()
+        hit = await loop.run_in_executor(None, faq_lookup, question)
+        if hit:
+            print("[RAG_GENERAL] 문서 0건이지만 FAQ 매칭 → verbatim 답변")
+            metadata["source"] = "faq"
+            return hit[0], metadata
+
         print("[RAG_GENERAL] ⚠️ 검색 결과 0건 → LLM 호출 스킵, 안내 응답 반환")
         return (
             "죄송해요, 해당 내용에 대한 자료를 찾지 못했어요. "
