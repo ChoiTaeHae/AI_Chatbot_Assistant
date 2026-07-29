@@ -363,6 +363,38 @@ class SearchDictionary(Base):
 
 
 # ==========================================
+# 17-c. 학과생활 FAQ (faq / faq_question)
+# ==========================================
+# 어느 토픽에도 안 잡히는 학생 생활 질문("과 잠바 언제 맞춰?" 등)에 대해, 사람이 검수한 답변만
+# 그대로 돌려주는 큐레이션 FAQ. 매칭은 faq_question.text(질문 변형)들과 임베딩 유사도로 하고
+# (질문↔질문), 임계값 미만이면 답하지 않는다(환각 방지). 답변은 LLM을 거치지 않고 faq.answer를
+# verbatim 반환. general 핸들러 + rag_general 무응답 시 최후 조회에 사용(faq_index 모듈).
+# 원본은 이 표(사람이 편집), 임베딩 벡터는 startup에 메모리로 파생(인메모리 인덱스).
+class Faq(Base):
+    __tablename__ = "faq"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    answer     = Column(Text, nullable=False)                       # 검수된 최종 답변 (그대로 반환)
+    category   = Column(String(50), nullable=True)                  # 분류(관리·필터용)
+    enabled    = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class FaqQuestion(Base):
+    __tablename__ = "faq_question"
+
+    id      = Column(Integer, primary_key=True, autoincrement=True)
+    faq_id  = Column(Integer, ForeignKey("faq.id", ondelete="CASCADE"), nullable=False)  # 답변 삭제 시 함께 삭제
+    text    = Column(String(300), nullable=False)                   # 매칭용 질문 변형(한 답변에 여러 개)
+    enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    __table_args__ = (
+        Index("ix_faq_question_faq", "faq_id"),
+    )
+
+
+# ==========================================
 # 18. Topic 테이블 (topic)
 # ==========================================
 class Topic(Base):

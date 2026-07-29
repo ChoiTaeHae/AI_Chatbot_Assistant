@@ -59,10 +59,18 @@ def detect_department(question: str) -> tuple[int, str] | None:
 #   지원 표기: '2025학번', '2025학년도', '25학번', '25학년도 입학'
 _YEAR_4_RE = re.compile(r"(20\d{2})\s*(?:학번|학년도)")
 _YEAR_2_RE = re.compile(r"(?<!\d)(\d{2})\s*학번")
+# 명시적으로 언급된 '졸업 목표 연도'("2029년 졸업", "2029년도 2월 졸업 예정") — 엄밀히는 학번이
+# 아니지만 사용자가 그 연도 기준 요건을 물은 것으로 보고 '대상 연도'로 삼는다. 학번/학년도가
+# 있으면 그쪽이 우선(자기 코호트를 명시한 것). 등록 안 된 미래 연도면 리졸버가 가장 가까운
+# 연도로 폴백하고 그 사실을 답변에 고지한다("2029년 졸업요건은 없어 2026년 기준으로 안내").
+_YEAR_GRAD_RE = re.compile(r"(20\d{2})\s*년도?\s*(?:2월\s*)?졸업")
 
 
 def detect_admission_year(question: str) -> int | None:
-    """질문에서 입학연도를 탐지. 없으면 None → 호출부에서 '내 학번'으로 폴백."""
+    """질문에 명시된 '요건 기준 연도'를 탐지. 없으면 None → 호출부에서 '내 학번'으로 폴백.
+
+    우선순위: 학번/학년도(자기 코호트 명시) > 2자리 학번 > 졸업 목표 연도.
+    """
     if not question:
         return None
     m = _YEAR_4_RE.search(question)
@@ -71,6 +79,9 @@ def detect_admission_year(question: str) -> int | None:
     m = _YEAR_2_RE.search(question)
     if m:
         return 2000 + int(m.group(1))   # '25학번' → 2025
+    m = _YEAR_GRAD_RE.search(question)
+    if m:
+        return int(m.group(1))          # '2029년 졸업' → 2029 (없으면 리졸버가 폴백+고지)
     return None
 
 # ── 졸업 질문 유형 분류 프로토타입 (임베딩 기반) ──────────────────────
@@ -240,8 +251,8 @@ class GraduationService:
         rule, actual_year, is_fallback = await self._resolve_requirement_rule(db, dept_id, admission_year)
         if rule:
             fallback_note = (
-                f"※ 요청하신 {admission_year}학번 졸업요건은 등록돼 있지 않아, "
-                f"가장 가까운 {actual_year}학번 기준으로 안내합니다.\n"
+                f"※ 요청하신 {admission_year}년 졸업요건은 등록돼 있지 않습니다. "
+                f"가장 가까운 {actual_year}년 졸업요건으로 대신 안내합니다.\n"
             ) if is_fallback else ""
             req_context = (
                 fallback_note +
@@ -306,8 +317,8 @@ class GraduationService:
         rule, actual_year, is_fallback = await self._resolve_requirement_rule(db, dept_id, admission_year)
         if rule:
             fallback_note = (
-                f"※ {admission_year}학번 졸업요건은 등록돼 있지 않아, "
-                f"가장 가까운 {actual_year}학번 기준으로 안내합니다.\n"
+                f"※ 요청하신 {admission_year}년 졸업요건은 등록돼 있지 않습니다. "
+                f"가장 가까운 {actual_year}년 졸업요건으로 대신 안내합니다.\n"
             ) if is_fallback else ""
             req_context = (
                 fallback_note +

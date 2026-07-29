@@ -627,6 +627,13 @@ async def _handle_general(state: AgentState) -> dict:
     elif _ACK_RE.match(q):
         answer = _ACK_REPLY
     else:
+        # 인사·호응도 아닌 '토픽 없는' 잉여 질문 → 큐레이션 FAQ에 있으면 검수 답변을 그대로.
+        # (LLM 안 태움 = 환각 0. 임계값 미만이면 기존 offtopic 안내로 폴백)
+        from app.services.faq_index import faq_lookup
+        loop = asyncio.get_event_loop()
+        hit = await loop.run_in_executor(None, faq_lookup, q)
+        if hit:
+            return {"answer": hit[0], "source": "faq", "source_file": None, "topic": "general"}
         answer = _OFFTOPIC_REPLY
     return {
         "answer": answer,
