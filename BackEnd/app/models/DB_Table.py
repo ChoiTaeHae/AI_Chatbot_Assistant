@@ -337,6 +337,32 @@ class AppConfig(Base):
 
 
 # ==========================================
+# 17-b. 검색어 사전 (search_dictionary)
+# ==========================================
+# 학생 구어(term) → 문서 공식어(official) 매핑. 예전엔 app_config(key=search_synonyms)에 JSONB
+# 통짜 blob으로 넣었는데 한글이 \uXXXX로 이스케이프돼 읽기 어렵고 단어 하나 추가하려 해도
+# 통째로 다시 써야 했다. 그래서 쌍(pair) 1개당 1행으로 정규화해 평문으로 읽고 개별 편집이
+# 가능하게 뺐다. 한 term에 official이 여럿이면 행이 여러 개(로드 시 term으로 GROUP BY).
+# 챗봇 동작은 그대로 — 로더가 이 표를 {term: [official...]} dict로 재조립해 기존 로직에 넘긴다.
+# (사용처: rag_general.expand_search_query / expand_document_title)
+class SearchDictionary(Base):
+    __tablename__ = "search_dictionary"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    term       = Column(String(100), nullable=False)   # 학생 구어/입력어 (예: 공결)
+    official   = Column(String(100), nullable=False)   # 문서 공식어 — 검색어에 덧붙일 말 (예: 출석인정)
+    enabled    = Column(Boolean, nullable=False, default=True, server_default="true")  # 삭제 없이 끄고 켜기
+    note       = Column(Text, nullable=True)           # 근거/메모 (예: '실측 0.051→0.994')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("term", "official", name="uq_search_dictionary_pair"),  # 같은 쌍 중복 방지
+        Index("ix_search_dictionary_term", "term"),                              # 로드 시 GROUP BY term
+    )
+
+
+# ==========================================
 # 18. Topic 테이블 (topic)
 # ==========================================
 class Topic(Base):

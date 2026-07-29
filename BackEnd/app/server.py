@@ -71,20 +71,46 @@ async def _load_schedule_gate() -> None:
 
 
 async def _load_search_synonyms() -> None:
-    """검색어 딕셔너리를 app_config(key=search_synonyms)에서 로드. 없으면 기본값 시딩."""
+    """검색어 사전을 search_dictionary 테이블에서 로드해 {term: [official...]}로 재조립.
+
+    테이블이 비어 있으면 최초 1회 시딩한다 — 예전 app_config(key=search_synonyms) blob에
+    커스텀 단어가 있으면 그걸 행으로 이관하고(사라지지 않게), 없으면 코드 기본값으로 채운다.
+    기존 app_config 행은 안전을 위해 삭제하지 않고 그대로 둔다(추후 수동 정리 가능).
+    """
     from sqlalchemy import select
     from app.core.Database import AsyncSessionLocal
-    from app.models.DB_Table import AppConfig
+    from app.models.DB_Table import SearchDictionary, AppConfig
     from app.services.school.rag_general import set_search_synonyms, DEFAULT_SEARCH_SYNONYMS
 
     async with AsyncSessionLocal() as session:
-        row = (await session.execute(select(AppConfig).where(AppConfig.key == "search_synonyms"))).scalar_one_or_none()
-        if row is None:
-            cfg = dict(DEFAULT_SEARCH_SYNONYMS)
-            session.add(AppConfig(key="search_synonyms", value=cfg))
+        rows = (await session.execute(
+            select(SearchDictionary).where(SearchDictionary.enabled == True)  # noqa: E712
+        )).scalars().all()
+
+        # 표가 비었으면 시딩 (기존 blob 우선 이관 → 없으면 기본값)
+        if not rows:
+            legacy = (await session.execute(
+                select(AppConfig).where(AppConfig.key == "search_synonyms")
+            )).scalar_one_or_none()
+            source = dict(legacy.value) if (legacy and legacy.value) else dict(DEFAULT_SEARCH_SYNONYMS)
+            note = "app_config blob 이관" if (legacy and legacy.value) else "기본값 시딩"
+            for term, officials in source.items():
+                vals = officials if isinstance(officials, list) else [officials]
+                for official in vals:
+                    if str(term).strip() and str(official).strip():
+                        session.add(SearchDictionary(term=str(term).strip(), official=str(official).strip(), note=note))
             await session.commit()
-        else:
-            cfg = dict(row.value or {})
+            rows = (await session.execute(
+                select(SearchDictionary).where(SearchDictionary.enabled == True)  # noqa: E712
+            )).scalars().all()
+
+        # 행들을 term 기준으로 묶어 dict 재조립
+        cfg: dict[str, list[str]] = {}
+        for r in rows:
+            cfg.setdefault(r.term, [])
+            if r.official not in cfg[r.term]:
+                cfg[r.term].append(r.official)
+
     set_search_synonyms(cfg)
 
 
@@ -156,11 +182,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Server] 학사일정 게이트 로드 실패 (기본값 사용): {e}")
 
-    # 검색어 딕셔너리 로드 (app_config)
+    # 검색어 사전 로드 (search_dictionary 테이블, 최초 1회 시딩/이관)
     try:
         await _load_search_synonyms()
     except Exception as e:
-        print(f"[Server] 검색어 딕셔너리 로드 실패 (기본값 사용): {e}")
+        print(f"[Server] 검색어 사전 로드 실패 (기본값 사용): {e}")
 
     yield
     # 서버 종료 시
