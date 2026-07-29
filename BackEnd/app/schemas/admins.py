@@ -21,12 +21,71 @@ class DocumentListItem(BaseModel):
     file_name: Optional[str] = None
     chunks: int
     topic: Optional[str] = None
-    doc_date: Optional[str] = None 
+    doc_date: Optional[str] = None
+    # 수정 폼 초기값 채우기용 — 목록 한 번으로 폼을 열 수 있게 함께 내려준다
+    url: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
 
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentListItem]
     total: int
+
+
+class DocumentUpdateRequest(BaseModel):
+    """문서 메타데이터 수정 — 보낸 필드만 갱신한다(exclude_unset).
+
+    본문(text)·벡터는 건드리지 않으므로 재임베딩이 없고, 손으로 정리해 둔 청크도 보존된다.
+    문서명(source)과 파일 내용은 이 경로로 바꿀 수 없다(문서명은 point id를 결정하므로
+    전 청크 재적재가 필요 — 필요해지면 별도 엔드포인트로 다룬다).
+    """
+    topic: Optional[str] = None
+    doc_date: Optional[str] = None
+    url: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+class DocumentUpdateResponse(BaseModel):
+    success: bool
+    source: str
+    updated_chunks: int
+    message: str
+
+
+class ChunkItem(BaseModel):
+    """저장된 청크 하나. point_id는 Qdrant 포인트 식별자로, 화면 key와 수정 대상 지정에 쓴다."""
+    point_id: str
+    chunk_index: int
+    text: str
+    chars: int
+    path: Optional[str] = None
+    chapter: Optional[str] = None
+    article: Optional[str] = None
+
+
+class ChunkListResponse(BaseModel):
+    source: str
+    chunks: list[ChunkItem]
+    total: int
+
+
+class ChunkUpdateRequest(BaseModel):
+    """청크 본문 수정 — 저장하면 이 청크 하나만 다시 임베딩된다.
+
+    본문이 바뀌면 벡터도 같이 바뀌어야 검색이 맞는다(메타데이터 수정과 다른 점).
+    나머지 청크는 손대지 않으므로 문서 재업로드처럼 전체가 다시 쪼개지지 않는다.
+    """
+    text: str
+
+
+class ChunkUpdateResponse(BaseModel):
+    success: bool
+    source: str
+    chunk_index: int
+    chars: int
+    message: str
 
 
 class DocumentDeleteResponse(BaseModel):

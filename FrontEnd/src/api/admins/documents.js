@@ -122,6 +122,49 @@ export async function deleteTopic(name) {
   return res.json()
 }
 
+// 문서 메타데이터 수정 — 본문·임베딩은 그대로 두고 payload만 갱신하므로 재인제스트가 없다.
+// data에 담은 키만 반영된다(빈 문자열은 '값 비우기'로 처리).
+export async function updateDocument(source, data) {
+  const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '문서 수정에 실패했습니다.')
+  }
+  return res.json()
+}
+
+// 문서가 실제로 어떻게 쪼개져 저장됐는지 조회 (본문 포함, 벡터는 안 내려온다)
+export async function fetchChunks(source) {
+  const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}/chunks`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '청크 조회에 실패했습니다.')
+  }
+  return res.json()
+}
+
+// 청크 본문 수정 — 서버가 이 청크만 다시 임베딩하므로 응답까지 수 초 걸릴 수 있다.
+// 다른 청크는 그대로라 문서 재업로드처럼 전체가 다시 쪼개지지 않는다.
+export async function updateChunk(source, chunkIndex, text) {
+  const res = await authFetch(
+    `${BASE}/documents/${encodeURIComponent(source)}/chunks/${chunkIndex}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    },
+  )
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '청크 수정에 실패했습니다.')
+  }
+  return res.json()
+}
+
 export async function deleteDocument(source) {
   const res = await authFetch(`${BASE}/documents/${encodeURIComponent(source)}`, {
     method: 'DELETE',

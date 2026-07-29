@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
 import { logout } from '../api/auth'
-import { uploadDocument, fetchDocuments, deleteDocument, pollUploadStatus, crawlDocument, fetchTopics, fetchTopicList, createTopic, updateTopic, deleteTopic } from '../api/admins/documents'
+import { uploadDocument, fetchDocuments, deleteDocument, updateDocument, fetchChunks, updateChunk, pollUploadStatus, crawlDocument, fetchTopics, fetchTopicList, createTopic, updateTopic, deleteTopic } from '../api/admins/documents'
 import { fetchDashboard, fetchStats, fetchChatStats } from '../api/admins/stats'
 import { fetchSettings } from '../api/admins/settings'
 import { fetchUsers, updateUserRole } from '../api/admins/security'
@@ -114,6 +114,19 @@ export default function AdminPage() {
   const [docUrl, setDocUrl] = useState('')
   const [docContactName, setDocContactName] = useState('')
   const [docContactPhone, setDocContactPhone] = useState('')
+  // 문서 목록 인라인 수정 — 열린 행의 source, 폼 값, 저장 상태
+  const [editingSource, setEditingSource] = useState(null)
+  const [editForm, setEditForm] = useState({})
+  const [editSaving, setEditSaving] = useState(false)
+  const [editMsg, setEditMsg] = useState(null)
+  // 청크 보기·수정 — 펼친 문서의 source, 불러온 청크 목록, 편집 중인 청크 번호
+  const [chunkSource, setChunkSource] = useState(null)
+  const [chunkList, setChunkList] = useState([])
+  const [chunkLoading, setChunkLoading] = useState(false)
+  const [editingChunk, setEditingChunk] = useState(null)
+  const [chunkText, setChunkText] = useState('')
+  const [chunkSaving, setChunkSaving] = useState(false)
+  const [chunkMsg, setChunkMsg] = useState(null)
   const [crawling, setCrawling] = useState(false)
   const [crawlMsg, setCrawlMsg] = useState(null) // { type: 'success'|'error'|'info', text }
   const [topicFilter, setTopicFilter] = useState('all')
@@ -435,6 +448,80 @@ export default function AdminPage() {
     }
   }
 
+  // 문서명을 누르면 그 행 아래에 수정 폼이 펼쳐진다. 같은 행을 다시 누르면 닫힌다.
+  // 메타데이터만 수정하므로 본문·임베딩은 그대로다(재업로드와 달리 청크가 다시 만들어지지 않음).
+  function toggleEditRow(doc) {
+    if (editingSource === doc.source) { setEditingSource(null); return }
+    setChunkSource(null)      // 한 행에 두 패널이 겹쳐 열리지 않게 한쪽만 연다
+    setEditingSource(doc.source)
+    setEditMsg(null)
+    setEditForm({
+      topic: doc.topic || '',
+      doc_date: doc.doc_date || '',
+      url: doc.url || '',
+      contact_name: doc.contact_name || '',
+      contact_phone: doc.contact_phone || '',
+    })
+  }
+
+  async function handleUpdateDocument(source) {
+    setEditSaving(true)
+    setEditMsg(null)
+    try {
+      const result = await updateDocument(source, editForm)
+      await loadDocuments()
+      setEditMsg({ type: 'success', text: result.message })
+    } catch (e) {
+      setEditMsg({ type: 'error', text: e.message })
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  // 청크 아이콘을 누르면 그 행 아래에 실제 저장된 청크들이 펼쳐진다.
+  async function toggleChunkRow(doc) {
+    if (chunkSource === doc.source) { setChunkSource(null); return }
+    setEditingSource(null)
+    setChunkSource(doc.source)
+    setChunkList([])
+    setEditingChunk(null)
+    setChunkMsg(null)
+    setChunkLoading(true)
+    try {
+      const data = await fetchChunks(doc.source)
+      setChunkList(data.chunks)
+    } catch (e) {
+      setChunkMsg({ type: 'error', text: e.message })
+    } finally {
+      setChunkLoading(false)
+    }
+  }
+
+  function startEditChunk(chunk) {
+    if (editingChunk === chunk.chunk_index) { setEditingChunk(null); return }
+    setEditingChunk(chunk.chunk_index)
+    setChunkText(chunk.text)
+    setChunkMsg(null)
+  }
+
+  // 저장 후에는 목록을 다시 불러온다 — 서버가 앞뒤 공백을 다듬으므로,
+  // 화면에 입력값을 그대로 남기면 '실제 저장된 내용'과 미묘하게 어긋난다.
+  async function handleUpdateChunk(source, chunkIndex) {
+    setChunkSaving(true)
+    setChunkMsg(null)
+    try {
+      const result = await updateChunk(source, chunkIndex, chunkText)
+      const data = await fetchChunks(source)
+      setChunkList(data.chunks)
+      setEditingChunk(null)
+      setChunkMsg({ type: 'success', text: result.message })
+    } catch (e) {
+      setChunkMsg({ type: 'error', text: e.message })
+    } finally {
+      setChunkSaving(false)
+    }
+  }
+
   function handleFileChange(e) {
     const file = e.target.files?.[0]
     if (file) {
@@ -525,11 +612,6 @@ export default function AdminPage() {
           <h1 className="text-lg font-black text-(--text) truncate min-w-0">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
           <div className="flex items-center shrink-0" style={{ gap: '16px' }}>
             <ThemeToggle className="text-(--text-faint) hover:text-(--text-muted) transition" />
-            <button className="text-(--text-faint) hover:text-(--text-muted) transition">
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-              </svg>
-            </button>
             {/* 프로필 드롭다운 */}
             <div className="relative" ref={profileRef}>
               <button
@@ -885,7 +967,7 @@ export default function AdminPage() {
                 <div>
                   <h2 className="text-base font-black text-(--text)">RAG 지식 추가</h2>
                   <p className="text-xs text-(--text-faint)" style={{ marginTop: '2px' }}>
-                    {uploadMode === 'document' ? 'RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD, HWP, HWPX, 이미지' : '웹페이지를 크롤링하여 RAG 지식베이스에 추가'}
+                    {uploadMode === 'document' ? 'RAG 지식베이스에 추가 · PDF, DOCX, TXT, MD, HWPX, 이미지' : '웹페이지를 크롤링하여 RAG 지식베이스에 추가'}
                   </p>
                 </div>
                 <div className="flex border border-(--border) overflow-hidden text-sm font-bold" style={{ borderRadius: '8px' }}>
@@ -913,7 +995,9 @@ export default function AdminPage() {
               <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
 
                 {/* 파일 드롭 영역 */}
-                <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md,.hwpx,.hwp,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif" className="hidden" onChange={handleFileChange} />
+                {/* .hwp는 파서가 없어 업로드하면 백엔드가 400으로 거부한다(.hwpx만 처리 가능).
+                    선택 단계에서 빼 두어야 '고를 수는 있는데 실패하는' 상황이 생기지 않는다. */}
+                <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.md,.hwpx,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif" className="hidden" onChange={handleFileChange} />
                 <div
                   className="border-2 border-dashed border-(--border) hover:border-(--brand-a40) transition cursor-pointer bg-(--surface-2) flex flex-col items-center justify-center shrink-0"
                   style={{ borderRadius: '10px', padding: '10px 16px', gap: '4px', width: '160px', height: '72px' }}
@@ -1276,7 +1360,8 @@ export default function AdminPage() {
                       </tr>
                     )}
                     {filtered.map((doc, i) => (
-                      <tr key={i} className="border-b border-(--border) hover:bg-(--surface-2) transition">
+                      <Fragment key={doc.source}>
+                      <tr className="border-b border-(--border) hover:bg-(--surface-2) transition">
                         <td className="font-medium text-(--text-body) truncate" style={{ padding: '13px 16px' }}>{doc.source}</td>
                         <td className="text-(--text-muted) text-xs truncate" style={{ padding: '13px 16px' }}>{doc.file_name || '-'}</td>
                         <td style={{ padding: '13px 16px', overflow: 'hidden' }}>
@@ -1291,17 +1376,227 @@ export default function AdminPage() {
                         <td className="text-(--text-muted) text-xs" style={{ padding: '13px 16px' }}>{doc.doc_date || '-'}</td>
                         <td className="text-right text-(--text-body) font-medium" style={{ padding: '13px 16px' }}>{doc.chunks}</td>
                         <td style={{ padding: '13px 16px' }}>
-                          <button
-                            onClick={() => handleDelete(doc.source)}
-                            className="hover:text-red-500 transition text-(--text-faint)"
-                            title="삭제"
-                          >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
+                          <div className="flex items-center gap-2.5">
+                            <button
+                              onClick={() => toggleChunkRow(doc)}
+                              className={`transition ${chunkSource === doc.source ? 'text-(--brand)' : 'text-(--text-faint) hover:text-(--brand)'}`}
+                              title="청크 보기·수정"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.008v.008H3.75V6.75zm0 5.25h.008v.008H3.75V12zm0 5.25h.008v.008H3.75v-.008z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => toggleEditRow(doc)}
+                              className={`transition ${editingSource === doc.source ? 'text-(--brand)' : 'text-(--text-faint) hover:text-(--brand)'}`}
+                              title="수정"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleDelete(doc.source)}
+                              className="hover:text-red-500 transition text-(--text-faint)"
+                              title="삭제"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                       </tr>
+
+                      {/* 청크 보기·수정 — 저장하면 그 청크 하나만 다시 임베딩된다 */}
+                      {chunkSource === doc.source && (
+                        <tr className="border-b border-(--border) bg-(--surface-2)">
+                          <td colSpan={6} style={{ padding: '18px 20px' }}>
+                            <div className="flex items-center justify-between gap-3" style={{ marginBottom: '14px' }}>
+                              <span className="text-sm font-bold text-(--text) shrink-0">
+                                청크 내용 · {doc.source}
+                              </span>
+                              <span className={`text-xs truncate min-w-0 ${
+                                chunkMsg?.type === 'error' ? 'text-red-500'
+                                : chunkMsg?.type === 'success' ? 'text-(--brand)'
+                                : 'text-(--text-faint)'
+                              }`}>
+                                {chunkMsg?.text || '본문을 고쳐 저장하면 그 청크만 다시 임베딩돼요 (다른 청크는 그대로)'}
+                              </span>
+                            </div>
+
+                            {chunkLoading ? (
+                              <div className="text-xs text-(--text-faint)" style={{ padding: '12px 0' }}>불러오는 중...</div>
+                            ) : (
+                              <div className="flex flex-col gap-2">
+                                {chunkList.map(chunk => (
+                                  <div key={chunk.point_id} className="rounded-lg border border-(--border) bg-(--surface)" style={{ padding: '12px 14px' }}>
+                                    <div className="flex items-center justify-between gap-3" style={{ marginBottom: '8px' }}>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="text-xs font-bold text-(--brand) shrink-0">#{chunk.chunk_index}</span>
+                                        <span className="text-xs text-(--text-faint) shrink-0">{chunk.chars}자</span>
+                                        {chunk.path && (
+                                          <span className="text-xs text-(--text-muted) truncate">{chunk.path}</span>
+                                        )}
+                                      </div>
+                                      <button
+                                        onClick={() => startEditChunk(chunk)}
+                                        className="text-xs font-semibold text-(--text-muted) hover:text-(--brand) transition shrink-0"
+                                      >
+                                        {editingChunk === chunk.chunk_index ? '닫기' : '수정'}
+                                      </button>
+                                    </div>
+
+                                    {editingChunk === chunk.chunk_index ? (
+                                      <>
+                                        <textarea
+                                          value={chunkText}
+                                          onChange={e => setChunkText(e.target.value)}
+                                          rows={14}
+                                          spellCheck={false}
+                                          className="w-full rounded-lg border border-(--border) bg-(--surface-2) text-xs text-(--text-body) leading-relaxed outline-none focus:border-(--brand) resize-y"
+                                          style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace' }}
+                                        />
+                                        <div className="flex items-center justify-between gap-3" style={{ marginTop: '10px' }}>
+                                          <span className="text-xs text-(--text-faint)">
+                                            {chunkText.length}자 (저장 전 {chunk.chars}자)
+                                          </span>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <button
+                                              onClick={() => setEditingChunk(null)}
+                                              className="rounded-lg border border-(--border) text-xs text-(--text-muted) hover:bg-(--surface-2) transition"
+                                              style={{ padding: '6px 14px' }}
+                                            >
+                                              취소
+                                            </button>
+                                            <button
+                                              onClick={() => handleUpdateChunk(doc.source, chunk.chunk_index)}
+                                              disabled={chunkSaving}
+                                              className="rounded-lg bg-(--brand) text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50"
+                                              style={{ padding: '6px 16px' }}
+                                            >
+                                              {chunkSaving ? '재임베딩 중...' : '저장'}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <pre className="text-xs text-(--text-muted) whitespace-pre-wrap break-words leading-relaxed overflow-y-auto" style={{ maxHeight: '140px', fontFamily: 'ui-monospace, monospace' }}>
+                                        {chunk.text}
+                                      </pre>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* 인라인 수정 폼 — 메타데이터만 바꾸므로 본문·임베딩은 그대로 유지된다 */}
+                      {editingSource === doc.source && (
+                        <tr className="border-b border-(--border) bg-(--surface-2)">
+                          <td colSpan={6} style={{ padding: '18px 20px' }}>
+                            <div className="flex items-center justify-between" style={{ marginBottom: '14px' }}>
+                              <span className="text-sm font-bold text-(--text)">문서 정보 수정</span>
+                              <span className="text-xs text-(--text-faint)">
+                                본문·임베딩은 그대로 두고 정보만 갱신해요 (청크 {doc.chunks}개)
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3" style={{ marginBottom: '12px' }}>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">주제 분류</span>
+                                <select
+                                  value={editForm.topic ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, topic: e.target.value })}
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                >
+                                  <option value="">미분류 (전체 검색 대상)</option>
+                                  {Object.entries(topicLabels).map(([key, label]) => (
+                                    <option key={key} value={key}>{label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">기준 날짜</span>
+                                <input
+                                  type="date"
+                                  value={editForm.doc_date ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, doc_date: e.target.value })}
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">담당 부서</span>
+                                <input
+                                  type="text"
+                                  value={editForm.contact_name ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, contact_name: e.target.value })}
+                                  placeholder="예: 학사팀"
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3">
+                              <label className="flex flex-col gap-1.5 col-span-2 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">출처 URL</span>
+                                <input
+                                  type="text"
+                                  value={editForm.url ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, url: e.target.value })}
+                                  placeholder="https://wsu.ac.kr/..."
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1.5 min-w-0">
+                                <span className="text-xs font-semibold text-(--text-muted)">전화번호</span>
+                                <input
+                                  type="text"
+                                  value={editForm.contact_phone ?? ''}
+                                  onChange={e => setEditForm({ ...editForm, contact_phone: e.target.value })}
+                                  placeholder="예: 042-630-9114"
+                                  className="w-full rounded-lg border border-(--border) bg-(--surface) text-sm text-(--text-body) outline-none focus:border-(--brand)"
+                                  style={{ padding: '8px 10px' }}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3" style={{ marginTop: '14px' }}>
+                              <span className={`text-xs min-w-0 truncate ${
+                                editMsg?.type === 'error' ? 'text-red-500'
+                                : editMsg?.type === 'success' ? 'text-(--brand)'
+                                : 'text-transparent'
+                              }`}>
+                                {editMsg?.text || '.'}
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  onClick={() => setEditingSource(null)}
+                                  className="rounded-lg border border-(--border) text-sm text-(--text-muted) hover:bg-(--surface) transition"
+                                  style={{ padding: '7px 16px' }}
+                                >
+                                  취소
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateDocument(doc.source)}
+                                  disabled={editSaving}
+                                  className="rounded-lg bg-(--brand) text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
+                                  style={{ padding: '7px 18px' }}
+                                >
+                                  {editSaving ? '저장 중...' : '저장'}
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -1309,19 +1604,6 @@ export default function AdminPage() {
 
               <div className="flex items-center justify-between text-sm text-(--text-faint) border-t border-(--border) overflow-hidden" style={{ paddingTop: '16px' }}>
                 <span className="shrink-0">총 {filtered.length}건 · 청크 {documents.reduce((s, d) => s + (d.chunks || 0), 0).toLocaleString()}개</span>
-                <div className="flex items-center gap-1">
-                  <button className="w-7 h-7 rounded-lg border border-(--border) flex items-center justify-center hover:bg-(--surface-2)">
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-                  <button className="w-7 h-7 rounded-lg bg-(--brand) text-white text-xs font-bold">1</button>
-                  <button className="w-7 h-7 rounded-lg border border-(--border) flex items-center justify-center hover:bg-(--surface-2)">
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                </div>
               </div>
             </div>
 

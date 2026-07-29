@@ -305,7 +305,12 @@ class QdrantVectorStore:
         return result.count
 
     def list_sources(self) -> list[dict]:
-        """저장된 문서 source 목록 반환."""
+        """저장된 문서 source 목록 반환.
+
+        url·contact_name·contact_phone도 함께 반환한다 — 관리자 페이지의 '문서 수정'
+        폼에 기존값을 채우려면 목록만으로 충분해야 하기 때문(문서별 상세 조회 왕복 불필요).
+        같은 source의 청크는 값이 동일하므로 첫 청크 기준으로 담는다.
+        """
         if not self._exists():
             return []
         result = qdrant_client.scroll(
@@ -323,9 +328,133 @@ class QdrantVectorStore:
                     "source": source,
                     "file_name": payload.get("file_name", ""),
                     "topic": payload.get("topic", ""),
-                    "doc_date": payload.get("doc_date"), 
+                    "doc_date": payload.get("doc_date"),
+                    "url": payload.get("url"),
+                    "contact_name": payload.get("contact_name"),
+                    "contact_phone": payload.get("contact_phone"),
                     "chunks": 1,
                 }
             else:
                 seen[source]["chunks"] += 1
         return list(seen.values())
+
+    def list_chunks(self, source: str) -> list[dict]:
+        """문서 하나의 청크 전체를 chunk_index 순으로 반환 (본문 포함, 벡터 제외).
+
+        '문서가 실제로 어떻게 쪼개져 저장됐는지'를 관리자 화면에서 보기 위한 조회 경로다.
+        벡터는 1024차원이라 화면에 쓸 일이 없으면서 응답만 무겁게 하므로 가져오지 않는다.
+        """
+        if not self._exists():
+            return []
+        self._ensure_source_index()
+        points, _ = qdrant_client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=Filter(
+                must=[FieldCondition(key="source", match=MatchValue(value=source))]
+            ),
+            limit=1000,      # 문서 하나가 이보다 잘게 쪼개질 일은 없다(전체 컬렉션이 약 1천 청크)
+            with_payload=True,
+            with_vectors=False,
+        )
+        chunks = [
+            {
+                "point_id": str(point.id),
+                "chunk_index": (point.payload or {}).get("chunk_index", 0),
+                "text": str((point.payload or {}).get("text", "")),
+                "path": (point.payload or {}).get("path") or None,
+                "chapter": (point.payload or {}).get("chapter") or None,
+                "article": (point.payload or {}).get("article") or None,
+            }
+            for point in points
+        ]
+        # scroll은 저장 순서를 보장하지 않는다 — 화면 번호와 실제 순서를 맞추려면 정렬이 필요
+        chunks.sort(key=lambda c: c["chunk_index"])
+        return chunks
+
+    def get_chunk(self, source: str, chunk_index: int) -> dict | None:
+        """청크 1개 조회. 수정 전에 원본 payload(특히 임베딩 규칙에 쓰이는 path)를 읽는 용도."""
+        for chunk in self.list_chunks(source):
+            if chunk["chunk_index"] == chunk_index:
+                return chunk
+        return None
+
+    def update_chunk_text(
+        self,
+        point_id: str,
+        text: str,
+        embedding: list[float],
+        sparse_vector: tuple[list[int], list[float]] | None = None,
+    ) -> None:
+        """청크 1개의 본문과 벡터를 함께 교체한다.
+
+        본문만 바꾸고 벡터를 두면 화면에 보이는 글과 검색에 쓰이는 벡터가 어긋나
+        추적하기 어려운 검색 오류가 된다. 그래서 이 경로는 둘을 항상 같이 갱신한다.
+        upsert로 포인트를 통째로 덮어쓰지 않고 update_vectors + set_payload로 나눈 이유는,
+        topic·doc_date·chunk_index 등 나머지 payload를 다시 조립하다 흘리는 일을 막기 위함이다.
+        """
+        if settings.HYBRID_SEARCH:
+            vector: dict | list[float] = {"dense": embedding}
+            if sparse_vector and sparse_vector[0]:
+                indices, values = sparse_vector
+                vector["sparse"] = models.SparseVector(indices=indices, values=values)
+            # 빈 sparse(불용어뿐)는 인제스트와 동일하게 키를 생략한다 → 검색 시 dense 폴백
+        else:
+            vector = embedding
+
+        qdrant_client.update_vectors(
+            collection_name=self.collection_name,
+            points=[models.PointVectors(id=point_id, vector=vector)],
+        )
+        qdrant_client.set_payload(
+            collection_name=self.collection_name,
+            payload={"text": text},
+            points=[point_id],
+        )
+
+    # 문서 수정으로 갱신할 수 있는 payload 필드 — 화이트리스트로 고정한다.
+    # text/chunk_index/source 등 검색 구조에 관여하는 키는 여기에 넣지 않는다
+    # (source는 point id를 결정하므로 payload만 바꾸면 데이터가 어긋난다).
+    EDITABLE_META_FIELDS = ("topic", "doc_date", "url", "contact_name", "contact_phone")
+
+    def update_source_metadata(self, source: str, fields: dict) -> int:
+        """source에 속한 모든 청크의 메타데이터를 일괄 갱신하고 갱신된 청크 수를 반환.
+
+        set_payload는 지정한 키만 덮어쓰므로 **본문(text)과 벡터는 그대로 유지**된다.
+        기존에는 메타 하나를 고치려 해도 '삭제 후 재업로드'뿐이라, 재청킹·재임베딩이
+        일어나면서 손으로 정리해 둔 청크 본문까지 함께 날아갔다. 이 경로는 그 위험이 없다.
+        """
+        if not self._exists():
+            return 0
+        self._ensure_source_index()
+        payload = {k: v for k, v in fields.items() if k in self.EDITABLE_META_FIELDS}
+        if not payload:
+            return 0
+
+        source_filter = Filter(
+            must=[FieldCondition(key="source", match=MatchValue(value=source))]
+        )
+        count = qdrant_client.count(
+            collection_name=self.collection_name,
+            count_filter=source_filter,
+            exact=True,
+        ).count
+        if count == 0:
+            return 0
+
+        # None은 '값 비우기' 의도이므로 set_payload가 아니라 delete_payload로 처리한다
+        # (set_payload에 None을 주면 null이 그대로 박혀 필드 유무 판정이 흔들린다).
+        to_set = {k: v for k, v in payload.items() if v is not None}
+        to_clear = [k for k, v in payload.items() if v is None]
+        if to_set:
+            qdrant_client.set_payload(
+                collection_name=self.collection_name,
+                payload=to_set,
+                points=FilterSelector(filter=source_filter).filter,
+            )
+        if to_clear:
+            qdrant_client.delete_payload(
+                collection_name=self.collection_name,
+                keys=to_clear,
+                points=FilterSelector(filter=source_filter).filter,
+            )
+        return count
