@@ -237,10 +237,15 @@ class GraduationService:
         from app.services.file_service import AVAILABLE_FILES
         from app.utils.file_matcher import match_relevant_files, clean_answer
 
-        _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
+        rule, actual_year, is_fallback = await self._resolve_requirement_rule(db, dept_id, admission_year)
         if rule:
+            fallback_note = (
+                f"※ 요청하신 {admission_year}학번 졸업요건은 등록돼 있지 않아, "
+                f"가장 가까운 {actual_year}학번 기준으로 안내합니다.\n"
+            ) if is_fallback else ""
             req_context = (
-                f"학과: {dept_name} ({admission_year}학번 기준)\n"
+                fallback_note +
+                f"학과: {dept_name} ({actual_year}학번 기준)\n"
                 f"전공 최소 이수학점: {rule.min_credits_major}학점\n"
                 f"교양 최소 이수학점: {rule.min_credits_liberal}학점\n"
                 f"졸업 총 이수학점: {rule.min_credits_total}학점\n"
@@ -297,10 +302,15 @@ class GraduationService:
         from app.services.file_service import AVAILABLE_FILES
         from app.utils.file_matcher import match_relevant_files, clean_answer
 
-        # 1) 요건 학점 (DB rule)
-        _req_set, rule = await self._get_requirement_rule(db, dept_id, admission_year)
+        # 1) 요건 학점 (DB rule) — 내 학번 요건이 없으면 가장 가까운 연도로 폴백
+        rule, actual_year, is_fallback = await self._resolve_requirement_rule(db, dept_id, admission_year)
         if rule:
+            fallback_note = (
+                f"※ {admission_year}학번 졸업요건은 등록돼 있지 않아, "
+                f"가장 가까운 {actual_year}학번 기준으로 안내합니다.\n"
+            ) if is_fallback else ""
             req_context = (
+                fallback_note +
                 f"전공 최소 이수학점: {rule.min_credits_major}학점\n"
                 f"교양 최소 이수학점: {rule.min_credits_liberal}학점\n"
                 f"졸업 총 이수학점: {rule.min_credits_total}학점\n"
@@ -557,6 +567,41 @@ class GraduationService:
             select(RequirementRule).where(RequirementRule.set_id == req_set.id)
         )
         return req_set, rule_result.scalar_one_or_none()
+
+    async def _resolve_requirement_rule(self, db: AsyncSession, dept_id: int, requested_year: int):
+        """요청 연도로 요건을 찾되, 없으면 그 학과에서 '가장 가까운' 연도로 폴백한다.
+
+        반환 (rule, actual_year, is_fallback):
+          - rule: 사용할 RequirementRule (학과에 등록된 요건이 아예 없으면 None)
+          - actual_year: 실제로 사용한 연도 (폴백이면 대체 연도)
+          - is_fallback: 요청 연도가 없어 다른 연도로 대체했는지
+
+        '가장 가까운 연도' = 요청 연도 이하 중 최신(가장 가까운 과거 코호트).
+        요청 연도가 등록된 모든 연도보다 이르면 가장 오래된 연도를 쓴다.
+        (예: 2028 요청 + DB에 2022~2025 등록 → 2025 / 2019 요청 → 2022)
+        즉 '2028학번 요건 없음' 같은 경우 조용히 아무거나 주는 대신, 가장 최근 요건으로
+        폴백하고 호출부가 그 사실을 답변에 자연스럽게 밝히도록 is_fallback을 돌려준다.
+        """
+        # 1) 정확일치 우선
+        _set, rule = await self._get_requirement_rule(db, dept_id, requested_year)
+        if rule:
+            return rule, requested_year, False
+
+        # 2) 그 학과에 등록된 연도 전부 조회
+        years = (await db.execute(
+            select(RequirementSet.admission_year).where(RequirementSet.dept_id == dept_id)
+        )).scalars().all()
+        years = sorted({int(y) for y in years if y is not None})
+        if not years:
+            return None, requested_year, False   # 학과 자체에 요건 없음 → 기존 환각방지 스킵이 처리
+
+        # 3) 가장 가까운 연도 선택 후 그 규칙 조회
+        le = [y for y in years if y <= requested_year]
+        actual_year = le[-1] if le else years[0]
+        _set2, rule2 = await self._get_requirement_rule(db, dept_id, actual_year)
+        if rule2:
+            return rule2, actual_year, True
+        return None, requested_year, False       # 대체 연도에도 유효 규칙 없음 → 폴백 취급 안 함
 
     async def _get_earned_credits(self, db: AsyncSession, student_id: int) -> dict:
         """이수 학점 카테고리별 합산
