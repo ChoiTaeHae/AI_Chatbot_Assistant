@@ -198,6 +198,15 @@ class GraduationService:
         await self._ensure_dept_cache(db)
         student, my_dept_name = await self._get_student(db, student_id)
         if not student:
+            # 학생 레코드가 없는 계정(관리자/DEV 등)이라도 '특정 학과 졸업요건'은 답할 수 있다 —
+            # 요건은 학과×연도 기준이라 개인 이수현황이 필요 없다. 학과가 잡히면 그 요건을(연도
+            # 미언급 시 그 학과 최신 연도 기준), 학과가 안 잡히면 기존 생 RAG로 폴백한다.
+            # (없으면 '컴퓨터 공학과 졸업요건'이 학과 탐지를 건너뛰고 생 RAG로 새 0건 → '못 찾음')
+            mentioned = detect_department(question)
+            if mentioned:
+                year = detect_admission_year(question) or await self._latest_year(db, mentioned[0])
+                if year:
+                    return await self._answer_dept_requirement(question, mentioned[0], mentioned[1], year, db)
             return await self._answer_from_rag(question)
         try:
             my_year = int(student.student_no[:4])
@@ -613,6 +622,13 @@ class GraduationService:
         if rule2:
             return rule2, actual_year, True
         return None, requested_year, False       # 대체 연도에도 유효 규칙 없음 → 폴백 취급 안 함
+
+    async def _latest_year(self, db: AsyncSession, dept_id: int) -> int | None:
+        """그 학과에 등록된 가장 최근 입학연도(요건 기준 연도). 없으면 None.
+        연도를 명시 안 한 학과 요건 질문의 기본값으로 쓴다(최신 코호트 기준)."""
+        return (await db.execute(
+            select(func.max(RequirementSet.admission_year)).where(RequirementSet.dept_id == dept_id)
+        )).scalar_one_or_none()
 
     async def _get_earned_credits(self, db: AsyncSession, student_id: int) -> dict:
         """이수 학점 카테고리별 합산
