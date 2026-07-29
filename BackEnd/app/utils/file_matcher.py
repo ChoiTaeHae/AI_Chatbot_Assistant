@@ -170,8 +170,12 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def match_relevant_files(text: str, files: list[str]) -> list[str]:
+def match_relevant_files(text: str, files: list[str], min_score: float | None = None) -> list[str]:
     """text(생성된 답변)와 의미적으로 가까운 파일만 남긴다.
+
+    min_score: 1등 파일 최소 유사도(기본 _MIN_TOP_SCORE=0.60, '답변' 기준 튜닝값). RAG 0건 폴백처럼
+    '질문'으로 매칭할 땐 신호가 약해 노이즈가 크므로 호출부가 더 높은 값을 넘겨 오탐을 막는다
+    (예: '학생증 재발급'이 재입학 토픽으로 오라우팅돼 '재입학_허가_서류'가 0.681로 딸려오던 문제).
 
     기준을 '질문'이 아니라 '답변'으로 두는 이유: 질문은 짧아 신호가 약하다. 실측에서
     '기숙사 비용 얼마야?'와 '외부인_기숙사_사용_동의서'가 0.559로, 무관한데도 진짜 파일
@@ -187,6 +191,8 @@ def match_relevant_files(text: str, files: list[str]) -> list[str]:
     """
     if not files or not text:
         return []
+
+    threshold = _MIN_TOP_SCORE if min_score is None else min_score
 
     # 파일명은 공식 용어로 돼 있는데(예: '출석인정 요청서…') 질문·답변은 구어를 쓴다(예: '공결').
     # 이 간극 때문에 관련 파일이 0.587로 기준(0.60) 아래에 떨어져 제안되지 않았다(실측).
@@ -213,8 +219,8 @@ def match_relevant_files(text: str, files: list[str]) -> list[str]:
     print("[FileMatcher] 후보 유사도: " + ", ".join(f"{Path(f).stem}={s:.3f}" for f, s in scored))
 
     top_score = scored[0][1]
-    if top_score < _MIN_TOP_SCORE:
-        print(f"[FileMatcher] 1등 점수({top_score:.3f})가 기준({_MIN_TOP_SCORE}) 미만 → 후보 없음")
+    if top_score < threshold:
+        print(f"[FileMatcher] 1등 점수({top_score:.3f})가 기준({threshold}) 미만 → 후보 없음")
         return []
 
     relevant = [f for f, score in scored[:_MAX_CANDIDATES] if score >= top_score - _MARGIN]

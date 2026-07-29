@@ -323,8 +323,13 @@ class ScheduleService:
         if keywords:
             return (await self._query_by_keywords(keywords, track, today, db))[: self._MAX_ITEMS]
 
-        # 키워드 없음(예: "지금 무슨 기간이야?", "이번 학사일정") → 오늘 진행 중 + 다가오는
-        return await self._active_and_upcoming(base, today, db)
+        # 키워드 없음 — '일정 자체'를 묻는 generic 질문("이번 학사일정", "지금 무슨 기간이야?")에만
+        # 오늘 진행 중 + 다가오는 일정을 보여준다. 그 외(임베딩이 schedule로 잘못 보낸 '과잠 신청 언제'
+        # 등)는 빈 결과 → 호출부가 no_match로 RAG/FAQ에 폴백 (수강신청 캘린더 오노출 방지).
+        qn = question.replace(" ", "")
+        if any(h in qn for h in self._GENERIC_SCHEDULE_HINTS):
+            return await self._active_and_upcoming(base, today, db)
+        return []
 
     async def _query_by_keywords(self, keywords: list[str], track: str, today: date, db: AsyncSession) -> list:
         """이벤트 키워드로 조회 → 다가오는 것(가까운 순) + 최근 과거(최근 순, _MAX_PAST_ITEMS까지)."""
@@ -426,6 +431,12 @@ class ScheduleService:
         "복수전공", "부전공", "트랙", "전공배정", "조기졸업", "취득유예",
         "토익", "학점포기", "논문", "종합시험",
     ]
+
+    # 이벤트 키워드가 하나도 없을 때 '전체 학사일정 덤프'를 허용하는 generic 신호.
+    # 이게 없으면 임베딩이 schedule로 잘못 보낸 비(非)일정 질문("과잠 신청 언제")까지
+    # 다가오는 학사일정(수강신청 등)을 뿌려버린다(실측). 일정 자체를 가리키는 질문에만 덤프하고,
+    # 그 외는 빈 결과 → no_match → 상위에서 RAG/FAQ로 폴백시킨다. (공백 제거 후 비교)
+    _GENERIC_SCHEDULE_HINTS = ("학사일정", "학사달력", "무슨기간", "스케줄", "캘린더", "달력", "일정표")
 
     # 학생어 → DB 실제 이벤트명 매핑. 학부 중간/기말은 DB에 '수시(중간)평가'·'정기평가'로
     # 저장돼 있어 '시험'·'중간고사' 글자로는 안 잡힌다. '평가' 통짜로 매칭하면
