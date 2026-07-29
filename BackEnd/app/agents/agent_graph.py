@@ -60,6 +60,11 @@ _INFO_INTENT_RE = re.compile(
     # 시설 이용·대여·예약 등 '서비스/절차' 질문 — 위치가 아니라 그 정보(RAG)를 원하는 것
     r'대여|대관|예약|이용|사용|빌리|운영|시간|요금|가격|비용'
 )
+# 행위(획득·발급·신청·대여·예약 등) 동사 — 위치 의도('어디')가 있어도 이게 있으면 campus 억제.
+# '어디서 받아요'는 '동아리방이 어디냐'가 아니라 '열쇠를 어디서 받냐'는 절차 질문이라, 건물 별칭이
+# 우연히 잡혀도(예: '동아리방 열쇠 어디서 받아요' → 학생회관 별칭 '동아리방') 지도 대신 RAG/FAQ로.
+# ('동아리방 어디야?' 같은 순수 위치질문은 행위어가 없어 그대로 campus로 간다)
+_PROCEDURE_RE = re.compile(r'열쇠|받아|받을|받나|받으러|받는|받고|받습|발급|신청|빌리|빌려|대여|반납|예약|대출')
 
 
 # 학사일정 '날짜 질문' fast-path — 날짜 의도(언제/며칠/언제까지…) + 학사 이벤트 키워드면
@@ -463,7 +468,7 @@ async def _keyword_classify(state: AgentState) -> dict:
     #   '동캠학생회관'·'학군단 어디' → campus / '학군단 뭐야'·'학군단 모집 언제' → RAG로 넘김.
     # (regex 먼저 걸러 대부분의 질문은 DB 조회 없이 통과 — 정보의도어가 있으면 즉시 skip)
     q = state["question"]
-    if (_LOCATION_INTENT_RE.search(q) or not _INFO_INTENT_RE.search(q)) and await has_building_hit(q):
+    if not _PROCEDURE_RE.search(q) and (_LOCATION_INTENT_RE.search(q) or not _INFO_INTENT_RE.search(q)) and await has_building_hit(q):
         print("[Graph] 키워드 분류 → campus (건물명 매칭)")
         return {"intent": "campus"}
     if _is_schedule_date_question(state["question"]):

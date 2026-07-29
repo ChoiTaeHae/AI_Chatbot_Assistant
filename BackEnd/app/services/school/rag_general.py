@@ -228,7 +228,15 @@ def format_certificate_info(context: str, question: str) -> str:
     is_list_query = any(kw in question for kw in _CERT_LIST_KEYWORDS)
     matched = [name for name in blocks if name.replace(" ", "") in qn]
 
-    if matched and not is_list_query:
+    # '떼는 법·발급 방법·어떻게·신청 절차' 같은 절차 질문은 이 블록(증명서 정의·발급기준)의
+    # 소관이 아니다. 실제 발급방법(제10조: 신청원 작성→수수료 납부→교무처 제출)은 특정 증명서
+    # 블록 밖에 있어, 증명서명만 보고 블록을 반환하면 '편제학년에 의거 발급' 같은 엉뚱한 한 줄만
+    # 나온다(실측: '재학증명서 떼는 법'). 이런 질문은 빈 문자열 → LLM이 전체 컨텍스트로 답한다.
+    # ('발급 기준'은 블록이 곧 답이므로 '기준'은 절차 신호에서 제외한다)
+    _METHOD_HINTS = ("떼", "방법", "어떻게", "어케", "하려면", "려면", "받으러", "받는법", "발급받", "신청", "절차")
+    is_method_query = any(h in qn for h in _METHOD_HINTS)
+
+    if matched and not is_list_query and not is_method_query:
         return "\n\n".join(f"[{name}]\n{blocks[name]}" for name in matched)
     if is_list_query:
         # '종류가 뭐야' 류엔 각 증명서를 '이름: 한 줄 설명'으로 세로 정렬해 가볍게 보여준다
@@ -764,8 +772,20 @@ async def answer_rag_general_question_with_metadata(
         from app.services.file_service import AVAILABLE_FILES
         from app.utils.file_matcher import match_relevant_files
 
+        # 1순위: 큐레이션 FAQ (검수된 정확한 답변이 애매한 파일 제안보다 우선).
+        from app.services.faq_index import faq_lookup
+        loop = asyncio.get_event_loop()
+        hit = await loop.run_in_executor(None, faq_lookup, question)
+        if hit:
+            print("[RAG_GENERAL] 문서 0건이지만 FAQ 매칭 → verbatim 답변")
+            metadata["source"] = "faq"
+            return hit[0], metadata
+
+        # 2순위: 관련 안내 파일. 단 여기선 '질문' 기준 매칭이라 노이즈가 커, 답변 기준(0.60)보다
+        # 엄격한 0.72로 건다 — 토픽 오라우팅으로 딸려온 무관 파일(예: '학생증 재발급'→'재입학_허가_
+        # 서류' 0.681) 제안을 막는다. 확실히 관련된 파일(0.72+)만 안내한다.
         fallback_files = await loop.run_in_executor(
-            None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
+            None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, []), 0.72
         )
         if fallback_files:
             print(f"[RAG_GENERAL] ⚠️ 검색 결과 0건 → 관련 파일 {len(fallback_files)}개로 안내")
@@ -782,16 +802,6 @@ async def answer_rag_general_question_with_metadata(
                 "파일 드릴까요? 아래 '예'를 누르시면 바로 받으실 수 있어요.",
                 metadata,
             )
-
-        # 최후 보류: 토픽/문서로 못 잡은 질문이라도 큐레이션 FAQ에 있으면 검수 답변을 그대로.
-        # (general 경로에서 놓친 FAQ감이 rag_general로 샌 경우를 마지막에 한 번 더 건진다)
-        from app.services.faq_index import faq_lookup
-        loop = asyncio.get_event_loop()
-        hit = await loop.run_in_executor(None, faq_lookup, question)
-        if hit:
-            print("[RAG_GENERAL] 문서 0건이지만 FAQ 매칭 → verbatim 답변")
-            metadata["source"] = "faq"
-            return hit[0], metadata
 
         print("[RAG_GENERAL] ⚠️ 검색 결과 0건 → LLM 호출 스킵, 안내 응답 반환")
         return (
