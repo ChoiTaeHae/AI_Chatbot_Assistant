@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getWeekDining, getMySessions, getGraduationReport, deleteSession, checkBackendHealth } from '../../api/chat'
 import ScheduleWidget from './ScheduleWidget'
-import ScholarshipModal from './ScholarshipModal'
 
 const T = {
   ko: { newChat: '새 대화', meal: '학생식당', recent: '최근 대화', all: '전체', empty: '아직 대화가 없어요', noMeal: '이번 주 학식 정보가 없어요', credit: '학점 진행률', toGrad: '졸업까지', earned: '총 이수',
@@ -114,13 +113,12 @@ function fmtMMDD(dt) {
 }
 const mmddToday = () => fmtMMDD(new Date())
 
-export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession, activeSessionId, onSessionDeleted, refreshTrigger = 0 }) {
+export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession, activeSessionId, onSessionDeleted, refreshTrigger = 0, onOpenScholarship }) {
   const t = T[lang] || T.ko
   const [credit, setCredit] = useState(null)
   const [sessions, setSessions] = useState([])
   const [filter, setFilter] = useState('all')
   const [creditModal, setCreditModal] = useState(false)
-  const [scholarshipModal, setScholarshipModal] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)   // 삭제 확인 대상 세션
   const [week, setWeek] = useState(null)
   const [restIdx, setRestIdx] = useState(0)   // 선택된 식당(캐러셀)
@@ -243,12 +241,12 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
 
         {/* 장학금 둘러보기 — 모달 오픈 (RAG 아님, DB 카탈로그 조회) */}
         <button
-          onClick={() => setScholarshipModal(true)}
+          onClick={() => onOpenScholarship?.()}
           className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-(--brand-bright) bg-(--brand-a10) border border-(--brand-bright) hover:bg-(--brand-a20) transition shrink-0"
           style={{ padding: '11px', marginTop: '10px' }}
         >
           <span className="emoji" style={{ fontSize: '15px' }}>🎓</span>
-          장학금·근로 둘러보기
+          장학금 둘러보기
         </button>
 
         {/* 학점 진행률 (남은 학점만 · 백분율 없음) */}
@@ -504,7 +502,6 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
       </div>
     )}
 
-    {scholarshipModal && <ScholarshipModal lang={lang} onClose={() => setScholarshipModal(false)} />}
 
     {/* 대화 삭제 확인 */}
     {deleteTarget && (

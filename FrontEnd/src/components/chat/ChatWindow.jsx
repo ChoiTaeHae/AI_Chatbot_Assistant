@@ -12,7 +12,7 @@ const T = {
         chips: ['如何申请休学？', '学生会馆在哪里？', '有哪些奖学金？'] },
 }
 
-export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, onCheckGraduation, onSendQuestion }) {
+export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, onCheckGraduation, onSendQuestion, onStartSurvey }) {
   const bottomRef = useRef(null)
   const firstScroll = useRef(true)   // 마운트 직후 첫 스크롤은 즉시(대화 전환 시 스무스 스크롤 튐 방지)
 
@@ -71,6 +71,7 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
               pendingFile={pendingFile}
               onConfirmFile={onConfirmFile}
               isLatest={index === messages.length - 1}
+              onStartSurvey={onStartSurvey}
             />
           ))}
 
