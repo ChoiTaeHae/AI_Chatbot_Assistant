@@ -127,6 +127,44 @@ async def lifespan(app: FastAPI):
             await conn.execute(text(
                 "ALTER TABLE chat_message ADD COLUMN IF NOT EXISTS card_meta JSONB"
             ))
+            # scholarship_file: 파일 1개 → 장학금 여러 개 공유 허용.
+            # 옛 '파일당 1개' 유니크(document_file_id) 제거 후 (장학금,파일) 쌍 유니크로 교체(멱등).
+            # 기존 데이터는 파일당 1건뿐이라 쌍 유니크를 자동 충족 → 인덱스 생성 실패 없음.
+            await conn.execute(text(
+                "ALTER TABLE scholarship_file DROP CONSTRAINT IF EXISTS uq_scholarship_file_document"
+            ))
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_scholarship_file_pair "
+                "ON scholarship_file (scholarship_id, document_file_id)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_scholarship_file_document "
+                "ON scholarship_file (document_file_id)"
+            ))
+            # 맞춤 설문 매칭용 요건 컬럼 (전부 nullable/기본 false → 기존 데이터·코드에 무해)
+            for _col, _ddl in [
+                ("req_region", "VARCHAR(50)"), ("req_region_basis", "VARCHAR(10)"),
+                ("req_min_gpa", "DOUBLE PRECISION"), ("req_grade", "VARCHAR(20)"),
+                ("req_income", "VARCHAR(20)"), ("req_age_max", "INTEGER"),
+                ("req_major_field", "VARCHAR(20)"),
+                ("req_multichild", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_foreigner", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_disabled", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_independent", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_veteran", "BOOLEAN NOT NULL DEFAULT false"),
+            ]:
+                await conn.execute(text(f"ALTER TABLE scholarship_catalog ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
+            # 학생 '자동 연동'용 더미 성적/학년/전공계열 컬럼 + 시드
+            for _col, _ddl in [("gpa", "DOUBLE PRECISION"), ("grade_year", "INTEGER"), ("major_field", "VARCHAR(20)")]:
+                await conn.execute(text(f"ALTER TABLE student ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
+            # 아직 값 없는 학생만 결정적(학번 id 기반) 더미로 채움 — 멱등
+            await conn.execute(text(
+                "UPDATE student SET "
+                "gpa = ROUND((3.0 + (id % 16) * 0.1)::numeric, 1), "
+                "grade_year = 1 + (id % 4), "
+                "major_field = (ARRAY['인문사회','예술체육','이공'])[1 + (id % 3)] "
+                "WHERE gpa IS NULL"
+            ))
         print("DB 연결 성공")
     except Exception as e:
         print(f"DB 연결 실패 (나중에 연결): {e}")
