@@ -206,6 +206,19 @@ def _region_ok(req_region, basis, self_region, parent_region) -> bool:
     return False
 
 
+def _grade_ok(g: str, grade_year: int | None) -> bool:
+    """학생 학년(grade_year)이 요건 그룹 g에 해당하는지."""
+    if g == "신입":
+        return grade_year == 1
+    if g == "재학":
+        return grade_year is not None          # 재학생 전반
+    if g == "3학년이상":
+        return grade_year is not None and grade_year >= 3
+    if g == "대학원":
+        return False                            # 학부 더미라 대학원 전용은 제외
+    return True
+
+
 async def match_scholarships(
     db: AsyncSession,
     answers: dict,
@@ -231,19 +244,19 @@ async def match_scholarships(
             continue
         if r.req_min_gpa is not None and (gpa is None or gpa < r.req_min_gpa):
             continue
-        if r.req_grade == "신입" and grade_year != 1:
+        # 학년 요건(다중) — 하나라도 충족하면 통과. 비면 무관.
+        grades = [g for g in (r.req_grade or "").split(",") if g]
+        if grades and not any(_grade_ok(g, grade_year) for g in grades):
             continue
-        if r.req_grade == "3학년이상" and (grade_year is None or grade_year < 3):
-            continue
-        if r.req_grade == "대학원":
-            continue   # 학부 더미라 대학원 전용은 제외
         if r.req_income and income:
             need, have = _INCOME_ORDER.get(r.req_income), _INCOME_ORDER.get(income)
             if need is not None and have is not None and have > need:
                 continue   # 학생 소득 여유 > 요건 → 대상 아님
         if r.req_age_max is not None and age is not None and age > r.req_age_max:
             continue
-        if r.req_major_field and major_field and r.req_major_field != major_field:
+        # 전공계열(다중) — 학생 전공이 목록에 있으면 통과. 비면 무관.
+        majors = [m for m in (r.req_major_field or "").split(",") if m]
+        if majors and major_field and major_field not in majors:
             continue
         if r.req_multichild and not answers.get("multichild"):
             continue
