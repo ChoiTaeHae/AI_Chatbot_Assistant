@@ -503,10 +503,10 @@ class ScholarshipCatalog(Base):
     req_region       = Column(String(50), nullable=True)   # 대상 지역(시/도·시/군, 예: '화성시'·'서울'). NULL=무관
     req_region_basis = Column(String(10), nullable=True)   # 지역 기준: '본인'|'부모'|None(=둘 중 하나만 맞아도)
     req_min_gpa      = Column(Float, nullable=True)         # 최소 학점. NULL=무관
-    req_grade        = Column(String(20), nullable=True)   # 학년 요건: '신입'|'재학'|'3학년이상'|'대학원'|None
+    req_grade        = Column(String(120), nullable=True)  # 학년 요건(다중, 콤마): '신입,재학,3학년이상,대학원' 중. 비면 무관
     req_income       = Column(String(20), nullable=True)   # 소득 상한: '기초'|'차상위'|'중위100'|'중위200'|None
     req_age_max      = Column(Integer, nullable=True)       # 나이 상한. NULL=무관
-    req_major_field  = Column(String(20), nullable=True)   # 전공계열: '인문사회'|'예술체육'|'이공'|None
+    req_major_field  = Column(String(120), nullable=True)  # 전공계열(다중, 콤마): '인문사회,예술체육,이공' 중. 비면 무관
     req_multichild   = Column(Boolean, nullable=False, server_default="false")  # 다자녀 가정 대상
     req_foreigner    = Column(Boolean, nullable=False, server_default="false")  # 외국인/유학생 대상
     req_disabled     = Column(Boolean, nullable=False, server_default="false")  # 장애 대상
