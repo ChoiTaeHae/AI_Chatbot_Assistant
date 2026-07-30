@@ -110,6 +110,19 @@ def _named_unresolved_unit(question: str) -> bool:
     return False
 
 
+# 자격증 초점 질문('자격증 뭐 딸 수 있어?')일 때 졸업 답변을 자격증 중심으로 재배치하는 특별지시.
+# 코퍼스에 '취득 가능 자격증 목록' 문서가 없어, 구체 목록 대신 '어디서 확인하는지'를 안내한다(정직).
+# 자격증 언급이 없는 일반 졸업 질문에는 주입하지 않아 기존 답변에 영향이 없다.
+_CERT_FOCUS_DIRECTIVE = (
+    "[특별지시] 이 질문은 '자격증'에 초점이 있다. 반드시 아래 순서로 답하라:\n"
+    "1) 전공 관련 자격증 요건(예: 전공 관련 자격증 몇 개 이상 취득 필요 등)을 맨 앞에 안내한다.\n"
+    "2) 구체적인 자격증 종류는 '학과 사무실·홈페이지·게시판' 또는 '교양 특별시험 학점인정 안내'에서 "
+    "확인하도록 안내를 덧붙인다.\n"
+    "3) 학점 기준·본인 이수현황은 그 뒤에 간단히만 정리한다.\n"
+    "아래 기본 규칙은 위 순서와 충돌하지 않는 선에서 따른다.\n\n"
+)
+
+
 # 질문에 명시된 입학연도(학번) 탐지 — 학과와 같은 원리로 '명시되면 그 기준, 없으면 내 학번'.
 # 요건은 학과 × 입학연도로 DB에 있으므로(43학과 × 2020~2026), 연도를 못 읽으면 남의 학번을
 # 물어도 내 학번 요건이 나온다("2025학년도 컴퓨터공학과 졸업요건"인데 2022 기준 답변).
@@ -402,6 +415,8 @@ class GraduationService:
         prompt = GRADUATION_OTHER_DEPT_PROMPT.format(
             dept=dept_name, req_context=req_context, rag_context=rag_context, question=question,
         )
+        if "자격증" in question:                 # 자격증 초점 → 자격증 중심으로 재배치
+            prompt = _CERT_FOCUS_DIRECTIVE + prompt
         # 구조적 졸업 답변은 실행마다 흔들리면 안 되므로 결정론적으로(temp 0.0) 생성.
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
@@ -472,6 +487,8 @@ class GraduationService:
             dept=dept_name, req_context=req_context, rag_context=rag_context,
             status_context=status_context, question=question,
         )
+        if "자격증" in question:                 # 자격증 초점 → 자격증 중심으로 재배치
+            prompt = _CERT_FOCUS_DIRECTIVE + prompt
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
 
@@ -587,6 +604,16 @@ class GraduationService:
                     f"{stems}\n\n파일 드릴까요?",
                     metadata,
                 )
+            # 최후 보류: 졸업 문서로 못 잡았지만 FAQ감(과잠·엠티 등)이 임베딩상 graduation으로
+            # 오라우팅됐을 수 있다 → 큐레이션 FAQ를 한 번 더 조회한다(general/rag_general과 동일).
+            from app.services.faq_index import faq_lookup
+            hit = await loop.run_in_executor(None, faq_lookup, question)
+            if hit:
+                print("[Graduation] 졸업 문서 0건이지만 FAQ 매칭 → verbatim 답변")
+                metadata["source"] = "faq"
+                for k in ("url", "contact_name", "contact_phone", "source_file"):
+                    metadata.pop(k, None)
+                return hit[0], metadata
             return (
                 "죄송해요, 졸업 관련 해당 내용의 공식 자료를 찾지 못했어요. "
                 "조금 더 구체적으로 질문해 주시거나 학과 사무실에 문의해 주세요.",
