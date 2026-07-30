@@ -60,7 +60,7 @@ function highlight(text, q) {
 // 모달 정적 라벨 다국어. kind('장학금'/'근로')·scope('교내'/'교외')는 API 값이라 그대로 두고
 // 표시 텍스트만 번역한다(동적 데이터 — 장학금명·조건·카테고리 등은 백엔드 값 그대로).
 const MT = {
-  ko: { title: '장학금·근로 둘러보기', subtitle: '우송대학교 장학·근로 안내', close: '닫기',
+  ko: { title: '장학금 둘러보기', subtitle: '우송대학교 장학금 안내', close: '닫기',
         scholarship: '장학금', work: '근로', inSchool: '교내', outSchool: '교외',
         searchHint: '검색 (이름·조건)', clearSearch: '검색어 지우기', hideExpired: '기간마감 숨기기',
         loading: '불러오는 중…', loadFail: '불러오지 못했어요.',
@@ -69,7 +69,7 @@ const MT = {
         noItems: (k) => `등록된 ${k} 항목이 없어요.`,
         expired: '기간마감', condition: '조건', detailNote: '세부 내용은 첨부된 공고문을 확인해 주세요',
         files: '첨부파일', viewNotice: '공고 보기' },
-  en: { title: 'Scholarships & Work-Study', subtitle: 'Woosong Univ. scholarship/work info', close: 'Close',
+  en: { title: 'Scholarships', subtitle: 'Woosong Univ. scholarship info', close: 'Close',
         scholarship: 'Scholarship', work: 'Work-Study', inSchool: 'On-campus', outSchool: 'Off-campus',
         searchHint: 'Search (name/condition)', clearSearch: 'Clear search', hideExpired: 'Hide expired',
         loading: 'Loading…', loadFail: 'Failed to load.',
@@ -78,7 +78,7 @@ const MT = {
         noItems: (k) => `No ${k} items registered.`,
         expired: 'Expired', condition: 'Eligibility', detailNote: 'See the attached notice for details',
         files: 'Attachments', viewNotice: 'View notice' },
-  zh: { title: '奖学金·勤工俭学浏览', subtitle: '又松大学奖学·勤工信息', close: '关闭',
+  zh: { title: '奖学金浏览', subtitle: '又松大学奖学金信息', close: '关闭',
         scholarship: '奖学金', work: '勤工俭学', inSchool: '校内', outSchool: '校外',
         searchHint: '搜索（名称·条件）', clearSearch: '清除搜索', hideExpired: '隐藏已截止',
         loading: '加载中…', loadFail: '加载失败。',
@@ -89,11 +89,12 @@ const MT = {
         files: '附件', viewNotice: '查看公告' },
 }
 
-export default function ScholarshipModal({ lang = 'ko', onClose }) {
+export default function ScholarshipModal({ lang = 'ko', initialScope = '교내', initialCategories = null, initialQuery = '', onBack, onClose }) {
   const mt = MT[lang] || MT.ko
-  const [kind, setKind] = useState('장학금')   // 상단 전환: '장학금' | '근로' (API 값)
-  const [scope, setScope] = useState('교내')
-  const [query, setQuery] = useState('')
+  const kind = '장학금'   // 근로 롤백 — 장학금 전용 모달
+  const [scope, setScope] = useState(initialScope) // '전체' | '교내' | '교외'
+  const [catFilter, setCatFilter] = useState(initialCategories || [])  // 선택된 유형(카테고리) 필터 — 채팅 카드가 초기값 지정
+  const [query, setQuery] = useState(initialQuery || '')   // 딥링크: 특정 장학금 이름으로 열기
   const [data, setData] = useState(null)      // { count, groups, counts }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -104,6 +105,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : true
   )  // 데스크톱이면 사이드바(264+24=288px)만큼 왼쪽을 비워 메인 카드 영역 중앙에 띄운다
   const debounceRef = useRef(null)
+  const groupRefs = useRef({})   // 카테고리별 DOM ref — 퀵네비 점프(scrollIntoView)용
 
   const load = useCallback(async (kindArg, scopeArg, q) => {
     setLoading(true)
@@ -126,8 +128,10 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
     }
   }, [lang])
 
-  // kind/scope 전환 시 즉시 로드 (검색어 초기화)
-  useEffect(() => { setQuery(''); load(kind, scope, '') }, [kind, scope, load])
+  // scope 전환 시 '현재 검색어'로 로드한다. scope 탭은 클릭 시 스스로 setQuery('')를 호출해 검색을 비우므로
+  // 여기서 따로 초기화할 필요가 없다. 최초 마운트 땐 query가 initialQuery(딥링크)라 그 장학금만 필터돼 열린다.
+  // (검색어를 deps에 넣지 않아 타이핑마다 재로드하지 않는다 — 타이핑은 onSearch가 디바운스로 처리)
+  useEffect(() => { load(kind, scope, query) }, [kind, scope, load])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // 반응형 사이드바 추적 (전역 * {padding:0} 리셋이 Tailwind를 덮어써 인라인 padding으로 위치 보정)
   useEffect(() => {
@@ -148,9 +152,13 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
   const kindCounts = data?.kind_counts || {}
 
   // '기간마감 숨기기' 적용 후 화면에 보일 그룹 (빈 그룹 제거)
-  const visibleGroups = (data?.groups || [])
+  const baseGroups = (data?.groups || [])
     .map((g) => ({ ...g, items: hideExpired ? g.items.filter((it) => !it.expired) : g.items }))
     .filter((g) => g.items.length > 0)
+  const allCats = baseGroups.map((g) => g.category)   // 필터 칩 후보 (현재 로드된 전체 카테고리)
+  const visibleGroups = catFilter.length
+    ? baseGroups.filter((g) => catFilter.includes(g.category))   // 선택 유형만
+    : baseGroups
   const visibleCount = visibleGroups.reduce((n, g) => n + g.items.length, 0)
 
   return (
@@ -166,6 +174,11 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
       >
         {/* 헤더 */}
         <div className="flex items-center gap-3 border-b border-(--border) shrink-0" style={{ padding: '16px 18px' }}>
+          {onBack && (
+            <button onClick={onBack} className="text-(--text-faint) hover:text-(--text-body) shrink-0" aria-label="뒤로" title="설문 결과로 돌아가기">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+          )}
           <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: '34px', height: '34px', background: TEAL }}>
             <span className="emoji" style={{ fontSize: '18px' }}>🎓</span>
           </div>
@@ -176,36 +189,18 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-body) text-lg" aria-label={mt.close}>✕</button>
         </div>
 
-        {/* 상단 전환: 장학금 / 근로 */}
-        <div className="flex items-center gap-2 border-b border-(--border) shrink-0" style={{ padding: '12px 18px' }}>
-          {[['장학금', '🎓'], ['근로', '💼']].map(([k, icon]) => {
-            const active = kind === k
-            return (
-              <button
-                key={k}
-                onClick={() => { setScope('교내'); setKind(k) }}
-                className="flex items-center gap-1.5 font-bold transition"
-                style={{
-                  fontSize: '14px', padding: '9px 18px', borderRadius: '12px', flex: 1, justifyContent: 'center',
-                  background: active ? TEAL : 'var(--surface-2)',
-                  color: active ? '#fff' : 'var(--text-muted)',
-                }}
-              >
-                <span className="emoji">{icon}</span>{k === '장학금' ? mt.scholarship : mt.work}{kindCounts[k] != null ? ` ${kindCounts[k]}` : ''}
-              </button>
-            )
-          })}
-        </div>
-
         {/* 탭 + 검색 */}
         <div className="border-b border-(--border) shrink-0" style={{ padding: '12px 18px' }}>
           <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
-            {['교내', '교외'].map((s) => {
+            {['전체', '교내', '교외'].map((s) => {
               const active = scope === s
+              const label = s === '전체' ? ({ ko: '전체', en: 'All', zh: '全部' }[lang] || '전체')
+                : s === '교내' ? mt.inSchool : mt.outSchool
+              const cnt = s === '전체' ? ((counts['교내'] || 0) + (counts['교외'] || 0)) : counts[s]
               return (
                 <button
                   key={s}
-                  onClick={() => { setQuery(''); setScope(s) }}
+                  onClick={() => { setQuery(''); setCatFilter([]); setScope(s) }}
                   className="font-semibold transition"
                   style={{
                     fontSize: '13px', padding: '6px 16px', borderRadius: '999px',
@@ -213,7 +208,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
                     color: active ? '#fff' : 'var(--text-muted)',
                   }}
                 >
-                  {s === '교내' ? mt.inSchool : mt.outSchool}{counts[s] != null ? ` ${counts[s]}` : ''}
+                  {label}{cnt != null ? ` ${cnt}` : ''}
                 </button>
               )
             })}
@@ -223,7 +218,7 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
             <input
               value={query}
               onChange={(e) => onSearch(e.target.value)}
-              placeholder={`${kind === '장학금' ? mt.scholarship : mt.work} ${mt.searchHint}`}
+              placeholder={`${mt.scholarship} ${mt.searchHint}`}
               className="flex-1 outline-none bg-transparent text-(--text-body)"
               style={{ fontSize: '13px' }}
             />
@@ -237,6 +232,40 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
           </label>
         </div>
 
+        {/* 유형(카테고리) 필터 — 다중선택. 선택하면 그 유형만 목록에 남는다(스크롤 대신 필터). */}
+        {!loading && !error && allCats.length > 1 && (
+          <div className="flex items-center gap-1.5 border-b border-(--border) shrink-0 overflow-x-auto" style={{ padding: '8px 18px' }}>
+            {allCats.map((cat) => {
+              const on = catFilter.includes(cat)
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setCatFilter((p) => (on ? p.filter((c) => c !== cat) : [...p, cat]))}
+                  className="shrink-0 rounded-full border transition"
+                  style={{
+                    fontSize: '11px', padding: '3px 10px', whiteSpace: 'nowrap',
+                    borderColor: on ? 'var(--brand)' : 'var(--modal-edge)',
+                    background: on ? 'var(--brand)' : 'transparent',
+                    color: on ? '#fff' : 'var(--text-muted)',
+                    fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {cat}
+                </button>
+              )
+            })}
+            {catFilter.length > 0 && (
+              <button
+                onClick={() => setCatFilter([])}
+                className="shrink-0 text-(--text-faint) hover:text-(--text-muted) transition"
+                style={{ fontSize: '11px', padding: '3px 6px', whiteSpace: 'nowrap' }}
+              >
+                초기화 ✕
+              </button>
+            )}
+          </div>
+        )}
+
         {/* 본문 */}
         <div style={{ padding: '12px 18px 18px', overflowY: 'auto' }}>
           {loading && <p className="text-center text-(--text-faint)" style={{ fontSize: '13px', padding: '30px' }}>{mt.loading}</p>}
@@ -245,14 +274,14 @@ export default function ScholarshipModal({ lang = 'ko', onClose }) {
             <p className="text-center text-(--text-faint)" style={{ fontSize: '13px', padding: '30px' }}>
               {query ? mt.noSearch(query)
                 : (hideExpired && data?.count > 0) ? mt.noVisible
-                : mt.noItems(kind === '장학금' ? mt.scholarship : mt.work)}
+                : mt.noItems(mt.scholarship)}
             </p>
           )}
 
           {!loading && !error && visibleGroups.map((g) => {
             const open = !!openCats[g.category]
             return (
-              <div key={g.category} className="rounded-xl overflow-hidden" style={{ marginBottom: '14px', border: '1px solid var(--modal-edge)' }}>
+              <div key={g.category} ref={(el) => { groupRefs.current[g.category] = el }} className="rounded-xl overflow-hidden" style={{ marginBottom: '14px', border: '1px solid var(--modal-edge)' }}>
                 <button
                   onClick={() => setOpenCats((p) => ({ ...p, [g.category]: !p[g.category] }))}
                   className="flex items-center gap-2 w-full transition hover:brightness-95"

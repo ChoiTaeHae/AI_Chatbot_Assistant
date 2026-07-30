@@ -53,6 +53,10 @@ class Student(Base):
     name = Column(String, nullable=False)                     # 이름
     role = Column(String, nullable=False, server_default="student")  # 권한: student / admin
     interests = Column(JSON)                                  # 관심사 태그 (JSONB 대응)
+    # 맞춤 장학금 설문 '자동 연동'용 — 실제 성적 시스템이 없어 더미로 시드(startup). 설문에서 안 묻고 여기서 가져옴.
+    gpa         = Column(Float, nullable=True)                # 학점(4.5 만점) — 더미
+    grade_year  = Column(Integer, nullable=True)              # 학년(1~4) — 더미
+    major_field = Column(String(20), nullable=True)          # 전공계열: 인문사회/예술체육/이공 — 학과에서 도출(더미)
 
 # ==========================================
 # 3. 과목 테이블 (course)
@@ -494,6 +498,21 @@ class ScholarshipCatalog(Base):
     link          = Column(String(500), nullable=True)     # 외부 공고 URL (파일 대신 링크로 넘길 때)
     # 정렬은 마감일 임박순(코드에서 처리) — 수동 순서 컬럼 없음
 
+    # ── 맞춤 설문 매칭용 요건 (전부 선택 · NULL/False = '무관' → 필터에서 무시) ──
+    # 관리자가 해당 장학금에 필요한 칸만 채운다. 비운 칸은 매칭에서 통과(폭넓게).
+    req_region       = Column(String(50), nullable=True)   # 대상 지역(시/도·시/군, 예: '화성시'·'서울'). NULL=무관
+    req_region_basis = Column(String(10), nullable=True)   # 지역 기준: '본인'|'부모'|None(=둘 중 하나만 맞아도)
+    req_min_gpa      = Column(Float, nullable=True)         # 최소 학점. NULL=무관
+    req_grade        = Column(String(20), nullable=True)   # 학년 요건: '신입'|'재학'|'3학년이상'|'대학원'|None
+    req_income       = Column(String(20), nullable=True)   # 소득 상한: '기초'|'차상위'|'중위100'|'중위200'|None
+    req_age_max      = Column(Integer, nullable=True)       # 나이 상한. NULL=무관
+    req_major_field  = Column(String(20), nullable=True)   # 전공계열: '인문사회'|'예술체육'|'이공'|None
+    req_multichild   = Column(Boolean, nullable=False, server_default="false")  # 다자녀 가정 대상
+    req_foreigner    = Column(Boolean, nullable=False, server_default="false")  # 외국인/유학생 대상
+    req_disabled     = Column(Boolean, nullable=False, server_default="false")  # 장애 대상
+    req_independent  = Column(Boolean, nullable=False, server_default="false")  # 자취/주거 지원
+    req_veteran      = Column(Boolean, nullable=False, server_default="false")  # 보훈·국가유공자(후손)
+
     __table_args__ = (
         Index("ix_scholarship_catalog_scope", "scope"),
     )
@@ -504,7 +523,8 @@ class ScholarshipCatalog(Base):
 # ==========================================
 # 장학금 하나에 딸린 파일 세트(공고문 + 신청서 + 양식 등)를 연결한다. 파일관리에서 파일을
 # 업로드할 때 '소속 장학금'을 지정하면 여기에 행이 생긴다. 모달은 대표(is_primary) 파일을
-# 기본 표시하고, 나머지는 펼침 목록으로 보여준다. 한 파일은 한 장학금에만 소속(문서 단일 유니크).
+# 기본 표시하고, 나머지는 펼침 목록으로 보여준다. 한 파일을 여러 장학금에 공유 연결할 수 있다
+# (예: 여러 장학금 내용이 한 공고문에 있는 '수시 장학제도.pdf'). 대표는 장학금별로 1개.
 # document_file / scholarship_catalog 삭제 시 연결도 함께 삭제(CASCADE).
 class ScholarshipFile(Base):
     __tablename__ = "scholarship_file"
@@ -517,6 +537,8 @@ class ScholarshipFile(Base):
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint("document_file_id", name="uq_scholarship_file_document"),  # 파일당 장학금 1개
+        # 같은 파일↔같은 장학금 쌍만 중복 방지 (파일 1개 → 장학금 여러 개 공유 허용)
+        Index("uq_scholarship_file_pair", "scholarship_id", "document_file_id", unique=True),
         Index("ix_scholarship_file_scholarship", "scholarship_id"),
+        Index("ix_scholarship_file_document", "document_file_id"),  # 파일→연결된 장학금들 역조회
     )

@@ -27,7 +27,6 @@ from app.services.school.dining import answer_dining_question_with_meta
 from app.services.school.graduation import graduation_service
 from app.services.school.schedule import schedule_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query, _distinctive_terms
-from app.services.school.scholarship import answer_scholarship_question
 from app.services.rag_service import rag_service
 from app.services.file_service import AVAILABLE_FILES
 
@@ -59,10 +58,12 @@ _INFO_INTENT_RE = re.compile(
     r'뭐|뭔|무엇|어떤|소개|알려|설명|신청|방법|어떻게|언제|얼마|며칠|기간|'
     r'지원|모집|혜택|자격|조건|정보|대해|되나|하나요|인가요|추천|목록|'
     # 시설 이용·대여·예약 등 '서비스/절차' 질문 — 위치가 아니라 그 정보(RAG)를 원하는 것
-    r'대여|대관|예약|이용|사용|빌리|운영|시간|요금|가격|비용|'
-    # '몇시'는 '시간'과 같은 뜻인데 빠져 있어, 같은 질문이 말투에 따라 갈렸다.
-    # 실측: '도서관 운영시간'은 RAG로 가는데 '도서관 몇시까지 해'는 건물명에 걸려 지도로 답함.
-    r'몇시|몇 시|'
+    # '몇 시'(운영/개관 시간)는 정보 질문 — '시간'은 있는데 '몇 시까지 해'가 안 걸려 '도서관 몇
+    # 시까지 해'가 지도로 답하던 문제(실측). '몇 층/몇 호'는 _LOCATION_INTENT_RE라 위치 유지.
+    r'대여|대관|예약|이용|사용|빌리|운영|시간|몇\s*시|요금|가격|비용|'
+    # 시설 '서비스' 질문 — 건물명이 걸려도 위치가 아니라 그 서비스 정보다.
+    # ('기숙사 와이파이 비번'이 건물명 '기숙사'에 걸려 지도로 답하던 문제 — 실측)
+    r'와이파이|wifi|비번|비밀번호|택배|세탁|충전|보관|분실|'
     # 식사 관련어 — 건물명이 걸려도 묻는 건 위치가 아니라 그날 메뉴다.
     # 실측: '토요일 기숙사 식단'이 건물명 '기숙사'에 걸려 캠퍼스 지도로 답했다.
     # ('식당'은 넣지 않는다 — "학생식당 어디야"는 위치 질문이 맞아서 지도가 옳다)
@@ -606,24 +607,23 @@ async def _handle_schedule(state: AgentState) -> dict:
 
 
 async def _handle_scholarship(state: AgentState) -> dict:
+    """장학금 질문은 RAG로 답변을 생성하지 않고, 안내문 + '맞춤 설문' 제안(예/아니오)을 낸다.
+    (장학금은 카탈로그 DB가 정확한 원천이라 RAG 답변보다 신뢰도가 높다.)
+    프론트는 scholarship_card={'survey':True} 신호를 보고 설문 제안 버튼을 렌더한다."""
     await _log(state["db"], state["student_id"], "scholarship")
-    prev_prefix = _build_prev_prefix(state)
-    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
-    answer, next_ctx, metadata = await answer_scholarship_question(
-        enriched_question,
-        student_id=state["student_id"],
-        db=state["db"],
-        pending_context=state.get("pending_context"),
+    answer = (
+        "장학금 종류나 찾으시는 장학금은 사이드바의 **‘장학금 둘러보기’**에서 "
+        "전체 목록을 확인하실 수 있어요.\n\n"
+        "간단한 설문으로 **나에게 맞는 장학금**을 찾아드릴 수도 있어요. 확인해 드릴까요?"
     )
-    answer = _append_contact_info(answer, metadata)
-    return _with_file_offer({
+    return {
         "answer": answer,
-        "next_pending_context": next_ctx,
-        "source": metadata.get("source"),
-        "source_file": metadata.get("source_file"),
-        "topic": metadata.get("topic") or "scholarship",
-        "files_to_offer": metadata.get("files_to_offer", []),
-    }, metadata.get("topic") or "scholarship", state["question"])
+        "next_pending_context": None,
+        "source": None,
+        "source_file": None,
+        "topic": "scholarship",
+        "scholarship_card": {"survey": True},   # 프론트: 설문 제안(예/아니오) 렌더 신호
+    }
 
 
 async def _handle_rag_general(state: AgentState) -> dict:
@@ -836,6 +836,7 @@ class AgentResult:
     map_card: dict | None = None
     schedule_card: dict | None = None
     dept_card: dict | None = None
+    scholarship_card: dict | None = None
     pending_context: dict | None = None
     intent: str | None = None
     topic: str | None = None
@@ -876,6 +877,7 @@ class AgentGraph:
             "map_card": None,
             "schedule_card": None,
             "dept_card": None,
+            "scholarship_card": None,
             "next_pending_context": None,
             "source": None,
             "source_file": None,
@@ -893,6 +895,7 @@ class AgentGraph:
             map_card=result.get("map_card"),
             schedule_card=result.get("schedule_card"),
             dept_card=result.get("dept_card"),
+            scholarship_card=result.get("scholarship_card"),
             pending_context=result.get("next_pending_context"),
             intent=result.get("intent"),
             topic=result.get("topic"),

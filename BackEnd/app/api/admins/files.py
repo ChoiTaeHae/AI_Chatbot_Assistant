@@ -22,14 +22,10 @@ router = APIRouter()
 @router.get("/files", summary="다운로드 파일 목록 조회")
 async def list_files(db: AsyncSession = Depends(get_db)):
     data = await file_service.list_files()
-    links = await get_file_links(db)   # 장학금 연결 정보 주석
+    links = await get_file_links(db)   # {file_id: [{scholarship_id, scholarship_name, is_primary}, ...]}
     for arr in data["files"].values():
         for f in arr:
-            lk = links.get(f.get("id"))
-            if lk:
-                f["scholarship_id"] = lk["scholarship_id"]
-                f["scholarship_name"] = lk["scholarship_name"]
-                f["is_primary"] = lk["is_primary"]
+            f["scholarships"] = links.get(f.get("id"), [])   # 한 파일이 여러 장학금에 연결될 수 있음
     return data
 
 
@@ -67,9 +63,13 @@ async def link_scholarship_file(
     return {"success": True}
 
 
-@router.delete("/files/link/{document_file_id}", summary="파일-장학금 연결 해제")
-async def unlink_scholarship_file(document_file_id: int, db: AsyncSession = Depends(get_db)):
-    await unlink_file(db, document_file_id)
+@router.delete("/files/link/{document_file_id}", summary="파일-장학금 연결 해제 (특정 장학금만)")
+async def unlink_scholarship_file(
+    document_file_id: int,
+    scholarship_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    await unlink_file(db, scholarship_id, document_file_id)
     return {"success": True}
 
 

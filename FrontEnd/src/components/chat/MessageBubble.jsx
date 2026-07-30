@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import MascotAvatar from '../common/MascotAvatar'
 import ScheduleCard from './ScheduleCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
+import { useAuth } from '../../store/AuthContext'
 
 const API_BASE = ''
 
@@ -321,7 +322,46 @@ const CT = {
         yes: '是', no: '否', pickFile: '请选择所需文件。', downloadAll: '全部下载', allDone: '全部下载完成 ✓' },
 }
 
-export default function MessageBubble({ message, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, isLatest }) {
+// 채팅 맞춤 장학금 설문 제안 — [예/아니오]. 예 → 설문 모달 오픈, 아니오 → 카드 숨김.
+function ScholarshipSurveyOffer({ onStart }) {
+  const { user } = useAuth()
+  const [dismissed, setDismissed] = useState(false)
+  if (dismissed) return null
+  const name = user?.name || '회원'
+  return (
+    <div className="rounded-xl border border-(--brand-a20) overflow-hidden" style={{ marginTop: '14px' }}>
+      <div className="flex items-center gap-2 bg-(--brand-tint)" style={{ padding: '10px 14px' }}>
+        <div className="shrink-0 rounded-lg bg-(--brand) flex items-center justify-center" style={{ width: '32px', height: '32px' }}>
+          <span className="emoji" style={{ fontSize: '16px' }}>🎯</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-(--brand) truncate">맞춤 장학금 찾기</p>
+          <p className="text-xs text-(--text-muted) truncate">간단한 설문으로 {name}님께 맞는 장학금을 찾아드려요</p>
+        </div>
+      </div>
+      <div className="bg-(--surface-card) flex gap-2" style={{ padding: '12px 14px' }}>
+        <button
+          type="button"
+          onClick={() => onStart?.()}
+          className="flex-1 flex items-center justify-center rounded-lg font-bold text-white bg-(--brand) hover:bg-(--brand-hover) transition"
+          style={{ padding: '9px', fontSize: '13px' }}
+        >
+          예, 찾아볼래요
+        </button>
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          className="rounded-lg font-semibold text-(--text-muted) border border-(--border-strong) hover:bg-(--surface-2) transition"
+          style={{ padding: '9px 16px', fontSize: '13px' }}
+        >
+          아니오
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function MessageBubble({ message, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, isLatest, onStartSurvey }) {
   const ct = CT[lang] || CT.ko
   const isUser = message.role === 'user'
   const [downloadedFiles, setDownloadedFiles] = useState(new Set())
@@ -477,6 +517,11 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
 
           {/* 학사일정 미니 달력 카드 (일정이 걸친 주만) */}
           {message.scheduleCard && <ScheduleCard card={message.scheduleCard} lang={lang} />}
+
+          {/* 맞춤 장학금 설문 제안 — 예 누르면 설문 모달, 아니오 누르면 숨김 */}
+          {message.scholarshipCard?.survey && (
+            <ScholarshipSurveyOffer onStart={() => onStartSurvey?.()} />
+          )}
 
           {/* 학과/학부/단과대 안내 카드 — 소개 본문은 담지 않고 소속 정보 + 홈페이지 링크만 */}
           {message.deptCard && (
