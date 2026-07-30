@@ -87,6 +87,9 @@ _YEAR_QUALIFIER_RE = re.compile(r"^\d{1,4}(학번|학년도|년도|학년)")
 # ('전과 신청 방법' 뒤 '자격 조건은?'이 '자격'만으로 '검색어 형태'로 오판돼 이전 맥락 병합이
 #  통째로 생략되던 문제 — 실측: graduation으로 오라우팅)
 _GENERIC_EXACT = ("자격", "시간")
+# 위 속성어에 붙는 조사 — '신청 자격은?'의 '자격은'도 속성어로 인정해 후속 병합이 되게 한다.
+# (조사만 떼어 exact 확인하므로 '자격증'·'시간표'는 조사가 아니라 그대로 주제어로 유지된다)
+_EXACT_PARTICLES = ("은", "는", "이", "가", "을", "를", "도", "의", "만")
 
 
 def _distinctive_terms(question: str) -> list[str]:
@@ -104,6 +107,8 @@ def _distinctive_terms(question: str) -> list[str]:
             continue
         if tok in _GENERIC_EXACT:             # '자격'·'시간' 등 — 단독이면 속성어(자격증/시간표는 유지)
             continue
+        if any(tok.endswith(p) and tok[:-len(p)] in _GENERIC_EXACT for p in _EXACT_PARTICLES):
+            continue                          # 조사 붙은 '자격은'·'시간이' 등도 속성어로 처리
         # 서술어 어미로 끝나면 어미만 떼고 앞부분(어간)을 본다. 토큰을 통째로 버리면
         # 띄어쓰기 없이 붙여 쓴 질문에서 주제어까지 사라진다 —
         # 실측: '기숙사비용얼마야?'가 토큰 하나('기숙사비용얼마야')라 끝의 '야' 때문에
