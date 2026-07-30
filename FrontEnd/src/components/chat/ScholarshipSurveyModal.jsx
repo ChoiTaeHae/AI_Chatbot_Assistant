@@ -44,7 +44,7 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
   })
   const set = (k, v) => setA((p) => ({ ...p, [k]: v }))
   const toggleInterest = (c) =>
-    setA((p) => ({ ...p, interests: p.interests.includes(c) ? p.interests.filter((x) => x !== c) : [...p, c] }))
+    setA((p) => ({ ...p, interests: p.interests.includes(c) ? p.interests.filter((x) => x !== c) : [...p.interests, c] }))
 
   async function submit() {
     setLoading(true); setError(null)
