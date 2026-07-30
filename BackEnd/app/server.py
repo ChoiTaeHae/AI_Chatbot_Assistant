@@ -144,9 +144,9 @@ async def lifespan(app: FastAPI):
             # 맞춤 설문 매칭용 요건 컬럼 (전부 nullable/기본 false → 기존 데이터·코드에 무해)
             for _col, _ddl in [
                 ("req_region", "VARCHAR(50)"), ("req_region_basis", "VARCHAR(10)"),
-                ("req_min_gpa", "DOUBLE PRECISION"), ("req_grade", "VARCHAR(20)"),
+                ("req_min_gpa", "DOUBLE PRECISION"), ("req_grade", "VARCHAR(120)"),
                 ("req_income", "VARCHAR(20)"), ("req_age_max", "INTEGER"),
-                ("req_major_field", "VARCHAR(20)"),
+                ("req_major_field", "VARCHAR(120)"),
                 ("req_multichild", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_foreigner", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_disabled", "BOOLEAN NOT NULL DEFAULT false"),
@@ -154,6 +154,9 @@ async def lifespan(app: FastAPI):
                 ("req_veteran", "BOOLEAN NOT NULL DEFAULT false"),
             ]:
                 await conn.execute(text(f"ALTER TABLE scholarship_catalog ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
+            # 학년·전공계열은 다중선택(콤마 저장)으로 바뀌어 폭을 넓힌다 (기존 VARCHAR(20) → 120, 멱등)
+            await conn.execute(text("ALTER TABLE scholarship_catalog ALTER COLUMN req_grade TYPE VARCHAR(120)"))
+            await conn.execute(text("ALTER TABLE scholarship_catalog ALTER COLUMN req_major_field TYPE VARCHAR(120)"))
             # 학생 '자동 연동'용 더미 성적/학년/전공계열 컬럼 + 시드
             for _col, _ddl in [("gpa", "DOUBLE PRECISION"), ("grade_year", "INTEGER"), ("major_field", "VARCHAR(20)")]:
                 await conn.execute(text(f"ALTER TABLE student ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
