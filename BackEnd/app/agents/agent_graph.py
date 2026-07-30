@@ -215,6 +215,11 @@ def _build_prev_prefix(state: AgentState) -> str:
 
 def _append_contact_info(answer: str, metadata: dict) -> str:
     """답변 뒤에 출처 URL, 담당 부서, 전화번호를 붙인다."""
+    # 답변 자체가 '자료 못 찾음'이면 잡았던(무관) 문서의 출처·연락처를 붙이지 않는다.
+    # (예: '파이썬 코드 짜줘'가 무관 문서를 잡아 못찾음 답 → campus 출처·교무팀 전번이 오해를 준다)
+    _NOT_FOUND = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없", "관련 자료를 찾")
+    if any(m in answer for m in _NOT_FOUND):
+        return answer
     parts = []
     url = metadata.get("url")
     contact_name = metadata.get("contact_name")
