@@ -1,9 +1,24 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { fetchScholarships, createScholarship, updateScholarship, deleteScholarship } from '../../api/admins/scholarships'
-import { fetchFiles, setScholarshipLink, uploadFile, deleteFile } from '../../api/admins/files'
+import { fetchFiles, linkScholarshipFile, unlinkScholarshipFile, uploadFile, deleteFile } from '../../api/admins/files'
 
 const TEAL = 'var(--brand)'
-const EMPTY = { name: '', kind: '장학금', scope: '교내', category: '', amount: '', eligibility: '', period: '', end_at: '', link: '' }
+const EMPTY = {
+  name: '', scope: '교내', category: '', amount: '', eligibility: '', period: '', end_at: '', link: '',
+  // 맞춤 설문 매칭 요건 — 전부 선택(비우면 '무관' → 필터 통과)
+  req_region: '', req_region_basis: '', req_min_gpa: '', req_grade: '', req_income: '',
+  req_age_max: '', req_major_field: '',
+  req_multichild: false, req_foreigner: false, req_disabled: false, req_independent: false, req_veteran: false,
+}
+
+const BASIS_OPTS = [['', '무관'], ['본인', '본인 거주'], ['부모', '부모 거주']]
+const GRADE_OPTS = [['', '무관'], ['신입', '신입생'], ['재학', '재학생'], ['3학년이상', '3학년 이상'], ['대학원', '대학원']]
+const INCOME_OPTS = [['', '무관'], ['기초', '기초생활수급'], ['차상위', '차상위'], ['중위100', '중위 100%↓'], ['중위200', '중위 100~200%']]
+const MAJOR_OPTS = [['', '무관'], ['인문사회', '인문·사회'], ['예술체육', '예술·체육'], ['이공', '이공']]
+const REQ_FLAGS = [
+  ['req_multichild', '다자녀'], ['req_foreigner', '외국인·유학생'], ['req_independent', '자취·독립'],
+  ['req_disabled', '장애'], ['req_veteran', '보훈·유공자'],
+]
 
 /** 서버 ISO(초 포함) → datetime-local 입력값(YYYY-MM-DDTHH:mm) */
 function toLocalInput(iso) {
@@ -22,9 +37,10 @@ export default function ScholarshipManager() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [fileSearch, setFileSearch] = useState('')
-  const [fileTab, setFileTab] = useState('scholarship')   // 파일 첨부 목록 탭: 'scholarship'(장학금) | 'work_study'(근로)
   const [uploading, setUploading] = useState(false)
+  const [pendingFile, setPendingFile] = useState(null)   // 저장(생성) 시 함께 첨부할 파일
   const fileInputRef = useRef(null)
+  const newFileInputRef = useRef(null)
 
   async function loadList() {
     try { setList(await fetchScholarships()) }
@@ -36,30 +52,27 @@ export default function ScholarshipManager() {
   }
   useEffect(() => { (async () => { setLoading(true); await Promise.all([loadList(), loadFiles()]); setLoading(false) })() }, [])
 
-  const grouped = useMemo(() => {
-    const g = { 장학금: [], 근로: [] }
-    for (const s of list) (g[s.kind] || (g[s.kind] = [])).push(s)
-    return g
-  }, [list])
+  // 근로 롤백 — 장학금만 관리
+  const scholarships = useMemo(() => list.filter((s) => s.kind !== '근로'), [list])
 
-  const fileCounts = useMemo(() => ({
-    scholarship: (filesByTopic['scholarship'] || []).length,
-    work_study: (filesByTopic['work_study'] || []).length,
-  }), [filesByTopic])
   const shownFiles = useMemo(() => {
     const q = fileSearch.trim().toLowerCase()
-    const inTab = filesByTopic[fileTab] || []
+    const inTab = filesByTopic['scholarship'] || []
     return q ? inTab.filter((f) => f.name.toLowerCase().includes(q)) : inTab
-  }, [filesByTopic, fileTab, fileSearch])
+  }, [filesByTopic, fileSearch])
 
-  function openAdd() { setForm(EMPTY); setEditingId(null); setFileSearch(''); setFileTab('scholarship'); setMsg(null); setMode('form') }
+  function openAdd() { setForm(EMPTY); setEditingId(null); setPendingFile(null); setFileSearch(''); setMsg(null); setMode('form') }
   function openEdit(s) {
     setForm({
-      name: s.name || '', kind: s.kind || '장학금', scope: s.scope || '교내', category: s.category || '', amount: s.amount || '',
-      eligibility: s.eligibility || '', period: s.period || '', end_at: toLocalInput(s.end_at),
-      link: s.link || '',
+      name: s.name || '', scope: s.scope || '교내', category: s.category || '', amount: s.amount || '',
+      eligibility: s.eligibility || '', period: s.period || '', end_at: toLocalInput(s.end_at), link: s.link || '',
+      req_region: s.req_region || '', req_region_basis: s.req_region_basis || '',
+      req_min_gpa: s.req_min_gpa ?? '', req_grade: s.req_grade || '', req_income: s.req_income || '',
+      req_age_max: s.req_age_max ?? '', req_major_field: s.req_major_field || '',
+      req_multichild: !!s.req_multichild, req_foreigner: !!s.req_foreigner, req_disabled: !!s.req_disabled,
+      req_independent: !!s.req_independent, req_veteran: !!s.req_veteran,
     })
-    setEditingId(s.id); setFileSearch(''); setFileTab(s.kind === '근로' ? 'work_study' : 'scholarship'); setMsg(null); setMode('form')
+    setEditingId(s.id); setPendingFile(null); setFileSearch(''); setMsg(null); setMode('form')
   }
   function backToList() { setMode('list'); setEditingId(null); loadList() }
 
@@ -70,9 +83,13 @@ export default function ScholarshipManager() {
     setSaving(true); setMsg(null)
     const payload = {
       ...form,
+      kind: '장학금',
       category: form.category || null, amount: form.amount || null, eligibility: form.eligibility || null,
-      period: form.period || null, link: form.link || null,
-      end_at: form.end_at ? form.end_at : null,
+      period: form.period || null, link: form.link || null, end_at: form.end_at || null,
+      req_region: form.req_region || null, req_region_basis: form.req_region_basis || null,
+      req_grade: form.req_grade || null, req_income: form.req_income || null, req_major_field: form.req_major_field || null,
+      req_min_gpa: form.req_min_gpa === '' ? null : Number(form.req_min_gpa),
+      req_age_max: form.req_age_max === '' ? null : Number(form.req_age_max),
     }
     try {
       if (editingId) {
@@ -80,8 +97,12 @@ export default function ScholarshipManager() {
         setMsg({ type: 'success', text: '수정됐어요.' })
       } else {
         const res = await createScholarship(payload)
-        setEditingId(res.id)   // 파일 첨부 가능하도록 편집 모드로 전환
-        setMsg({ type: 'success', text: '저장됐어요. 아래에서 파일을 첨부하세요.' })
+        setEditingId(res.id)   // 편집 모드로 전환 → 파일 추가/연결 가능
+        if (pendingFile) {
+          await uploadFile(pendingFile, 'scholarship', res.id, true)   // 선택한 파일을 대표로 첨부
+          setPendingFile(null)
+        }
+        setMsg({ type: 'success', text: '추가됐어요. 아래에서 파일을 더 붙이거나 연결할 수 있어요.' })
       }
       await Promise.all([loadList(), loadFiles()])
     } catch (e) {
@@ -95,36 +116,38 @@ export default function ScholarshipManager() {
     catch (e) { alert(e.message) }
   }
 
-  // 파일 연결/해제/대표
+  // 파일 연결/해제/대표 — 한 파일을 여러 장학금에 공유 연결 가능
   async function toggleFile(f) {
-    const linkedHere = f.scholarship_id === editingId
+    const linkedHere = (f.scholarships || []).some((x) => x.scholarship_id === editingId)
     try {
-      await setScholarshipLink(f.id, linkedHere ? null : editingId, false)
+      if (linkedHere) await unlinkScholarshipFile(f.id, editingId)
+      else await linkScholarshipFile(f.id, editingId, false)
       await Promise.all([loadFiles(), loadList()])
     } catch (e) { alert(e.message) }
   }
   async function makePrimary(f) {
-    try { await setScholarshipLink(f.id, editingId, true); await Promise.all([loadFiles(), loadList()]) }
+    try { await linkScholarshipFile(f.id, editingId, true); await Promise.all([loadFiles(), loadList()]) }
     catch (e) { alert(e.message) }
   }
-  // 업로드 → 'scholarship' topic에 저장 + 현재 장학금에 자동 연결
+  // 편집 중 새 파일 업로드 → 'scholarship' topic + 현재 장학금에 자동 연결
   async function handleUpload(e) {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
     try {
-      await uploadFile(file, fileTab, editingId, false)   // 현재 탭(장학금/근로) topic으로 저장 + 연결
+      await uploadFile(file, 'scholarship', editingId, false)
       await Promise.all([loadFiles(), loadList()])
     } catch (err) { alert(err.message) }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }
   async function handleDeleteFile(f) {
-    if (!confirm(`'${f.name}' 파일을 삭제할까요? (연결도 함께 해제됩니다)`)) return
+    if (!confirm(`'${f.name}' 파일을 삭제할까요? (연결된 모든 장학금에서 해제됩니다)`)) return
     try { await deleteFile(f.topic, f.name); await Promise.all([loadFiles(), loadList()]) }
     catch (err) { alert(err.message) }
   }
 
   const inputCls = 'w-full text-sm text-(--text) border border-(--border) rounded-lg bg-(--surface-card) outline-none focus:border-(--brand)'
+  const labelCls = 'text-xs font-bold text-(--text-muted)'
 
   // ─────────────────────────────── 목록 뷰 ───────────────────────────────
   if (mode === 'list') {
@@ -132,12 +155,12 @@ export default function ScholarshipManager() {
       <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col" style={{ padding: '32px', gap: '18px' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-black text-(--text)">장학금·근로 관리</h2>
-            <p className="text-xs text-(--text-faint) mt-0.5">'장학금·근로 둘러보기'에 노출되는 항목을 추가·수정하고 파일을 연결합니다</p>
+            <h2 className="text-base font-black text-(--text)">장학금 관리</h2>
+            <p className="text-xs text-(--text-faint) mt-0.5">'장학금 둘러보기'·맞춤 설문에 쓰이는 장학금을 추가·수정하고 파일·요건을 함께 넣습니다</p>
           </div>
           <button onClick={openAdd} className="flex items-center bg-(--brand) text-white text-sm font-bold hover:bg-(--brand-hover) transition rounded-xl" style={{ gap: '6px', padding: '9px 16px' }}>
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            추가
+            장학금 정보 추가
           </button>
         </div>
 
@@ -145,37 +168,33 @@ export default function ScholarshipManager() {
 
         {loading ? (
           <p className="text-center text-(--text-faint) text-sm" style={{ padding: '40px' }}>불러오는 중…</p>
-        ) : list.length === 0 ? (
+        ) : scholarships.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-(--text-faint)" style={{ padding: '50px 0', gap: '8px' }}>
-            <p className="text-sm font-medium">등록된 항목이 없습니다</p>
-            <p className="text-xs">오른쪽 상단 '추가'로 시작하세요</p>
+            <p className="text-sm font-medium">등록된 장학금이 없습니다</p>
+            <p className="text-xs">오른쪽 상단 '장학금 정보 추가'로 시작하세요</p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto flex flex-col" style={{ gap: '18px' }}>
-            {['장학금', '근로'].map((k) => (grouped[k] || []).length > 0 && (
-              <div key={k}>
-                <p className="text-sm font-bold" style={{ marginBottom: '8px', color: TEAL }}><span className="emoji">{k === '근로' ? '💼' : '🎓'}</span> {k} <span className="text-(--text-faint) font-normal">({grouped[k].length})</span></p>
-                <div className="border border-(--border) rounded-xl overflow-hidden">
-                  {grouped[k].map((s) => (
-                    <div key={s.id} className="flex items-center gap-3 border-b border-(--border) last:border-b-0 hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[11px] font-semibold text-white rounded-full shrink-0" style={{ padding: '1px 8px', background: s.scope === '교외' ? '#0ea5a0' : 'var(--text-faint)' }}>{s.scope}</span>
-                          <span className="font-semibold text-(--text) text-sm">{s.name}</span>
-                          {s.category && <span className="text-[11px] text-(--text-muted) bg-(--surface-2) rounded-full" style={{ padding: '1px 8px' }}>{s.category}</span>}
-                          {s.amount && <span className="text-[11px] font-semibold" style={{ color: TEAL }}>{s.amount}</span>}
-                          {s.expired && <span className="text-[11px] font-semibold text-red-600 bg-red-50 rounded-full" style={{ padding: '1px 8px' }}>기간마감</span>}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
-                          {s.period && <span><span className="emoji">🗓</span> {s.period}</span>}
-                          <span><span className="emoji">📎</span> 파일 {s.files?.length || 0}</span>
-                        </div>
-                      </div>
-                      <button onClick={() => openEdit(s)} className="text-xs font-semibold text-(--brand) hover:underline shrink-0">수정</button>
-                      <button onClick={() => remove(s)} className="text-xs font-semibold text-red-500 hover:underline shrink-0">삭제</button>
-                    </div>
-                  ))}
+          <div className="flex-1 overflow-y-auto border border-(--border) rounded-xl">
+            {scholarships.map((s) => (
+              <div key={s.id} className="flex items-center gap-3 border-b border-(--border) last:border-b-0 hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-semibold text-white rounded-full shrink-0" style={{ padding: '1px 8px', background: s.scope === '교외' ? '#0ea5a0' : 'var(--text-faint)' }}>{s.scope}</span>
+                    <span className="font-semibold text-(--text) text-sm">{s.name}</span>
+                    {s.category && <span className="text-[11px] text-(--text-muted) bg-(--surface-2) rounded-full" style={{ padding: '1px 8px' }}>{s.category}</span>}
+                    {s.amount && <span className="text-[11px] font-semibold" style={{ color: TEAL }}>{s.amount}</span>}
+                    {s.expired && <span className="text-[11px] font-semibold text-red-600 bg-red-50 rounded-full" style={{ padding: '1px 8px' }}>기간마감</span>}
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
+                    {s.period && <span><span className="emoji">🗓</span> {s.period}</span>}
+                    <span><span className="emoji">📎</span> 파일 {s.files?.length || 0}</span>
+                    {(s.req_region || s.req_min_gpa != null || s.req_income || s.req_multichild || s.req_foreigner || s.req_disabled || s.req_independent || s.req_veteran) && (
+                      <span style={{ color: TEAL }}><span className="emoji">🎯</span> 요건 설정됨</span>
+                    )}
+                  </div>
                 </div>
+                <button onClick={() => openEdit(s)} className="text-xs font-semibold text-(--brand) hover:underline shrink-0">수정</button>
+                <button onClick={() => remove(s)} className="text-xs font-semibold text-red-500 hover:underline shrink-0">삭제</button>
               </div>
             ))}
           </div>
@@ -192,10 +211,10 @@ export default function ScholarshipManager() {
           <button onClick={backToList} className="text-(--text-faint) hover:text-(--text-body)" aria-label="목록으로">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <h2 className="text-base font-black text-(--text)">{editingId ? `${form.kind} 수정` : `${form.kind} 추가`}</h2>
+          <h2 className="text-base font-black text-(--text)">{editingId ? '장학금 정보 수정' : '장학금 정보 추가'}</h2>
         </div>
         <button onClick={save} disabled={saving} className="bg-(--brand) text-white text-sm font-bold hover:bg-(--brand-hover) transition disabled:opacity-50 rounded-xl" style={{ padding: '9px 18px' }}>
-          {saving ? '저장 중…' : '저장'}
+          {saving ? '저장 중…' : (editingId ? '저장' : '추가')}
         </button>
       </div>
 
@@ -204,98 +223,164 @@ export default function ScholarshipManager() {
       {/* 기본 정보 */}
       <div className="grid grid-cols-2" style={{ gap: '14px' }}>
         <label className="col-span-2 flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">이름 *</span>
-          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.name} onChange={(e) => setField('name', e.target.value)} placeholder="예: 서울인재대학장학금 / 국가근로장학금" />
+          <span className={labelCls}>이름 *</span>
+          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.name} onChange={(e) => setField('name', e.target.value)} placeholder="예: 서울인재대학장학금" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">종류 *</span>
-          <select className={inputCls} style={{ padding: '8px 10px' }} value={form.kind} onChange={(e) => { setField('kind', e.target.value); setFileTab(e.target.value === '근로' ? 'work_study' : 'scholarship') }}>
-            <option value="장학금">장학금</option>
-            <option value="근로">근로</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">구분 *</span>
+          <span className={labelCls}>구분 *</span>
           <select className={inputCls} style={{ padding: '8px 10px' }} value={form.scope} onChange={(e) => setField('scope', e.target.value)}>
             <option value="교내">교내</option>
             <option value="교외">교외</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">카테고리 (그룹)</span>
-          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.category} onChange={(e) => setField('category', e.target.value)} placeholder="예: 성적우수 / 근로 / 지자체" />
+          <span className={labelCls}>카테고리 (그룹)</span>
+          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.category} onChange={(e) => setField('category', e.target.value)} placeholder="예: 성적우수 / 지자체 / 생활비" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">금액</span>
+          <span className={labelCls}>금액</span>
           <input className={inputCls} style={{ padding: '8px 10px' }} value={form.amount} onChange={(e) => setField('amount', e.target.value)} placeholder="예: 연간 400만원 / 전액" />
         </label>
-        <label className="col-span-2 flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">지원 조건 (한 줄)</span>
-          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.eligibility} onChange={(e) => setField('eligibility', e.target.value)} placeholder="예: 공고문에서 확인 / 직전학기 3.0 이상" />
-        </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">신청 기간 (화면 표시)</span>
-          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.period} onChange={(e) => setField('period', e.target.value)} placeholder="예: 2026. 3. 24 10:00 ~ 3. 31 16:00 까지" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">마감 일시 <span className="text-(--text-faint) font-normal">(지나면 자동 '기간마감', 상시는 비움)</span></span>
+          <span className={labelCls}>마감 일시 <span className="text-(--text-faint) font-normal">(상시는 비움)</span></span>
           <input type="datetime-local" className={inputCls} style={{ padding: '8px 10px' }} value={form.end_at} onChange={(e) => setField('end_at', e.target.value)} />
         </label>
         <label className="col-span-2 flex flex-col gap-1">
-          <span className="text-xs font-bold text-(--text-muted)">외부 공고 링크</span>
+          <span className={labelCls}>지원 조건 (한 줄, 화면 표시)</span>
+          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.eligibility} onChange={(e) => setField('eligibility', e.target.value)} placeholder="예: 공고문에서 확인 / 직전학기 3.0 이상" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={labelCls}>신청 기간 (화면 표시)</span>
+          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.period} onChange={(e) => setField('period', e.target.value)} placeholder="예: 2026. 3. 24 ~ 3. 31" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={labelCls}>외부 공고 링크</span>
           <input className={inputCls} style={{ padding: '8px 10px' }} value={form.link} onChange={(e) => setField('link', e.target.value)} placeholder="https://..." />
         </label>
       </div>
 
-      {/* 파일 첨부 */}
+      {/* 지원 요건 (맞춤 설문 매칭용) */}
       <div className="border-t border-(--border)" style={{ paddingTop: '16px' }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
-          <p className="text-sm font-bold text-(--text)">파일 첨부</p>
-          {editingId && (
-            <>
+        <p className="text-sm font-bold text-(--text)">🎯 지원 요건 <span className="text-xs font-normal text-(--text-faint)">— 맞춤 설문 매칭용 · 비운 칸은 '무관'(모두 대상)</span></p>
+        <div className="grid grid-cols-2" style={{ gap: '14px', marginTop: '12px' }}>
+          <label className="flex flex-col gap-1">
+            <span className={labelCls}>대상 지역</span>
+            <input className={inputCls} style={{ padding: '8px 10px' }} value={form.req_region} onChange={(e) => setField('req_region', e.target.value)} placeholder="예: 화성시 / 서울 (비우면 무관)" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={labelCls}>지역 기준</span>
+            <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_region_basis} onChange={(e) => setField('req_region_basis', e.target.value)}>
+              {BASIS_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={labelCls}>최소 학점</span>
+            <input type="number" step="0.1" min="0" max="4.5" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_min_gpa} onChange={(e) => setField('req_min_gpa', e.target.value)} placeholder="예: 3.0 (비우면 무관)" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={labelCls}>나이 상한</span>
+            <input type="number" min="15" max="99" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_age_max} onChange={(e) => setField('req_age_max', e.target.value)} placeholder="예: 34 (비우면 무관)" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={labelCls}>학년 요건</span>
+            <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_grade} onChange={(e) => setField('req_grade', e.target.value)}>
+              {GRADE_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={labelCls}>소득 요건 (상한)</span>
+            <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_income} onChange={(e) => setField('req_income', e.target.value)}>
+              {INCOME_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={labelCls}>전공계열</span>
+            <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_major_field} onChange={(e) => setField('req_major_field', e.target.value)}>
+              {MAJOR_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
+            </select>
+          </label>
+        </div>
+        <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>대상 조건 <span className="font-normal text-(--text-faint)">(해당 장학금이 특정 대상 전용일 때만 켜기)</span></p>
+        <div className="flex flex-wrap gap-2">
+          {REQ_FLAGS.map(([key, label]) => {
+            const on = form[key]
+            return (
+              <button key={key} type="button" onClick={() => setField(key, !on)} className="rounded-full border transition" style={{
+                fontSize: '12px', padding: '6px 13px', fontWeight: on ? 700 : 500,
+                borderColor: on ? 'var(--brand)' : 'var(--border)',
+                background: on ? 'var(--brand)' : 'transparent',
+                color: on ? '#fff' : 'var(--text-muted)',
+              }}>
+                {on ? '✓ ' : ''}{label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* 파일 */}
+      <div className="border-t border-(--border)" style={{ paddingTop: '16px' }}>
+        <p className="text-sm font-bold text-(--text)" style={{ marginBottom: '8px' }}>📎 파일</p>
+
+        {!editingId ? (
+          // 생성 모드 — 파일을 미리 골라두면 '추가' 시 함께 업로드(대표)된다. (RAG 지식 추가처럼 정보+파일 한 번에)
+          <>
+            <input ref={newFileInputRef} type="file" className="hidden"
+              accept=".pdf,.docx,.pptx,.xlsx,.hwp,.hwpx,.txt,.md,.jpg,.jpeg,.png"
+              onChange={(e) => setPendingFile(e.target.files?.[0] || null)} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={() => newFileInputRef.current?.click()}
+                className="flex items-center gap-1 text-xs font-bold text-(--brand) border border-(--brand) rounded-lg hover:bg-(--brand-tint) transition" style={{ padding: '7px 13px' }}>
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                파일 선택
+              </button>
+              {pendingFile ? (
+                <span className="text-xs text-(--text-body) inline-flex items-center gap-2 bg-(--surface-2) rounded-lg" style={{ padding: '6px 10px' }}>
+                  <span className="truncate" style={{ maxWidth: '260px' }} title={pendingFile.name}>{pendingFile.name}</span>
+                  <button onClick={() => { setPendingFile(null); if (newFileInputRef.current) newFileInputRef.current.value = '' }} className="text-(--text-faint) hover:text-red-500" aria-label="선택 취소">✕</button>
+                </span>
+              ) : (
+                <span className="text-xs text-(--text-faint)">선택한 파일은 <b>추가</b> 시 함께 첨부돼요. (여러 파일·기존 파일 연결은 추가 후 가능)</span>
+              )}
+            </div>
+          </>
+        ) : (
+          // 편집 모드 — 즉시 업로드 + 기존 파일 체크 연결(여러 장학금 공유) + 대표 지정
+          <>
+            <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
+              <p className="text-xs text-(--text-faint)">파일을 <b>업로드</b>하면 이 장학금에 바로 연결돼요. 기존 파일은 체크해 연결하고, 대표 1개를 지정하세요. <b>한 파일을 여러 장학금에 체크</b>하면 공유됩니다.</p>
               <input ref={fileInputRef} type="file" className="hidden"
                 accept=".pdf,.docx,.pptx,.xlsx,.hwp,.hwpx,.txt,.md,.jpg,.jpeg,.png" onChange={handleUpload} />
               <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-                className="flex items-center gap-1 text-xs font-bold text-white bg-(--brand) hover:bg-(--brand-hover) transition disabled:opacity-50 rounded-lg" style={{ padding: '6px 12px' }}>
+                className="shrink-0 flex items-center gap-1 text-xs font-bold text-white bg-(--brand) hover:bg-(--brand-hover) transition disabled:opacity-50 rounded-lg" style={{ padding: '6px 12px', marginLeft: '10px' }}>
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                 {uploading ? '업로드 중…' : '파일 업로드'}
               </button>
-            </>
-          )}
-        </div>
-        {!editingId ? (
-          <p className="text-xs text-(--text-faint)">먼저 <b>저장</b>하면 이 장학금에 파일을 업로드·연결할 수 있어요.</p>
-        ) : (
-          <>
-            <p className="text-xs text-(--text-faint)" style={{ marginBottom: '10px' }}>파일을 <b>업로드</b>하면 이 항목에 바로 연결돼요(현재 탭 종류로 저장). 기존 파일은 체크해서 연결하고, 대표 1개를 지정하세요.</p>
-            <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
-              {[['scholarship', '장학금 파일'], ['work_study', '근로 파일']].map(([t, label]) => {
-                const active = fileTab === t
-                return (
-                  <button key={t} onClick={() => setFileTab(t)} className="text-xs font-semibold transition"
-                    style={{ padding: '5px 12px', borderRadius: '999px', background: active ? TEAL : 'var(--surface-2)', color: active ? '#fff' : 'var(--text-muted)' }}>
-                    {label} ({fileCounts[t] || 0})
-                  </button>
-                )
-              })}
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-(--border)" style={{ padding: '6px 10px', marginBottom: '10px' }}>
+            <div className="flex items-center gap-2 rounded-lg border border-(--border)" style={{ padding: '6px 10px', margin: '10px 0' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" strokeLinecap="round" /></svg>
               <input value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} placeholder="파일 검색" className="flex-1 outline-none bg-transparent text-sm" />
             </div>
-            <div className="border border-(--border) rounded-xl overflow-hidden" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+            <div className="border border-(--border) rounded-xl overflow-hidden" style={{ maxHeight: '300px', overflowY: 'auto' }}>
               {shownFiles.length === 0 ? (
-                <p className="text-center text-(--text-faint) text-xs" style={{ padding: '20px' }}>이 탭에 파일이 없어요. 위 '파일 업로드'로 올리세요.</p>
+                <p className="text-center text-(--text-faint) text-xs" style={{ padding: '20px' }}>파일이 없어요. 위 '파일 업로드'로 올리세요.</p>
               ) : shownFiles.map((f) => {
-                const linkedHere = f.scholarship_id === editingId
-                const linkedOther = f.scholarship_id && !linkedHere
+                const links = f.scholarships || []
+                const here = links.find((x) => x.scholarship_id === editingId)
+                const linkedHere = !!here
+                const others = links.filter((x) => x.scholarship_id !== editingId)
                 return (
                   <div key={f.id} className="flex items-center gap-2 border-b border-(--border) last:border-b-0" style={{ padding: '8px 12px', background: linkedHere ? 'var(--brand-tint)' : 'transparent' }}>
                     <input type="checkbox" checked={linkedHere} onChange={() => toggleFile(f)} style={{ accentColor: TEAL }} />
                     <span className="flex-1 min-w-0 truncate text-xs text-(--text-body)" title={f.name}>{f.name}</span>
-                    {linkedOther && <span className="text-[10px] text-amber-600 bg-amber-50 rounded-full shrink-0" style={{ padding: '1px 7px' }}>연결됨: {f.scholarship_name}</span>}
+                    {others.length > 0 && (
+                      <span className="text-[10px] text-amber-600 bg-amber-50 rounded-full shrink-0 truncate" style={{ padding: '1px 7px', maxWidth: '170px' }}
+                        title={`다른 장학금에도 연결됨: ${others.map((x) => x.scholarship_name).join(', ')}`}>
+                        공유: {others.map((x) => x.scholarship_name).join(', ')}
+                      </span>
+                    )}
                     {linkedHere && (
-                      f.is_primary
+                      here.is_primary
                         ? <span className="text-[10px] font-bold text-white rounded-full shrink-0" style={{ padding: '1px 8px', background: TEAL }}>대표</span>
                         : <button onClick={() => makePrimary(f)} className="text-[10px] font-semibold shrink-0 hover:underline" style={{ color: TEAL }}>대표로</button>
                     )}

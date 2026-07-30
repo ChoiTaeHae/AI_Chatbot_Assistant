@@ -96,10 +96,12 @@ async def get_catalog(
     - 마감 지난 것도 그대로 포함(항목에 expired 플래그). 숨김은 프론트 토글이 담당.
     - q가 있으면 이름·카테고리·조건에 대해 부분일치(대소문자 무시).
     """
-    stmt = select(ScholarshipCatalog).where(
-        ScholarshipCatalog.kind == kind,
-        ScholarshipCatalog.scope == scope,
-    )
+    # scope가 '교내'/'교외'면 해당 scope만, 그 외('전체' 등)면 kind 안에서 scope 무관 전부.
+    # (채팅 필터 카드 → 선택 카테고리가 교내·교외에 걸쳐 있어 cross-scope 조회가 필요)
+    conds = [ScholarshipCatalog.kind == kind]
+    if scope in ("교내", "교외"):
+        conds.append(ScholarshipCatalog.scope == scope)
+    stmt = select(ScholarshipCatalog).where(*conds)
 
     if q and q.strip():
         like = f"%{q.strip()}%"
@@ -151,6 +153,118 @@ async def get_kind_counts(db: AsyncSession) -> dict:
     return {kind: n for kind, n in (await db.execute(stmt)).all()}
 
 
+async def build_scholarship_card(db: AsyncSession) -> dict:
+    """채팅 장학금 필터 카드 데이터 — 장학금 카테고리(유형) 칩 목록.
+
+    근로 제외, 카테고리 없는(None) 것 제외, 교내/교외 합쳐(cross-scope) 카테고리별 건수.
+    학생이 카드에서 칩을 다중 선택하면 프론트가 둘러보기 모달을 그 카테고리들로 필터해서 연다.
+    반환: {categories: [{category, count}, ...]} (건수 많은 순, 같으면 이름순)
+    """
+    stmt = (
+        select(ScholarshipCatalog.category, func.count())
+        .where(
+            ScholarshipCatalog.kind == "장학금",
+            ScholarshipCatalog.category.isnot(None),
+        )
+        .group_by(ScholarshipCatalog.category)
+        .order_by(func.count().desc(), ScholarshipCatalog.category)
+    )
+    rows = (await db.execute(stmt)).all()
+    return {"categories": [{"category": c, "count": n} for c, n in rows]}
+
+
+# ─────────────────────────── 맞춤 설문 매칭 ───────────────────────────
+# 소득 계층 순서 — 낮을수록 어려운 계층. 장학금 req_income='차상위'면 학생은 기초/차상위여야 통과.
+_INCOME_ORDER = {"기초": 0, "차상위": 1, "중위100": 2, "중위200": 3}
+
+
+def _norm_region(s: str | None) -> str:
+    """지역 비교용 정규화 — 시/도/특별자치 등 접미사 제거해 '화성시'↔'화성' 매칭 유연화."""
+    if not s:
+        return ""
+    s = s.strip()
+    for suf in ("특별자치시", "특별자치도", "특별시", "광역시", "특별자치", "시", "군", "구", "도"):
+        if len(s) > len(suf) and s.endswith(suf):
+            return s[: -len(suf)]
+    return s
+
+
+def _region_ok(req_region, basis, self_region, parent_region) -> bool:
+    if not req_region:
+        return True   # 무관
+    r = _norm_region(req_region)
+    if basis == "본인":
+        cands = [self_region]
+    elif basis == "부모":
+        cands = [parent_region]
+    else:
+        cands = [self_region, parent_region]
+    for c in cands:
+        cn = _norm_region(c)
+        if cn and r and (cn in r or r in cn):
+            return True
+    return False
+
+
+async def match_scholarships(
+    db: AsyncSession,
+    answers: dict,
+    gpa: float | None = None,
+    grade_year: int | None = None,
+    major_field: str | None = None,
+) -> dict:
+    """설문 답 + 학생 더미(성적/학년/전공)로 장학금을 필터. 요건이 '무관(NULL/False)'이면 통과(폭넓게).
+    반환: {count, items:[...]} — items는 모달 표시/딥링크용 _to_item 형태."""
+    rows = (await db.execute(
+        select(ScholarshipCatalog).where(ScholarshipCatalog.kind == "장학금").order_by(*_deadline_order())
+    )).scalars().all()
+
+    self_region = (answers.get("self_region") or "").strip()
+    parent_region = (answers.get("parent_region") or "").strip()
+    income = answers.get("income")
+    interests = set(answers.get("interests") or [])
+    age = answers.get("age")
+
+    matched: list[ScholarshipCatalog] = []
+    for r in rows:
+        if not _region_ok(r.req_region, r.req_region_basis, self_region, parent_region):
+            continue
+        if r.req_min_gpa is not None and (gpa is None or gpa < r.req_min_gpa):
+            continue
+        if r.req_grade == "신입" and grade_year != 1:
+            continue
+        if r.req_grade == "3학년이상" and (grade_year is None or grade_year < 3):
+            continue
+        if r.req_grade == "대학원":
+            continue   # 학부 더미라 대학원 전용은 제외
+        if r.req_income and income:
+            need, have = _INCOME_ORDER.get(r.req_income), _INCOME_ORDER.get(income)
+            if need is not None and have is not None and have > need:
+                continue   # 학생 소득 여유 > 요건 → 대상 아님
+        if r.req_age_max is not None and age is not None and age > r.req_age_max:
+            continue
+        if r.req_major_field and major_field and r.req_major_field != major_field:
+            continue
+        if r.req_multichild and not answers.get("multichild"):
+            continue
+        if r.req_foreigner and not answers.get("foreigner"):
+            continue
+        if r.req_disabled and not answers.get("disabled"):
+            continue
+        if r.req_independent and not answers.get("independent"):
+            continue
+        if r.req_veteran and not answers.get("veteran"):
+            continue
+        matched.append(r)
+
+    # 관심 유형은 '제외' 대신 '우선 정렬'(선택한 유형을 앞으로) — 놓침 방지 + 선호 반영
+    if interests:
+        matched.sort(key=lambda r: 0 if (r.category or "기타") in interests else 1)
+
+    files_map = await _load_files_map(db, [r.id for r in matched])
+    return {"count": len(matched), "items": [_to_item(r, files_map.get(r.id, [])) for r in matched]}
+
+
 # ─────────────────────────── 관리자: 파일 연결 관리 ───────────────────────────
 async def list_catalog_min(db: AsyncSession) -> list[dict]:
     """파일 업로드 시 '소속 장학금' 드롭다운용 최소 목록."""
@@ -169,12 +283,16 @@ async def list_catalog_min(db: AsyncSession) -> list[dict]:
 
 
 async def link_file(db: AsyncSession, scholarship_id: int, document_file_id: int, is_primary: bool = False) -> None:
-    """파일을 장학금에 연결(문서당 장학금 1개 → 있으면 재지정). 대표 지정 시 같은 장학금의 기존 대표는 해제."""
+    """파일을 장학금에 연결. 파일 1개를 여러 장학금에 공유 가능 —
+    이미 이 장학금에 연결돼 있으면 대표 여부만 갱신하고, 다른 장학금 연결은 건드리지 않는다.
+    대표 지정 시 '같은 장학금'의 다른 파일 대표만 해제(대표는 장학금별 1개)."""
     existing = await db.scalar(
-        select(ScholarshipFile).where(ScholarshipFile.document_file_id == document_file_id)
+        select(ScholarshipFile).where(
+            ScholarshipFile.scholarship_id == scholarship_id,
+            ScholarshipFile.document_file_id == document_file_id,
+        )
     )
     if existing:
-        existing.scholarship_id = scholarship_id
         existing.is_primary = is_primary
     else:
         db.add(ScholarshipFile(
@@ -183,7 +301,7 @@ async def link_file(db: AsyncSession, scholarship_id: int, document_file_id: int
             is_primary=is_primary,
         ))
     if is_primary:
-        # 같은 장학금의 다른 파일 대표 해제 (대표는 1개만)
+        # 같은 장학금의 다른 파일 대표 해제 (대표는 장학금별 1개)
         await db.execute(
             update(ScholarshipFile)
             .where(
@@ -195,14 +313,20 @@ async def link_file(db: AsyncSession, scholarship_id: int, document_file_id: int
     await db.commit()
 
 
-async def unlink_file(db: AsyncSession, document_file_id: int) -> None:
-    """파일-장학금 연결 해제 (파일 자체는 삭제하지 않음)."""
-    await db.execute(delete(ScholarshipFile).where(ScholarshipFile.document_file_id == document_file_id))
+async def unlink_file(db: AsyncSession, scholarship_id: int, document_file_id: int) -> None:
+    """특정 장학금↔파일 연결만 해제 (파일 자체·다른 장학금의 연결은 유지)."""
+    await db.execute(
+        delete(ScholarshipFile).where(
+            ScholarshipFile.scholarship_id == scholarship_id,
+            ScholarshipFile.document_file_id == document_file_id,
+        )
+    )
     await db.commit()
 
 
-async def get_file_links(db: AsyncSession) -> dict[int, dict]:
-    """{document_file_id: {scholarship_id, scholarship_name, is_primary}} — 파일 목록 주석용."""
+async def get_file_links(db: AsyncSession) -> dict[int, list[dict]]:
+    """{document_file_id: [{scholarship_id, scholarship_name, is_primary}, ...]} — 파일 목록 주석용.
+    파일 1개가 여러 장학금에 연결될 수 있어 목록으로 반환한다."""
     stmt = (
         select(
             ScholarshipFile.document_file_id,
@@ -211,20 +335,28 @@ async def get_file_links(db: AsyncSession) -> dict[int, dict]:
             ScholarshipFile.is_primary,
         )
         .join(ScholarshipCatalog, ScholarshipCatalog.id == ScholarshipFile.scholarship_id)
+        .order_by(ScholarshipFile.is_primary.desc(), ScholarshipCatalog.name)
     )
     rows = (await db.execute(stmt)).all()
-    return {
-        r[0]: {"scholarship_id": r[1], "scholarship_name": r[2], "is_primary": bool(r[3])}
-        for r in rows
-    }
+    out: dict[int, list[dict]] = {}
+    for doc_id, sid, name, is_primary in rows:
+        out.setdefault(doc_id, []).append(
+            {"scholarship_id": sid, "scholarship_name": name, "is_primary": bool(is_primary)}
+        )
+    return out
 
 
 # ─────────────────────────── 관리자: 장학금 CRUD (장학금 관리 화면) ───────────────────────────
-_EDITABLE = ("name", "kind", "scope", "category", "amount", "eligibility", "period", "end_at", "link")
+_REQ_FIELDS = (
+    "req_region", "req_region_basis", "req_min_gpa", "req_grade", "req_income",
+    "req_age_max", "req_major_field", "req_multichild", "req_foreigner",
+    "req_disabled", "req_independent", "req_veteran",
+)
+_EDITABLE = ("name", "kind", "scope", "category", "amount", "eligibility", "period", "end_at", "link") + _REQ_FIELDS
 
 
 def _admin_item(row: ScholarshipCatalog, files: list[dict]) -> dict:
-    """관리자 편집용 직렬화 — end_at 등 전체 필드 포함(모달용 _to_item과 달리 숨김 없음)."""
+    """관리자 편집용 직렬화 — end_at·요건 등 전체 필드 포함(모달용 _to_item과 달리 숨김 없음)."""
     return {
         "id": row.id,
         "name": row.name,
@@ -238,6 +370,7 @@ def _admin_item(row: ScholarshipCatalog, files: list[dict]) -> dict:
         "link": row.link,
         "expired": bool(row.end_at and row.end_at < _now_kst()),
         "files": files,   # [{topic, name, is_primary}]
+        **{f: getattr(row, f) for f in _REQ_FIELDS},   # 맞춤 설문 매칭 요건
     }
 
 

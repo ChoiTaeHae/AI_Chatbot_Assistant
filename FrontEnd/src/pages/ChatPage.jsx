@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import ChatWindow from '../components/chat/ChatWindow'
 import ChatInput from '../components/chat/ChatInput'
 import Sidebar from '../components/chat/Sidebar'
+import ScholarshipModal from '../components/chat/ScholarshipModal'
+import ScholarshipSurveyModal from '../components/chat/ScholarshipSurveyModal'
 import MascotAvatar from '../components/common/MascotAvatar'
 import ThemeToggle from '../components/common/ThemeToggle'
 import { logout } from '../api/auth'
@@ -26,6 +28,10 @@ export default function ChatPage() {
   const { messages, isLoading, send, confirmFile, checkGraduation, reset, loadSession, sessionId, clearPendingFile, pendingFile, viewKey } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  // 장학금 둘러보기 모달(사이드바 버튼·설문 결과 딥링크가 공유) · 맞춤 설문 모달
+  const [scholarship, setScholarship] = useState(null)   // null=닫힘. { scope, categories?, query? }
+  const [survey, setSurvey] = useState(false)
+  const openScholarship = (opts = null) => setScholarship(opts || { scope: '교내' })
   const [sessionsRefresh, setSessionsRefresh] = useState(0)
   const profileRef = useRef(null)
   const { user, clearUser } = useAuth()
@@ -64,7 +70,7 @@ export default function ChatPage() {
           className={`hidden md:block shrink-0 overflow-hidden transition-all duration-300 ${sidebarOpen ? 'w-[264px]' : 'w-0'}`}
           style={{ marginRight: sidebarOpen ? '24px' : '0' }}
         >
-          <Sidebar lang={lang} role={user?.role} onNewChat={reset} onSelectSession={loadSession} activeSessionId={sessionId} onSessionDeleted={reset} refreshTrigger={sessionsRefresh} />
+          <Sidebar lang={lang} role={user?.role} onNewChat={reset} onSelectSession={loadSession} activeSessionId={sessionId} onSessionDeleted={reset} refreshTrigger={sessionsRefresh} onOpenScholarship={openScholarship} />
         </div>
 
         {/* 채팅 카드 */}
@@ -171,11 +177,34 @@ export default function ChatPage() {
             onConfirmFile={confirmFile}
             onCheckGraduation={checkGraduation}
             onSendQuestion={send}
+            onStartSurvey={() => setSurvey(true)}
           />
           <ChatInput onSend={send} disabled={isLoading} lang={lang} />
         </div>
         </div>
       </div>
+
+      {/* 장학·근로 둘러보기 모달 — 사이드바 버튼/채팅 카드 어느 쪽에서 열어도 이 하나가 뜬다 */}
+      {/* 맞춤 장학금 설문 — 결과에서 장학금을 고르면 둘러보기 모달을 그 장학금으로 연다(딥링크).
+          설문 모달은 계속 떠 있고 그 위에 둘러보기 모달이 겹쳐, '뒤로'로 결과 목록에 돌아가 다시 고를 수 있다.
+          (겹침 순서상 둘러보기 모달이 나중에 렌더돼 위에 온다) */}
+      {survey && (
+        <ScholarshipSurveyModal
+          onClose={() => setSurvey(false)}
+          onPick={(item) => setScholarship({ scope: '전체', query: item.name, fromSurvey: true })}
+        />
+      )}
+
+      {scholarship && (
+        <ScholarshipModal
+          lang={lang}
+          initialScope={scholarship.scope || '교내'}
+          initialCategories={scholarship.categories || null}
+          initialQuery={scholarship.query || ''}
+          onBack={scholarship.fromSurvey ? () => setScholarship(null) : undefined}
+          onClose={() => { setScholarship(null); setSurvey(false) }}
+        />
+      )}
     </main>
   )
 }

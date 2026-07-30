@@ -27,6 +27,19 @@ class ScholarshipIn(BaseModel):
     period: str | None = None        # 화면 표시용 기간 텍스트
     end_at: datetime | None = None   # 마감 판정용 (KST 벽시계). ISO 문자열 허용
     link: str | None = None
+    # 맞춤 설문 매칭 요건 (전부 선택 · None/False = 무관)
+    req_region: str | None = None
+    req_region_basis: str | None = None
+    req_min_gpa: float | None = None
+    req_grade: str | None = None
+    req_income: str | None = None
+    req_age_max: int | None = None
+    req_major_field: str | None = None
+    req_multichild: bool = False
+    req_foreigner: bool = False
+    req_disabled: bool = False
+    req_independent: bool = False
+    req_veteran: bool = False
 
 
 def _validate(body: ScholarshipIn) -> None:

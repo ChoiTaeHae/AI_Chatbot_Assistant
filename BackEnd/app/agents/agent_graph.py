@@ -27,7 +27,6 @@ from app.services.school.dining import answer_dining_question_with_meta
 from app.services.school.graduation import graduation_service
 from app.services.school.schedule import schedule_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query, _distinctive_terms
-from app.services.school.scholarship import answer_scholarship_question
 from app.services.rag_service import rag_service
 from app.services.file_service import AVAILABLE_FILES
 
@@ -608,24 +607,23 @@ async def _handle_schedule(state: AgentState) -> dict:
 
 
 async def _handle_scholarship(state: AgentState) -> dict:
+    """장학금 질문은 RAG로 답변을 생성하지 않고, 안내문 + '맞춤 설문' 제안(예/아니오)을 낸다.
+    (장학금은 카탈로그 DB가 정확한 원천이라 RAG 답변보다 신뢰도가 높다.)
+    프론트는 scholarship_card={'survey':True} 신호를 보고 설문 제안 버튼을 렌더한다."""
     await _log(state["db"], state["student_id"], "scholarship")
-    prev_prefix = _build_prev_prefix(state)
-    enriched_question = prev_prefix + state["question"] if prev_prefix else state["question"]
-    answer, next_ctx, metadata = await answer_scholarship_question(
-        enriched_question,
-        student_id=state["student_id"],
-        db=state["db"],
-        pending_context=state.get("pending_context"),
+    answer = (
+        "장학금 종류나 찾으시는 장학금은 사이드바의 **‘장학금 둘러보기’**에서 "
+        "전체 목록을 확인하실 수 있어요.\n\n"
+        "간단한 설문으로 **나에게 맞는 장학금**을 찾아드릴 수도 있어요. 확인해 드릴까요?"
     )
-    answer = _append_contact_info(answer, metadata)
-    return _with_file_offer({
+    return {
         "answer": answer,
-        "next_pending_context": next_ctx,
-        "source": metadata.get("source"),
-        "source_file": metadata.get("source_file"),
-        "topic": metadata.get("topic") or "scholarship",
-        "files_to_offer": metadata.get("files_to_offer", []),
-    }, metadata.get("topic") or "scholarship", state["question"])
+        "next_pending_context": None,
+        "source": None,
+        "source_file": None,
+        "topic": "scholarship",
+        "scholarship_card": {"survey": True},   # 프론트: 설문 제안(예/아니오) 렌더 신호
+    }
 
 
 async def _handle_rag_general(state: AgentState) -> dict:
@@ -838,6 +836,7 @@ class AgentResult:
     map_card: dict | None = None
     schedule_card: dict | None = None
     dept_card: dict | None = None
+    scholarship_card: dict | None = None
     pending_context: dict | None = None
     intent: str | None = None
     topic: str | None = None
@@ -878,6 +877,7 @@ class AgentGraph:
             "map_card": None,
             "schedule_card": None,
             "dept_card": None,
+            "scholarship_card": None,
             "next_pending_context": None,
             "source": None,
             "source_file": None,
@@ -895,6 +895,7 @@ class AgentGraph:
             map_card=result.get("map_card"),
             schedule_card=result.get("schedule_card"),
             dept_card=result.get("dept_card"),
+            scholarship_card=result.get("scholarship_card"),
             pending_context=result.get("next_pending_context"),
             intent=result.get("intent"),
             topic=result.get("topic"),

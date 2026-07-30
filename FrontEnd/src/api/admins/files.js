@@ -41,13 +41,8 @@ export async function fetchScholarshipOptions() {
   return res.json()
 }
 
-/** 기존 파일을 장학금에 연결 (scholarshipId=null 이면 연결 해제) */
-export async function setScholarshipLink(documentFileId, scholarshipId, isPrimary = false) {
-  if (!scholarshipId) {
-    const res = await authFetch(`${BASE}/files/link/${documentFileId}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('연결 해제 실패')
-    return res.json()
-  }
+/** 파일을 장학금에 연결(또는 대표 지정). 한 파일을 여러 장학금에 연결할 수 있음 */
+export async function linkScholarshipFile(documentFileId, scholarshipId, isPrimary = false) {
   const res = await authFetch(`${BASE}/files/link`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -57,6 +52,13 @@ export async function setScholarshipLink(documentFileId, scholarshipId, isPrimar
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || '연결 실패')
   }
+  return res.json()
+}
+
+/** 특정 장학금↔파일 연결만 해제 (파일·다른 장학금 연결은 유지) */
+export async function unlinkScholarshipFile(documentFileId, scholarshipId) {
+  const res = await authFetch(`${BASE}/files/link/${documentFileId}?scholarship_id=${scholarshipId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('연결 해제 실패')
   return res.json()
 }
 
