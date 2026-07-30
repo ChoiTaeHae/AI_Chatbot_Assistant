@@ -16,6 +16,7 @@ class AgentState(TypedDict):
     intent: str | None       # campus / graduation / rag_general / general
     confidence: float        # 임베딩 유사도 점수
     search_query: str | None # 후속질문 rewrite 결과 (라우팅+검색에 사용, 1차 질문은 None)
+    topic_no_docs: bool      # 분류된 topic에 Qdrant 문서가 0개 (라우팅이 RAG 폴백을 피하는 근거)
 
     # 출력
     answer: str | None
