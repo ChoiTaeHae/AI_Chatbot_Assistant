@@ -23,6 +23,7 @@ from app.services.llm_service import llm_service
 from app.prompts import GENERAL_HANDLER_PROMPT
 from app.services.school.campus import CampusService, has_building_hit
 from app.services.school.department import answer_department_question
+from app.services.school.dining import answer_dining_question_with_meta
 from app.services.school.graduation import graduation_service
 from app.services.school.schedule import schedule_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query, _distinctive_terms
@@ -58,7 +59,11 @@ _INFO_INTENT_RE = re.compile(
     r'뭐|뭔|무엇|어떤|소개|알려|설명|신청|방법|어떻게|언제|얼마|며칠|기간|'
     r'지원|모집|혜택|자격|조건|정보|대해|되나|하나요|인가요|추천|목록|'
     # 시설 이용·대여·예약 등 '서비스/절차' 질문 — 위치가 아니라 그 정보(RAG)를 원하는 것
-    r'대여|대관|예약|이용|사용|빌리|운영|시간|요금|가격|비용'
+    r'대여|대관|예약|이용|사용|빌리|운영|시간|요금|가격|비용|'
+    # 식사 관련어 — 건물명이 걸려도 묻는 건 위치가 아니라 그날 메뉴다.
+    # 실측: '토요일 기숙사 식단'이 건물명 '기숙사'에 걸려 캠퍼스 지도로 답했다.
+    # ('식당'은 넣지 않는다 — "학생식당 어디야"는 위치 질문이 맞아서 지도가 옳다)
+    r'식단|학식|메뉴'
 )
 
 
@@ -426,6 +431,18 @@ async def _embedding_classify(state: AgentState) -> dict:
                     f"이전 {prev_topic}={prev_cmp_score:.3f}, 차이 {score - prev_cmp_score:.3f} ≥ {_SWITCH_MARGIN})"
                 )
 
+        # 확신도가 게이트 미만이면 _route_embedding이 이 topic을 버리고 rag로 폴백시킨다.
+        # 그 경우에만 topic의 문서 수를 확인한다(고신뢰면 전용 핸들러로 바로 가므로 불필요).
+        # 아래 두 가드가 이 값을 공유한다 — Qdrant 왕복을 한 번으로 묶기 위함.
+        doc_count = None
+        if score < _HIGH_CONFIDENCE and topic_name:
+            try:
+                doc_count = await loop.run_in_executor(
+                    None, rag_service.vector_store.count_by_topic, topic_name
+                )
+            except Exception as e:
+                print(f"[Graph] topic 문서 수 확인 실패 (가드 생략, 그대로 진행): {e}")
+
         # 새 topic에 문서가 하나도 없으면 전환 취소 → 이전 topic 유지
         # (빈 topic 전환 → 검색 0건 → 환각 답변으로 이어지는 함정 방지)
         # RAG 핸들러로의 전환만 검사 — graduation/campus/scholarship/general(chitchat 포함)은
@@ -433,21 +450,25 @@ async def _embedding_classify(state: AgentState) -> dict:
         # 단, 새 분류가 확신(score >= _HIGH_CONFIDENCE)이면 전환한다 — 사용자가 명확히 새
         # topic을 물었으면, 빈 topic이어도 RAG가 "자료 없음"을 정직히 답하는 게(0건 fallback)
         # 엉뚱한 이전 topic 답변보다 낫다. 이전 topic도 비어있을 때 계속 갇히는 버그 방지.
-        if (prev_topic and topic_name != prev_topic and handler_type == "rag"
-                and score < _HIGH_CONFIDENCE):
-            try:
-                doc_count = await loop.run_in_executor(
-                    None, rag_service.vector_store.count_by_topic, topic_name
-                )
-                if doc_count == 0:
-                    prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
-                    if prev_handler:
-                        print(f"[Graph] '{topic_name}' 문서 0개 → 전환 취소, 이전 topic '{prev_topic}' 유지 (handler={prev_handler})")
-                        return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
-            except Exception as e:
-                print(f"[Graph] topic 문서 수 확인 실패 (전환 진행): {e}")
+        if doc_count == 0 and prev_topic and topic_name != prev_topic and handler_type == "rag":
+            prev_handler, prev_route_topic = _resolve_prev_route(prev_topic)
+            if prev_handler:
+                print(f"[Graph] '{topic_name}' 문서 0개 → 전환 취소, 이전 topic '{prev_topic}' 유지 (handler={prev_handler})")
+                return {"intent": prev_handler, "topic": prev_route_topic, "confidence": score}
 
-        return {"intent": handler_type, "topic": topic_name, "confidence": score}
+        # 저신뢰 폴백인데 topic에 문서가 없으면 필터를 풀어 전체 검색으로 보낸다.
+        # 필터를 남겨 두면 문서 0개인 topic(dining·schedule·campus처럼 전용 핸들러가 DB·캐시로
+        # 답하는 토픽)을 뒤지게 돼 검색이 무조건 0건 → "자료를 찾지 못했어요"로 끝나는 막다른 길이다.
+        # 실측: '동캠 밥 뭐나와' → dining 0.558 → topic=dining으로 검색 → 0건,
+        #       '동캠퍼스는뭐나와' → campus 0.548 → topic=campus로 검색 → 0건.
+        # _route_embedding의 폴백 취지가 '토픽 필터 없는 전체 검색'이므로 여기서 실제로 풀어 준다.
+        if doc_count == 0:
+            print(f"[Graph] 저신뢰({score:.3f}) + '{topic_name}' 문서 0개 → topic 필터 해제, 전체 검색")
+            return {"intent": handler_type, "topic": None, "confidence": score,
+                    "topic_no_docs": True}
+
+        return {"intent": handler_type, "topic": topic_name, "confidence": score,
+                "topic_no_docs": False}
     except Exception as e:
         print(f"[Graph] 임베딩 분류 실패: {e}")
         return {"intent": None, "topic": None, "confidence": 0.0}
@@ -496,6 +517,38 @@ async def _handle_department(state: AgentState) -> dict:
         "source": "database",
         "source_file": None,
         "topic": "college_department",
+    }
+
+
+async def _handle_dining(state: AgentState) -> dict:
+    """학식 안내(메뉴·위치·운영시간·전화·가격) — RAG도 LLM도 타지 않는다.
+
+    주간 식단은 매주 바뀌는 휘발성 데이터라 Qdrant에 넣지 않기로 한 설계다(주 단위 캐시를
+    직접 조회). answer_dining_question이 완성된 문자열을 돌려주므로 여기선 그대로 싣는다.
+
+    질문은 '현재 질문'을 그대로 넘긴다 — 이전 주제를 앞에 이어 붙이면 "동캠 학식" 뒤의
+    "서캠은?"에서 두 식당명이 다 잡혀 엉뚱한 쪽이 이긴다(graduation·schedule과 동일 원칙).
+    직전 질문은 별도 인자로 줘서, 현재 질문에 식당명이 없을 때만 보충하게 한다
+    ("기숙사 식당 밥 뭐야" → "가격은?"이 서캠 가격으로 답하던 문제).
+    """
+    await _log(state["db"], state["student_id"], "dining")
+    prev = state.get("prev_context")
+    answer, found = await answer_dining_question_with_meta(
+        state["question"],
+        prev_question=prev.get("prev_question") if prev else None,
+    )
+    # 학교 식당안내 표의 칸이 비어 있어도 다른 문서에 답이 있을 수 있다 —
+    # '기숙사 식당 가격'은 이 표엔 '-'지만 기숙사비_안내 문서에 식비 내역(1일 4,000원)이 있다.
+    # 여기서 끝내면 막다른 길이 되므로 RAG로 넘긴다(_handle_schedule의 0건 폴백과 동일 패턴).
+    # topic은 비워 전체 검색으로 돌린다 — dining 토픽엔 Qdrant 문서가 없다.
+    if not found:
+        print("[Graph] 학식 안내표에 값 없음 → RAG 폴백")
+        return await _handle_rag_general({**state, "topic": None})
+    return {
+        "answer": answer,
+        "source": "dining",
+        "source_file": None,
+        "topic": "dining",
     }
 
 
@@ -561,9 +614,12 @@ async def _handle_scholarship(state: AgentState) -> dict:
 
 
 async def _handle_rag_general(state: AgentState) -> dict:
-    """RAG 검색 핸들러 — state["topic"]을 Qdrant 필터로 사용"""
-    topic = state.get("topic") or "rag_general"
-    await _log(state["db"], state["student_id"], topic)
+    """RAG 검색 핸들러 — state["topic"]을 Qdrant 필터로 사용 (None이면 필터 없이 전체 검색)"""
+    # topic=None은 '전체 검색' 의도다(학사일정 0건 폴백, 저신뢰 폴백 등). 여기서 "rag_general"로
+    # 메우면 실재하는 '일반학사' 토픽으로 필터링돼 의도와 정반대가 된다 — 전체 검색인 줄 알았던
+    # 폴백들이 실제로는 좁게 검색하고 있었다. 기본값은 로그 라벨에만 쓴다.
+    topic = state.get("topic")
+    await _log(state["db"], state["student_id"], topic or "rag_general")
 
     prev_prefix = _build_prev_prefix(state)
     enriched_question = prev_prefix + state["question"] if prev_prefix else None
@@ -653,6 +709,7 @@ _HANDLER_MAP = {
     "scholarship": "handle_scholarship",
     "schedule":    "handle_schedule",
     "department":  "handle_department",
+    "dining":      "handle_dining",
     "rag":         "handle_rag_general",
     "general":     "handle_general",
 }
@@ -690,6 +747,15 @@ def _route_embedding(state: AgentState) -> str:
         return "general"
     if score >= _HIGH_CONFIDENCE and handler:
         return handler
+    # 저신뢰 폴백의 예외 — 분류된 topic에 Qdrant 문서가 0개인 경우(dining·campus·schedule처럼
+    # 전용 핸들러가 DB·캐시로 답하는 토픽)엔 전용 핸들러로 보낸다. RAG로 보내 봐야 그 토픽의
+    # 문서가 애초에 없어 검색이 헛돌고, 전용 핸들러가 갖고 있는 답이 영영 안 나온다.
+    # 실측: '학식 뭐야' → '동캠은?'이 dining 0.568로 게이트에 걸려 RAG로 빠져 0건.
+    # 핸들러가 답을 못 찾으면 각자의 0건 폴백(_handle_dining·_handle_schedule)이 RAG로 넘긴다.
+    # handler == "rag"인 빈 topic은 해당 없음 — 그건 topic 필터만 풀고 전체 검색이 맞다.
+    if state.get("topic_no_docs") and handler and handler != "rag":
+        print(f"[Graph] 저신뢰({score:.3f})지만 '{handler}'는 문서 없이 답하는 핸들러 → RAG 폴백 대신 직행")
+        return handler
     # 신뢰도 낮으면 LLM 분류 없이 topic 필터 없는 전체 RAG 검색
     return "rag"
 
@@ -710,6 +776,7 @@ def _build_graph():
     g.add_node("handle_schedule",   _handle_schedule)
     g.add_node("handle_scholarship",_handle_scholarship)
     g.add_node("handle_department", _handle_department)
+    g.add_node("handle_dining",     _handle_dining)
     g.add_node("handle_rag_general",_handle_rag_general)
     g.add_node("handle_general",    _handle_general)
 
@@ -732,13 +799,14 @@ def _build_graph():
         "scholarship": "handle_scholarship",
         "schedule":    "handle_schedule",
         "department":  "handle_department",
+        "dining":      "handle_dining",
         "rag":         "handle_rag_general",
         "general":     "handle_general",
     })
 
     for handler in [
         "handle_campus", "handle_graduation", "handle_schedule", "handle_scholarship",
-        "handle_department", "handle_rag_general", "handle_general",
+        "handle_department", "handle_dining", "handle_rag_general", "handle_general",
     ]:
         g.add_edge(handler, END)
 
@@ -788,6 +856,7 @@ class AgentGraph:
             "intent": None,
             "confidence": 0.0,
             "search_query": None,
+            "topic_no_docs": False,
             "answer": None,
             "file_offer": None,
             "file_download": None,
