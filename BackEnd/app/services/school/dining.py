@@ -17,8 +17,26 @@ import requests
 from bs4 import BeautifulSoup, Tag
 
 MEAL_LIST_URL = "https://www.wsu.ac.kr/page/meal_list.jsp"
-GUIDE_URL = "https://www.wsu.ac.kr/page/index.jsp?code=scampus0806"
+# 식당 안내(위치·전화·운영시간·가격) 출처. 학교에는 같은 자리(HOME > 대학생활 > 복지시설안내 >
+# 학생식당)에 표가 두 벌 있는데, 홈페이지 메뉴가 실제로 링크하는 쪽은 campus0806이다
+# (scampus0806은 어디서도 링크되지 않는 고아 페이지 — 2026-07-29 확인).
+# 옛 페이지에는 교직원식당 가격이 아예 없고 메뉴별 가격도 현행과 달라 신뢰할 수 없어 교체했다.
+#   교체로 얻는 것: 교직원식당 5,000원 / 푸드코트 가격, 기숙사 '미운영' 명시
+#   교체로 잃는 것: 어학센터 식당 항목, 학생식당 백반·라면정식 가격
+GUIDE_URL = "https://www.wsu.ac.kr/page/index.jsp?code=campus0806"
 REQUEST_TIMEOUT_SECONDS = 15
+
+# 데이터가 없어 코드로는 답을 만들 수 없는 질문(주말 식단, 방학 중 미운영, 안내표에서 빠진
+# 식당)에 붙이는 안내. "정보가 없어요"로 끝내면 사용자가 갈 곳이 없으므로 원본을 가리킨다.
+# 좌측 '학생식당' 탭은 같은 주간 캐시를 쓰면서 식당·요일을 직접 고를 수 있어(Sidebar.jsx),
+# 대화로 한 번에 못 짚는 날짜·식당 조합은 오히려 그쪽이 빠르다.
+# 링크는 meal_list.jsp(크롤용 원본 표)가 아니라 campus0806을 준다 — 전자는 사이트 껍데기
+# 없이 표만 뜨는 페이지라 사용자가 열어도 길을 잃는다. 식단 자체는 좌측 탭이 더 빠르다.
+_MENU_SOURCE_NOTE = (
+    "좌측 '학생식당' 탭에서 식당과 요일을 골라 이번 주 식단을 볼 수 있어요.\n"
+    f"[우송대 식당 안내 바로가기]({GUIDE_URL})"
+)
+_GUIDE_SOURCE_NOTE = f"[식당 위치·운영시간·가격 안내 바로가기]({GUIDE_URL})"
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
@@ -241,7 +259,15 @@ _RESTAURANT_ALIASES: dict[str, str] = {
     "청운숙": "청운숙기숙사",
     "기숙사동캠": "기숙사(동캠)",
     "기숙사": "국제기숙사",
+    # '학생식당'만 말하면 서캠. 이 별칭이 없어서 "학생식당 아침 뭐야"가 '식당명 없음'으로
+    # 판정돼 직전 질문(기숙사)을 물려받아 기숙사 조식을 답하던 버그가 있었다(실측).
+    "학생식당": "학생식당(서캠)",
 }
+# 별칭은 '긴 것부터' 본다. 삽입 순서대로 훑으면 짧은 별칭이 더 구체적인 이름을 가로챈다 —
+# 실측: '동캠기숙사 뭐야'가 '동캠'에 먼저 걸려 학생식당(동캠) 메뉴를 답했다.
+# ('동캠기숙사'는 '기숙사'로 매칭돼 국제기숙사가 되는데, 세 기숙사는 메뉴가 같아
+#  '기숙사(국제·청운숙·동캠 공통)' 라벨로 나가므로 답으로도 맞다)
+_ALIAS_ORDER = sorted(_RESTAURANT_ALIASES, key=len, reverse=True)
 _DEFAULT_RESTAURANT = "학생식당(서캠)"
 
 # 끼니 키워드 → 컬럼명. 기숙사(조식/중식/석식)에만 매칭되고, 학생식당 코너명
@@ -264,7 +290,8 @@ def _resolve_meal(question: str, columns: list[str]) -> str | None:
 def _resolve_restaurant(question: str, available: dict[str, RestaurantMenu]) -> tuple[str, bool]:
     """(식당명, 사용자가 명시했는가) 반환. 명시 없으면 기본값(서캠 학생식당) + False."""
     compact = question.replace(" ", "")
-    for alias, real_name in _RESTAURANT_ALIASES.items():
+    for alias in _ALIAS_ORDER:
+        real_name = _RESTAURANT_ALIASES[alias]
         if alias in compact and real_name in available:
             return real_name, True
 
@@ -297,8 +324,9 @@ def _resolve_guide_name(question: str) -> tuple[str, bool]:
     for alias, guide_name in _GUIDE_ONLY_ALIASES.items():
         if alias in compact:
             return guide_name, True
-    for alias, menu_name in _RESTAURANT_ALIASES.items():
+    for alias in _ALIAS_ORDER:                    # 메뉴 쪽과 같은 '긴 별칭 우선' 규칙
         if alias in compact:
+            menu_name = _RESTAURANT_ALIASES[alias]
             return _MENU_TO_GUIDE_NAME.get(menu_name, menu_name), True
     return _DEFAULT_GUIDE_NAME, False
 
@@ -324,20 +352,60 @@ def _resolve_intent(question: str) -> str:
 
 _GUIDE_FIELD_LABEL = {"location": "위치", "phone": "전화번호", "price": "가격", "hours": "운영시간"}
 
+# 학교 안내표의 '서캠퍼스 학생식당' 열은 위치를 '학생회관 2층'으로만 적어 두었는데, 2층은 실제로
+# 교직원식당·푸드코트다(같은 열의 운영시간·가격 셀이 그렇게 적혀 있다). 학생식당은 1층에 따로
+# 있고, 기간에 따라 두 곳을 한 층에서 통합운영하며 그때그때 복지팀 공지로 고지된다.
+# 한 층만 답하면 학기 중 학생이 2층으로 헛걸음하므로, 위치 답변에서만 두 층을 함께 제시한다.
+# (동캠은 테크노디자인센터 지하로 층 구분이 없어 대상에서 제외)
+#
+# expect: 학교가 표를 고쳤는지 판별하는 표식. 크롤 값에 이 문자열이 없으면 우리가 아는 상태가
+#   아니라는 뜻이므로 덮어쓰기를 멈추고 원문을 그대로 보여준다 — 오래된 하드코딩이 새 정보를
+#   조용히 가리는 것을 막기 위함.
+# 건물코드 W16은 building 테이블의 '학생회관(서캠)' 별칭이자 다른 문서(서점·우편취급국·
+# 복학지원센터 등)가 모두 쓰는 표기라 그대로 맞춘다 — 캠퍼스 지도에서 찾기 쉬워진다.
+_LOCATION_OVERRIDE = {
+    "서캠퍼스 학생식당": {
+        "expect": "학생회관",
+        "text": "서캠퍼스 학생회관(W16) — 1층 학생식당 / 2층 교직원식당·푸드코트",
+    },
+}
+_FLOOR_NOTE = "※ 기간에 따라 한 층에서 통합운영하기도 해요. 학기 중 학생 식사는 보통 1층이에요."
 
-def _format_guide_answer(guide_name: str, guide: RestaurantGuide, intent: str, explicit: bool) -> str:
+
+def _format_guide_answer(
+    guide_name: str, guide: RestaurantGuide, intent: str, explicit: bool
+) -> tuple[str, bool]:
+    """(답변, 안내표에서 값을 찾았는가) 반환.
+
+    found=False는 '학교 식당안내 표에 그 칸이 비어 있다'는 뜻일 뿐, 학교에 정보가 없다는
+    뜻이 아니다 — 예: 기숙사 식당 가격은 이 표엔 '-'지만 기숙사비 안내 문서에 식비가 있다.
+    호출부가 이 신호를 보고 RAG로 넘길 수 있게 분리해 둔다.
+    """
     value = getattr(guide, intent, None)
     label = _GUIDE_FIELD_LABEL[intent]
 
-    if not value:
+    override = _LOCATION_OVERRIDE.get(guide_name) if intent == "location" else None
+    applied = bool(override and value and override["expect"] in value)
+    if applied:
+        value = override["text"]
+
+    found = bool(value)
+    if not found:
         line = f"{guide_name} {label} 정보가 없어요."
     else:
         line = f"[{guide_name}] {label}: {value}"
 
     lines = [line]
+    if applied:
+        lines.append(_FLOOR_NOTE)
     if not explicit:
         lines.append("\n(다른 식당이 궁금하면 '동캠 학식', '기숙사 식당'처럼 물어봐 주세요!)")
-    return "\n".join(lines)
+    # 빈 칸이어도 RAG로 넘기지 않는다(항상 True).
+    # 원래는 넘겼다 — '기숙사 식당 가격'이 이 표엔 없지만 기숙사비_안내 문서에 식비
+    # (1일 4,000원)가 있어서였다. 그런데 그 문서는 관리비 표가 훨씬 길어, 검색이 문서를
+    # 통째로 물어 오면서 LLM이 식비 대신 관리비를 답했다(실측). 엉뚱한 금액을 자신 있게
+    # 말하느니 없다고 하는 편이 낫다는 판단(2026-07-30).
+    return "\n".join(lines), True
 
 
 # 기숙사 3곳(국제/청운숙/동캠)은 실측상 메뉴가 완전히 동일하다(같은 위탁업체). "기숙사"라고만
@@ -351,9 +419,28 @@ def _display_name(restaurant: str) -> str:
     return _SHARED_MENU_LABEL if restaurant in _SHARED_MENU_DORMS else restaurant
 
 
+def _guide_closed_note(restaurant: str) -> str | None:
+    """학교 안내표가 그 식당을 '미운영'으로 적어 뒀으면 그 표기를 인용해 돌려준다.
+
+    '방학이라 안 해요'라고 우리가 단정하지 않는 이유: 크롤 0일치는 미운영일 수도, 식단이
+    아직 안 올라온 것일 수도 있고, 안내표엔 이유가 안 적혀 있다. 실제로 같은 주에 국제기숙사는
+    7일치 식단이 있는데 안내표의 '기숙사 식당' 운영시간은 '미운영'이라 두 출처가 어긋난다.
+    그래서 학교가 쓴 말을 그대로 인용만 하고, 해석은 붙이지 않는다.
+    """
+    try:
+        guide = get_guide_data().get(_MENU_TO_GUIDE_NAME.get(restaurant, restaurant))
+    except Exception as e:
+        print(f"[Dining] 안내표 조회 실패(무시): {e}")
+        return None
+    if guide and guide.hours and "미운영" in guide.hours:
+        return f"참고로 학교 식당안내에는 '{guide.name}' 운영시간이 '{guide.hours}'으로 적혀 있어요."
+    return None
+
+
 def _format_answer(
     restaurant: str, date_key: str, menu: RestaurantMenu,
     explicit_restaurant: bool, meal_filter: str | None,
+    closed_note: str | None = None,
 ) -> str:
     display = _display_name(restaurant)
     try:
@@ -365,10 +452,18 @@ def _format_answer(
 
     day_data = menu.days.get(date_key)
     if not day_data:
+        # 데이터가 없을 땐 공통 라벨('기숙사(국제·청운숙·동캠 공통)') 대신 실제 식당명을 쓴다.
+        # 공통 라벨로 "정보가 없어요"라고 하면, 같은 라벨로 국제기숙사 식단이 나오는 다른
+        # 질문과 모순돼 보인다(실측: 청운숙 0일치인데 국제기숙사는 7일치).
+        # 여기서 국제기숙사 식단으로 대체하지는 않는다 — 0일치가 '크롤 누락'이 아니라
+        # '방학 중 미운영'일 수 있어, 문 닫은 식당의 식단을 있는 것처럼 말하게 된다.
         lines = [
-            f"{display} {date_label} 메뉴 정보가 없어요. "
-            "주말·공휴일이거나 이번 주(월~일) 범위를 벗어난 날짜일 수 있어요."
+            f"{restaurant} {date_label} 메뉴 정보가 없어요. "
+            "주말·공휴일이거나 이번 주(월~일) 범위를 벗어난 날짜일 수 있어요.",
         ]
+        if closed_note:
+            lines.append(closed_note)
+        lines.append("\n" + _MENU_SOURCE_NOTE)
     else:
         # 끼니 필터가 있으면 해당 컬럼만, 없으면 전체 컬럼
         target_columns = [meal_filter] if meal_filter else menu.columns
@@ -380,6 +475,7 @@ def _format_answer(
         # 끼니 필터를 걸었는데 그날 그 끼니 데이터가 없는 경우
         if meal_filter and len(lines) == 1:
             lines.append(f"- {meal_filter} 메뉴 정보가 없어요.")
+            lines.append("\n" + _MENU_SOURCE_NOTE)
 
     if not explicit_restaurant:
         lines.append("\n(다른 식당이 궁금하면 '동캠 학식', '기숙사 식단'처럼 물어봐 주세요!)")
@@ -387,7 +483,7 @@ def _format_answer(
     return "\n".join(lines)
 
 
-async def _answer_menu(question: str) -> str:
+async def _answer_menu(question: str, prev_question: str | None = None) -> str:
     try:
         data = await asyncio.to_thread(get_menu_data)
     except Exception as e:
@@ -398,39 +494,85 @@ async def _answer_menu(question: str) -> str:
         return "학식 메뉴 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
 
     restaurant, explicit = _resolve_restaurant(question, data)
+    # 현재 질문에 식당명이 없으면("가격은?") 직전 질문에서 물려받는다. 현재 질문이 식당을
+    # 명시했으면 절대 덮어쓰지 않는다 — 그래야 "동캠 학식" 뒤의 "서캠은?"이 서캠으로 간다.
+    if not explicit and prev_question:
+        inherited, found = _resolve_restaurant(prev_question, data)
+        if found:
+            print(f"[Dining] 식당명 생략 → 직전 질문에서 '{inherited}' 물려받음")
+            restaurant, explicit = inherited, True
     menu = data.get(restaurant)
     if not menu:
         return "학식 메뉴 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
 
     date_key = _resolve_date_key(question)
     meal_filter = _resolve_meal(question, menu.columns)
-    return _format_answer(restaurant, date_key, menu, explicit, meal_filter)
+    # 식단이 비어 있을 때만 안내표를 본다 — 정상 응답에 불필요한 조회를 걸지 않기 위함
+    # (주 단위 캐시라 대개 즉시지만, 갱신 주가 바뀌면 크롤이 돈다)
+    closed_note = (None if menu.days.get(date_key)
+                   else await asyncio.to_thread(_guide_closed_note, restaurant))
+    return _format_answer(restaurant, date_key, menu, explicit, meal_filter, closed_note)
 
 
-async def _answer_guide(question: str, intent: str) -> str:
+async def _answer_guide(
+    question: str, intent: str, prev_question: str | None = None
+) -> tuple[str, bool]:
     try:
         data = await asyncio.to_thread(get_guide_data)
     except Exception as e:
         print(f"[Dining] 안내정보 조회 실패: {e}")
-        return "학식 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
+        # 조회 자체가 실패한 것은 '값이 없다'와 다르다. RAG로 넘겨도 답이 없으므로 found=True.
+        return "학식 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.", True
 
     if not data:
-        return "학식 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
+        return "학식 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.", True
 
     guide_name, explicit = _resolve_guide_name(question)
+    # 메뉴 쪽과 같은 원칙 — 현재 질문에 식당명이 없을 때만 직전 질문에서 물려받는다.
+    if not explicit and prev_question:
+        inherited, found = _resolve_guide_name(prev_question)
+        if found:
+            print(f"[Dining] 식당명 생략 → 직전 질문에서 '{inherited}' 물려받음")
+            guide_name, explicit = inherited, True
+
     guide = data.get(guide_name)
     if not guide:
-        return "학식 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
+        # 별칭은 아는데 학교 안내표에 그 식당이 없는 경우(예: 어학센터 식당이 표에서 빠짐).
+        # 조회 실패가 아니므로 '다시 시도' 안내를 주면 사용자가 계속 되물어 헛수고를 한다.
+        return (
+            f"'{guide_name}' 안내는 학교 식당안내 표에 올라와 있지 않아요.\n"
+            f"(안내 가능한 식당: {', '.join(data)})\n\n"
+            f"{_GUIDE_SOURCE_NOTE}",
+            True,   # 안내 가능한 식당 목록을 준 것 자체가 답 — RAG로 넘기면 이 안내가 사라진다
+        )
 
     return _format_guide_answer(guide_name, guide, intent, explicit)
 
 
-async def answer_dining_question(question: str) -> str:
-    """학식 질문(메뉴/위치/전화/가격/운영시간)에 대한 완성된 답변 문자열을 반환한다."""
+async def answer_dining_question_with_meta(
+    question: str, prev_question: str | None = None
+) -> tuple[str, bool]:
+    """(답변, 학식 데이터로 답할 수 있었는가) 반환.
+
+    prev_question: 후속 질문에서 식당명이 생략됐을 때만 참고한다("기숙사 식당 밥 뭐야" →
+      "가격은?"). 두 질문을 이어 붙이지 않고 '현재 질문에 없을 때만' 보충하는 이유는,
+      이어 붙이면 "동캠 학식 뭐야" → "서캠은?"에서 두 식당명이 모두 잡혀 먼저 매칭된 쪽이
+      이겨 버리기 때문이다(날짜·끼니도 같은 이유로 현재 질문 기준을 유지한다).
+
+    두 번째 값이 False면 학교 식당안내 표의 해당 칸이 비어 있다는 뜻이다. 그렇다고 학교에
+    정보가 없는 건 아니라서(기숙사 식당 가격 → 기숙사비 안내 문서의 식비 내역) 호출부가
+    RAG로 한 번 더 찾아보게 한다. 메뉴 질문은 RAG에 식단이 없으므로 항상 True다.
+    """
     intent = _resolve_intent(question)
     if intent == "menu":
-        return await _answer_menu(question)
-    return await _answer_guide(question, intent)
+        return await _answer_menu(question, prev_question), True
+    return await _answer_guide(question, intent, prev_question)
+
+
+async def answer_dining_question(question: str, prev_question: str | None = None) -> str:
+    """완성된 답변 문자열만 필요할 때 쓰는 얇은 래퍼."""
+    answer, _ = await answer_dining_question_with_meta(question, prev_question)
+    return answer
 
 
 def get_today_menu(restaurant: str | None = None) -> dict:
