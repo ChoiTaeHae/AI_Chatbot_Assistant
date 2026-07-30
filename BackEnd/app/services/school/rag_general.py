@@ -55,6 +55,20 @@ _GENERIC_TERMS = (
     #  다른 단어를 통째로 먹어 제외했다.
     "비용", "금액", "가격", "요금", "위치", "장소", "대상", "연락처", "번호",
     "종류", "이름", "내용", "전화번호", "홈페이지", "주소",
+    # 시각을 묻는 말 — '언제'는 있는데 '몇시'가 없어서 주제어로 잡혔다. 실측: '거기 몇시까지해?'의
+    # 주제어가 ['몇시까지']가 되는 바람에 _keeps_topic이 정확한 재작성('동캠 학식 운영 시간')을
+    # '주제어 이탈'로 폐기했고, 구어체 원본이 그대로 라우팅돼 general(잡담)로 샜다.
+    # 접두 일치라 몇시/몇시까지/몇시부터를 모두 덮는다. 실제 질문 2874건 중 3건만 영향을 받고,
+    # 그중 주제어가 통째로 비는 건 이 케이스 하나뿐이다('주차 몇시까지 돼?'는 ['주차']로 남음).
+    "몇시",
+    # 날짜 지시어 — '어느 날'을 가리키는 한정어지 주제가 아니다('몇시'와 같은 층위).
+    # 실측: '오늘 학식 뭐야' → '내일은?'의 주제어가 ['내일']로 잡혀, 정확한 재작성
+    # ('내일 학식 메뉴')이 _borrows_prev_topic에 '학식 차용'으로 걸려 폐기됐다. 그러면
+    # 구어체 원본이 그대로 라우팅돼 general(잡담)로 샌다. 날짜는 학식·학사일정 핸들러가
+    # 원문에서 따로 파싱하므로(_resolve_date_key) 주제어에서 빠져도 정보가 사라지지 않는다.
+    # 실제 질문 3,146건 중 32건(1.0%)만 이 단어를 포함하고, 그중 날짜어가 유일한 주제어라
+    # 판정이 바뀌는 건 '내일은?' 뿐이다('오늘 학식 뭐나와'는 ['학식']으로 남음).
+    "오늘", "내일", "모레",
     # 지시대명사 — 이전 주제를 가리키는 말이라 주제어가 아니다("그건 얼마야?")
     "그건", "그거", "그것", "이건", "이거", "이것", "저건", "저거", "저것",
     "거기", "여기", "그때", "그럼", "그러면",
@@ -82,6 +96,15 @@ _TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 # (졸업 핸들러는 detect_admission_year로 년도를 따로 감지하므로 주제어에서 빠져도 무관)
 _YEAR_QUALIFIER_RE = re.compile(r"^\d{1,4}(학번|학년도|년도|학년)")
 
+# 정확 일치로만 거는 속성어 — 단독이면 주제가 아니라 '속성'이지만, _GENERIC_TERMS처럼 startswith로
+# 걸면 진짜 주제어를 먹는다('자격'→'자격증', '시간'→'시간표'). exact 일치라 자격증/시간표는 안전.
+# ('전과 신청 방법' 뒤 '자격 조건은?'이 '자격'만으로 '검색어 형태'로 오판돼 이전 맥락 병합이
+#  통째로 생략되던 문제 — 실측: graduation으로 오라우팅)
+_GENERIC_EXACT = ("자격", "시간")
+# 위 속성어에 붙는 조사 — '신청 자격은?'의 '자격은'도 속성어로 인정해 후속 병합이 되게 한다.
+# (조사만 떼어 exact 확인하므로 '자격증'·'시간표'는 조사가 아니라 그대로 주제어로 유지된다)
+_EXACT_PARTICLES = ("은", "는", "이", "가", "을", "를", "도", "의", "만")
+
 
 def _distinctive_terms(question: str) -> list[str]:
     """질문에서 '주제를 식별하는' 토큰만 추출 (일반어·서술어 제외).
@@ -96,6 +119,10 @@ def _distinctive_terms(question: str) -> list[str]:
             continue
         if any(tok.startswith(g) for g in _GENERIC_TERMS):
             continue
+        if tok in _GENERIC_EXACT:             # '자격'·'시간' 등 — 단독이면 속성어(자격증/시간표는 유지)
+            continue
+        if any(tok.endswith(p) and tok[:-len(p)] in _GENERIC_EXACT for p in _EXACT_PARTICLES):
+            continue                          # 조사 붙은 '자격은'·'시간이' 등도 속성어로 처리
         # 서술어 어미로 끝나면 어미만 떼고 앞부분(어간)을 본다. 토큰을 통째로 버리면
         # 띄어쓰기 없이 붙여 쓴 질문에서 주제어까지 사라진다 —
         # 실측: '기숙사비용얼마야?'가 토큰 하나('기숙사비용얼마야')라 끝의 '야' 때문에
@@ -228,7 +255,15 @@ def format_certificate_info(context: str, question: str) -> str:
     is_list_query = any(kw in question for kw in _CERT_LIST_KEYWORDS)
     matched = [name for name in blocks if name.replace(" ", "") in qn]
 
-    if matched and not is_list_query:
+    # '떼는 법·발급 방법·어떻게·신청 절차' 같은 절차 질문은 이 블록(증명서 정의·발급기준)의
+    # 소관이 아니다. 실제 발급방법(제10조: 신청원 작성→수수료 납부→교무처 제출)은 특정 증명서
+    # 블록 밖에 있어, 증명서명만 보고 블록을 반환하면 '편제학년에 의거 발급' 같은 엉뚱한 한 줄만
+    # 나온다(실측: '재학증명서 떼는 법'). 이런 질문은 빈 문자열 → LLM이 전체 컨텍스트로 답한다.
+    # ('발급 기준'은 블록이 곧 답이므로 '기준'은 절차 신호에서 제외한다)
+    _METHOD_HINTS = ("떼", "방법", "어떻게", "어케", "하려면", "려면", "받으러", "받는법", "발급받", "신청", "절차")
+    is_method_query = any(h in qn for h in _METHOD_HINTS)
+
+    if matched and not is_list_query and not is_method_query:
         return "\n\n".join(f"[{name}]\n{blocks[name]}" for name in matched)
     if is_list_query:
         # '종류가 뭐야' 류엔 각 증명서를 '이름: 한 줄 설명'으로 세로 정렬해 가볍게 보여준다
@@ -764,8 +799,22 @@ async def answer_rag_general_question_with_metadata(
         from app.services.file_service import AVAILABLE_FILES
         from app.utils.file_matcher import match_relevant_files
 
+        # 1순위: 큐레이션 FAQ (검수된 정확한 답변이 애매한 파일 제안보다 우선).
+        from app.services.faq_index import faq_lookup
+        loop = asyncio.get_event_loop()
+        hit = await loop.run_in_executor(None, faq_lookup, question)
+        if hit:
+            print("[RAG_GENERAL] 문서 0건이지만 FAQ 매칭 → verbatim 답변")
+            metadata["source"] = "faq"
+            for k in ("url", "contact_name", "contact_phone", "source_file"):
+                metadata.pop(k, None)
+            return hit[0], metadata
+
+        # 2순위: 관련 안내 파일. 단 여기선 '질문' 기준 매칭이라 노이즈가 커, 답변 기준(0.60)보다
+        # 엄격한 0.72로 건다 — 토픽 오라우팅으로 딸려온 무관 파일(예: '학생증 재발급'→'재입학_허가_
+        # 서류' 0.681) 제안을 막는다. 확실히 관련된 파일(0.72+)만 안내한다.
         fallback_files = await loop.run_in_executor(
-            None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, [])
+            None, match_relevant_files, question, AVAILABLE_FILES.get(effective_topic, []), 0.72
         )
         if fallback_files:
             print(f"[RAG_GENERAL] ⚠️ 검색 결과 0건 → 관련 파일 {len(fallback_files)}개로 안내")
@@ -782,16 +831,6 @@ async def answer_rag_general_question_with_metadata(
                 "파일 드릴까요? 아래 '예'를 누르시면 바로 받으실 수 있어요.",
                 metadata,
             )
-
-        # 최후 보류: 토픽/문서로 못 잡은 질문이라도 큐레이션 FAQ에 있으면 검수 답변을 그대로.
-        # (general 경로에서 놓친 FAQ감이 rag_general로 샌 경우를 마지막에 한 번 더 건진다)
-        from app.services.faq_index import faq_lookup
-        loop = asyncio.get_event_loop()
-        hit = await loop.run_in_executor(None, faq_lookup, question)
-        if hit:
-            print("[RAG_GENERAL] 문서 0건이지만 FAQ 매칭 → verbatim 답변")
-            metadata["source"] = "faq"
-            return hit[0], metadata
 
         print("[RAG_GENERAL] ⚠️ 검색 결과 0건 → LLM 호출 스킵, 안내 응답 반환")
         return (
@@ -882,6 +921,22 @@ async def answer_rag_general_question_with_metadata(
     # (잘린 열린 태그 + 표 구분선 '|--|' 누출까지 정리 — clean_answer)
     from app.utils.file_matcher import clean_answer, match_relevant_files
     answer = clean_answer(answer)
+
+    # RAG가 무관 문서를 confident하게 잡아 LLM이 '못 찾음'으로 답한 경우 → 큐레이션 FAQ를 최후로
+    # 조회한다. 0건이 아니라 '문서는 있지만 답이 없음'이라 위쪽 0건-FAQ 폴백에 안 걸린다.
+    # (과잠·엠티 등 FAQ감이 RAG 토픽으로 새면서 무관 문서를 잡은 경우를 여기서 건진다. 실측:
+    #  '엠티 신청 언제야?'가 cs 게시판 문서를 잡아 '못 찾음' 답 → FAQ 0.742는 조회조차 안 됐다)
+    _NOT_FOUND_MARKERS = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없", "관련 자료를 찾")
+    if any(mk in answer for mk in _NOT_FOUND_MARKERS):
+        from app.services.faq_index import faq_lookup
+        hit = await loop.run_in_executor(None, faq_lookup, question)
+        if hit:
+            print("[RAG_GENERAL] LLM 무응답 + FAQ 매칭 → verbatim 답변")
+            metadata["source"] = "faq"
+            # 잡았던 무관 문서의 출처·연락처가 FAQ 답변에 붙지 않도록 비운다.
+            for k in ("url", "contact_name", "contact_phone", "source_file"):
+                metadata.pop(k, None)
+            return hit[0], metadata
 
     # 파일 매칭은 '완성된 답변' 기준으로 여기서 한다. 질문 기준일 때는 신호가 약해
     # '기숙사 비용 얼마야?'에도 외부인 사용 동의서가 딸려 나왔다(질문 0.559 — 진짜 요청과

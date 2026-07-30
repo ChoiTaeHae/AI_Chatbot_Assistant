@@ -87,6 +87,38 @@ def _detect(question: str) -> tuple[str, int, str] | None:
     return (best[1], best[2], best[3]) if best else None
 
 
+# 키워드 매칭에서 걷어낼 일반어 — 이게 키워드로 남으면 '학과'가 전 학과를 다 잡는 식이 된다.
+_DEPT_STOPWORDS = (
+    "관련", "학과", "전공", "학부", "단과대학", "단과대", "대학교", "대학", "계열",
+    "뭐가", "뭐", "무슨", "어떤", "어느", "있어요", "있나요", "있어", "있나", "있는", "있니",
+    "목록", "종류", "리스트", "알려줘", "알려", "소개", "추천", "정보", "대해서", "대해", "관하여",
+)
+
+
+def _keyword_departments(question: str) -> tuple[str, list[str]]:
+    """정확 매칭이 실패했을 때, 일반어를 걷어낸 '키워드'가 학과명·별칭 일부에 들어가면 관련 학과를
+    나열한다. 반환 (키워드, [학과명…]). 키워드가 없거나 매칭이 없으면 ("", []).
+    예: '철도 관련학과 뭐있어' → ('철도', ['글로벌철도학과','철도경영학과', …])
+    """
+    if not _CACHE:
+        return "", []
+    q = question
+    for w in _DEPT_STOPWORDS:
+        q = q.replace(w, " ")
+    tokens = [t for t in re.findall(r"[가-힣A-Za-z]+", q) if len(t) >= 2]
+    for kw in tokens:
+        nkw = _norm(kw)
+        if len(nkw) < 2:
+            continue
+        matches = sorted({
+            label for kind, _oid, label, terms in _CACHE
+            if kind == "department" and any(nkw in _norm(t) for t in terms)
+        })
+        if matches:
+            return kw, matches
+    return "", []
+
+
 def _josa(word: str, with_batchim: str, without_batchim: str) -> str:
     """받침 유무에 맞는 조사 선택 ('간호학과는' / '컴퓨터공학전공은').
     한글로 끝나지 않으면 병기('은(는)')로 안전하게 처리한다."""
@@ -200,6 +232,24 @@ async def _college_card(db: AsyncSession, college_id: int, name: str) -> tuple[s
     }
 
 
+def _keyword_card(keyword: str, names: list[str]) -> tuple[str, dict]:
+    """키워드로 찾은 관련 학과 목록 카드. (프론트는 title/subtitle/items만 렌더 — kind 무관)"""
+    answer = (
+        f"'{keyword}' 관련 학과는 다음과 같습니다.\n\n"
+        f"{', '.join(names)}\n\n"
+        "궁금한 학과 이름을 말씀해 주시면 소속과 홈페이지를 안내해 드릴게요."
+    )
+    return answer, {
+        "kind": "keyword",
+        "title": f"'{keyword}' 관련 학과",
+        "subtitle": f"{len(names)}개 학과",
+        "items_label": "관련 학과",
+        "items": names,
+        "phone": None,
+        "homepage_url": None,
+    }
+
+
 async def _not_found(db: AsyncSession) -> tuple[str, None]:
     colleges = sorted(c.name for c in (await db.execute(select(College))).scalars())
     answer = (
@@ -215,6 +265,12 @@ async def answer_department_question(question: str, db: AsyncSession) -> dict:
 
     hit = _detect(question)
     if not hit:
+        # 정확 매칭 실패 → 키워드로 관련 학과 유연 매칭 ('철도 관련학과' → 철도* 학과들)
+        kw, names = _keyword_departments(question)
+        if names:
+            print(f"[Department] 키워드 '{kw}' 관련 학과 {len(names)}개")
+            answer, card = _keyword_card(kw, names)
+            return {"answer": answer, "dept_card": card, "found": True}
         print("[Department] 학과/학부/단과대 미탐지")
         answer, card = await _not_found(db)
         return {"answer": answer, "dept_card": card, "found": False}

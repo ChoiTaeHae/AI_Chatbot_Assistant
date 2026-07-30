@@ -7,7 +7,7 @@ from sqlalchemy.future import select
 from sqlalchemy import func, distinct
 
 from app.models.DB_Table import (
-    Student, Department, RequirementSet, RequirementRule,
+    Student, Department, Division, College, RequirementSet, RequirementRule,
     StudentAchievement, Course, StudentCourse
 )
 from app.services.llm_service import llm_service
@@ -23,6 +23,12 @@ from app.prompts import (
 # 질문에 다른 학과가 언급됐는지 코드로 판별 (8B 판단에 맡기지 않음).
 # 서버/첫 호출 시 DB에서 (id, name, aliases)를 캐시로 로드한다.
 _DEPT_CACHE: list[tuple[int, str, list[str]]] | None = None
+# 학부(division)명 → 소속 학과 [(dept_id, name)…]. 학부는 자체 졸업요건이 없어(요건은 학과별),
+# 학부명으로 물으면 소속 학과 중 어느 곳인지 되묻는다. ('게임멀티미디어학부' → 게임소프트/게임그래픽)
+_DIVISION_CACHE: list[tuple[str, list[tuple[int, str]]]] | None = None
+# 단과대학(college)명 → 소속 학과 (직속 + 소속 학부의 학과). 학부와 같은 이유로 되묻기용.
+# ('솔브릿지국제경영대학' → 소속 학과들). 없으면 본인 학과로 폴백돼 LLM이 창작한다(실측).
+_COLLEGE_CACHE: list[tuple[str, list[tuple[int, str]]]] | None = None
 
 
 # 학과명에 쓰이는 가운뎃점 변형들 — 입력기·문서마다 다른 코드포인트가 나온다.
@@ -51,6 +57,70 @@ def detect_department(question: str) -> tuple[int, str] | None:
             if nt and nt in q and (best is None or len(nt) > best[0]):
                 best = (len(nt), did, name)
     return (best[1], best[2]) if best else None
+
+
+# 졸업 질문에서 학과 키워드 매칭 시 걷어낼 일반어 (이게 키워드로 남으면 전 학과가 걸린다).
+_DEPT_KW_STOPWORDS = (
+    "관련", "학과", "전공", "학부", "단과대학", "단과대", "대학교", "대학", "계열",
+    "졸업요건", "졸업", "요건", "이수", "학점", "기준", "조건",
+    "뭐가", "뭐", "무슨", "어떤", "어느", "있어요", "있나요", "있어", "있나", "있는",
+    "알려줘", "알려", "소개", "정보", "대해서", "대해", "궁금", "확인",
+)
+
+
+def _keyword_departments(question: str) -> tuple[str, list[tuple[int, str]]]:
+    """detect_department 실패 시, 일반어를 걷어낸 키워드로 관련 학과를 찾는다(부분일치).
+    반환 (키워드, [(dept_id, name)…]). 없으면 ("", []).
+    예: '경영학과 졸업요건' → ('경영', [(id,'AI경영학과'),(id,'철도경영학과'),…]) → 호출부가 되물음.
+    """
+    if not _DEPT_CACHE:
+        return "", []
+    q = question
+    for w in _DEPT_KW_STOPWORDS:
+        q = q.replace(w, " ")
+    tokens = [t for t in re.findall(r"[가-힣A-Za-z]+", q) if len(t) >= 2]
+    for kw in tokens:
+        nkw = _norm(kw)
+        if len(nkw) < 2:
+            continue
+        matches = {(did, name) for did, name, aliases in _DEPT_CACHE
+                   if any(nkw in _norm(t) for t in [name, *(aliases or [])])}
+        # 학부·단과대명이 걸리면 소속 학과로 확장 ('게임멀티미디어학부'→게임소프트/게임그래픽,
+        # '솔브릿지국제경영대학'→소속 학과들). 그래야 학부/단과대로 물어도 되묻기로 이어진다.
+        for group_name, members in (_DIVISION_CACHE or []) + (_COLLEGE_CACHE or []):
+            if nkw in _norm(group_name):
+                matches.update(members)
+        if matches:
+            return kw, sorted(matches, key=lambda x: x[1])
+    return "", []
+
+
+# '○○학과/전공/학부'처럼 특정 단위를 명시했는지 판별 — 명시했는데 못 찾으면 본인 학과로
+# 폴백하지 않고 정직하게 실패시킨다(LLM이 '가장 가까운 [본인학과]'를 지어내는 것 방지).
+# '우리/저희 학과'처럼 자기 학과를 가리키는 지시·소유 표현은 제외한다.
+_NAMED_UNIT_RE = re.compile(r"([가-힣A-Za-z]{2,})\s*(?:학과|전공|학부)")
+_UNIT_GENERIC_PREFIX = {"우리", "저희", "본인", "해당", "무슨", "어떤", "어느", "같은",
+                        "다른", "이번", "모든", "졸업", "전체"}
+
+
+def _named_unresolved_unit(question: str) -> bool:
+    for m in _NAMED_UNIT_RE.finditer(question or ""):
+        if m.group(1) not in _UNIT_GENERIC_PREFIX:
+            return True
+    return False
+
+
+# 자격증 초점 질문('자격증 뭐 딸 수 있어?')일 때 졸업 답변을 자격증 중심으로 재배치하는 특별지시.
+# 코퍼스에 '취득 가능 자격증 목록' 문서가 없어, 구체 목록 대신 '어디서 확인하는지'를 안내한다(정직).
+# 자격증 언급이 없는 일반 졸업 질문에는 주입하지 않아 기존 답변에 영향이 없다.
+_CERT_FOCUS_DIRECTIVE = (
+    "[특별지시] 이 질문은 '자격증'에 초점이 있다. 반드시 아래 순서로 답하라:\n"
+    "1) 전공 관련 자격증 요건(예: 전공 관련 자격증 몇 개 이상 취득 필요 등)을 맨 앞에 안내한다.\n"
+    "2) 구체적인 자격증 종류는 '학과 사무실·홈페이지·게시판' 또는 '교양 특별시험 학점인정 안내'에서 "
+    "확인하도록 안내를 덧붙인다.\n"
+    "3) 학점 기준·본인 이수현황은 그 뒤에 간단히만 정리한다.\n"
+    "아래 기본 규칙은 위 순서와 충돌하지 않는 선에서 따른다.\n\n"
+)
 
 
 # 질문에 명시된 입학연도(학번) 탐지 — 학과와 같은 원리로 '명시되면 그 기준, 없으면 내 학번'.
@@ -198,6 +268,15 @@ class GraduationService:
         await self._ensure_dept_cache(db)
         student, my_dept_name = await self._get_student(db, student_id)
         if not student:
+            # 학생 레코드가 없는 계정(관리자/DEV 등)이라도 '특정 학과 졸업요건'은 답할 수 있다 —
+            # 요건은 학과×연도 기준이라 개인 이수현황이 필요 없다. 학과가 잡히면 그 요건을(연도
+            # 미언급 시 그 학과 최신 연도 기준), 학과가 안 잡히면 기존 생 RAG로 폴백한다.
+            # (없으면 '컴퓨터 공학과 졸업요건'이 학과 탐지를 건너뛰고 생 RAG로 새 0건 → '못 찾음')
+            mentioned = detect_department(question)
+            if mentioned:
+                year = detect_admission_year(question) or await self._latest_year(db, mentioned[0])
+                if year:
+                    return await self._answer_dept_requirement(question, mentioned[0], mentioned[1], year, db)
             return await self._answer_from_rag(question)
         try:
             my_year = int(student.student_no[:4])
@@ -205,6 +284,30 @@ class GraduationService:
             my_year = 2026
 
         mentioned = detect_department(question)
+        # 정확 매칭 실패 시 키워드로 해석 — 사용자가 명시한 학과(예: '경영학과')를 본인 학과로
+        # 착각해 엉뚱한 요건을 답하던 문제 방지. 1개면 그 학과로, 여러 개면 어떤 학과인지 되묻는다.
+        if mentioned is None:
+            kw, cands = _keyword_departments(question)
+            if len(cands) == 1:
+                mentioned = cands[0]
+                print(f"[Graduation] 키워드 '{kw}' → 유일 학과 '{cands[0][1]}'")
+            elif len(cands) >= 2:
+                names = ", ".join(n for _i, n in cands)
+                print(f"[Graduation] 키워드 '{kw}' → 학과 {len(cands)}개 모호 → 특정 요청")
+                return (
+                    f"'{kw}' 관련 학과가 여러 개라 하나로 특정하지 못했어요. "
+                    f"어떤 학과의 졸업요건이 궁금하신가요?\n\n{names}",
+                    {"source": "database", "source_file": None, "topic": "graduation", "url": None},
+                )
+            elif _named_unresolved_unit(question):
+                # 특정 학과·학부를 명시했는데 못 찾음 → 본인 학과로 폴백하면 LLM이 '가장 가까운
+                # [본인학과]'를 지어낸다(실측). 정직하게 못 찾음으로 안내한다.
+                print("[Graduation] 명시 학과·학부 미해결 → 찾지 못함(본인 학과 폴백 금지)")
+                return (
+                    "말씀하신 학과·학부를 찾지 못했어요. 학과 이름을 정확히 알려주시면 "
+                    "졸업요건을 안내해 드릴게요.",
+                    {"source": "database", "source_file": None, "topic": "graduation", "url": None},
+                )
         is_other = bool(mentioned and mentioned[0] != student.dept_id)
         # 질문에 학번이 명시되면 그 연도 요건으로 답한다(요건은 학과×입학연도로 다르다).
         mentioned_year = detect_admission_year(question)
@@ -231,14 +334,37 @@ class GraduationService:
         return await self._answer_my_dept(question, student.dept_id, my_dept_name, target_year, student_id, db)
 
     async def _ensure_dept_cache(self, db: AsyncSession) -> None:
-        """학과 매칭 캐시 지연 로드 (첫 졸업 질문 시 1회)."""
-        global _DEPT_CACHE
+        """학과·학부·단과대 매칭 캐시 지연 로드 (첫 졸업 질문 시 1회)."""
+        global _DEPT_CACHE, _DIVISION_CACHE, _COLLEGE_CACHE
         if _DEPT_CACHE is None:
-            rows = (await db.execute(
-                select(Department.id, Department.name, Department.aliases)
-            )).all()
-            _DEPT_CACHE = [(r[0], r[1], r[2] or []) for r in rows]
-            print(f"[Graduation] 학과 매칭 캐시 {len(_DEPT_CACHE)}개 로드")
+            depts = (await db.execute(select(
+                Department.id, Department.name, Department.aliases,
+                Department.college_id, Department.division_id,
+            ))).all()
+            _DEPT_CACHE = [(d[0], d[1], d[2] or []) for d in depts]
+
+            # 학부(division) → 소속 학과. 학부/단과대명으로 물으면 소속 학과로 되묻기 위해 로드한다.
+            divs = (await db.execute(select(Division.id, Division.name, Division.college_id))).all()
+            div_college = {d[0]: d[2] for d in divs}   # division_id → college_id
+            _DIVISION_CACHE = []
+            for div_id, div_name, _cid in divs:
+                members = [(d[0], d[1]) for d in depts if d[4] == div_id]
+                if members:
+                    _DIVISION_CACHE.append((div_name, members))
+
+            # 단과대학(college) → 소속 학과 (직속 college_id 일치 + 소속 학부의 학과)
+            cols = (await db.execute(select(College.id, College.name))).all()
+            _COLLEGE_CACHE = []
+            for cid, cname in cols:
+                members = sorted(
+                    {(d[0], d[1]) for d in depts if d[3] == cid or div_college.get(d[4]) == cid},
+                    key=lambda x: x[1],
+                )
+                if members:
+                    _COLLEGE_CACHE.append((cname, members))
+
+            print(f"[Graduation] 캐시 로드 — 학과 {len(_DEPT_CACHE)} / 학부 "
+                  f"{len(_DIVISION_CACHE)} / 단과대 {len(_COLLEGE_CACHE)}")
 
     async def _answer_dept_requirement(self, question: str, dept_id: int, dept_name: str,
                                        admission_year: int, db: AsyncSession) -> tuple[str, dict]:
@@ -289,6 +415,8 @@ class GraduationService:
         prompt = GRADUATION_OTHER_DEPT_PROMPT.format(
             dept=dept_name, req_context=req_context, rag_context=rag_context, question=question,
         )
+        if "자격증" in question:                 # 자격증 초점 → 자격증 중심으로 재배치
+            prompt = _CERT_FOCUS_DIRECTIVE + prompt
         # 구조적 졸업 답변은 실행마다 흔들리면 안 되므로 결정론적으로(temp 0.0) 생성.
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
@@ -359,6 +487,8 @@ class GraduationService:
             dept=dept_name, req_context=req_context, rag_context=rag_context,
             status_context=status_context, question=question,
         )
+        if "자격증" in question:                 # 자격증 초점 → 자격증 중심으로 재배치
+            prompt = _CERT_FOCUS_DIRECTIVE + prompt
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
 
@@ -474,6 +604,16 @@ class GraduationService:
                     f"{stems}\n\n파일 드릴까요?",
                     metadata,
                 )
+            # 최후 보류: 졸업 문서로 못 잡았지만 FAQ감(과잠·엠티 등)이 임베딩상 graduation으로
+            # 오라우팅됐을 수 있다 → 큐레이션 FAQ를 한 번 더 조회한다(general/rag_general과 동일).
+            from app.services.faq_index import faq_lookup
+            hit = await loop.run_in_executor(None, faq_lookup, question)
+            if hit:
+                print("[Graduation] 졸업 문서 0건이지만 FAQ 매칭 → verbatim 답변")
+                metadata["source"] = "faq"
+                for k in ("url", "contact_name", "contact_phone", "source_file"):
+                    metadata.pop(k, None)
+                return hit[0], metadata
             return (
                 "죄송해요, 졸업 관련 해당 내용의 공식 자료를 찾지 못했어요. "
                 "조금 더 구체적으로 질문해 주시거나 학과 사무실에 문의해 주세요.",
@@ -613,6 +753,13 @@ class GraduationService:
         if rule2:
             return rule2, actual_year, True
         return None, requested_year, False       # 대체 연도에도 유효 규칙 없음 → 폴백 취급 안 함
+
+    async def _latest_year(self, db: AsyncSession, dept_id: int) -> int | None:
+        """그 학과에 등록된 가장 최근 입학연도(요건 기준 연도). 없으면 None.
+        연도를 명시 안 한 학과 요건 질문의 기본값으로 쓴다(최신 코호트 기준)."""
+        return (await db.execute(
+            select(func.max(RequirementSet.admission_year)).where(RequirementSet.dept_id == dept_id)
+        )).scalar_one_or_none()
 
     async def _get_earned_credits(self, db: AsyncSession, student_id: int) -> dict:
         """이수 학점 카테고리별 합산

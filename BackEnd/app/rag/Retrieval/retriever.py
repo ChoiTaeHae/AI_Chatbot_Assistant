@@ -1,3 +1,5 @@
+import re
+
 from app.core.config import settings
 from app.rag.Embedding import BaaiEmbedding, baai_embedding
 from app.rag.Retrieval.qdrant_store import (
@@ -44,6 +46,46 @@ def _rerank_text(result: SearchResult) -> str:
     article = (result.metadata.get("article") or "").strip()
     head = " ".join(x for x in (src, article) if x)
     return f"{head}\n{result.text}" if head else result.text
+
+
+# 출처명 매칭 폴백에서 질문의 '내용어'만 남기려고 걷어낼 일반어(서비스·절차·의문어).
+# 이게 남으면 '시간'이 '시간표' 문서에 우연히 걸리는 식의 오탐이 생긴다.
+_SRC_MATCH_STOPWORDS = (
+    "이용시간", "운영시간", "이용", "운영", "시간", "방법", "이용법", "대여", "대관", "예약",
+    "신청", "정보", "안내", "문의", "사용", "위치", "어디", "어딨", "언제", "얼마", "어떻게",
+    "알려줘", "알려", "뭐야", "뭔가요", "있나요", "있어", "요금", "가격", "비용",
+)
+_SRC_TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
+_SRC_NORM_RE = re.compile(r"[\s()（）\[\]·・/,_-]")
+
+
+def _norm_src(s: str) -> str:
+    return _SRC_NORM_RE.sub("", s or "").lower()
+
+
+def _source_match_terms(*queries: str) -> list[str]:
+    """질문에서 일반어를 걷어낸 '내용어'(길이 2+) 목록 — 문서 출처명과 대조할 씨앗."""
+    terms: list[str] = []
+    for q in queries:
+        if not q:
+            continue
+        s = q
+        for w in _SRC_MATCH_STOPWORDS:
+            s = s.replace(w, " ")
+        for t in _SRC_TOKEN_RE.findall(s):
+            if len(t) >= 2 and t not in terms:
+                terms.append(t)
+    return terms
+
+
+def _source_hit(source: str, text: str, terms: list[str]) -> bool:
+    """출처명 또는 청크 본문(괄호·공백 제거)에 질문 내용어가 들어 있는지 — 리랭커가 0점 줘도
+    관련 신호. 본문까지 보는 이유: '헬스시설'이 출처명('우송스포츠센터')엔 없고 본문
+    ('헬스 시설 이용안내')에만 있는 경우까지 살리기 위함(실측)."""
+    if not terms:
+        return False
+    hay = _norm_src(source) + _norm_src(text)
+    return any(_norm_src(t) in hay for t in terms if len(_norm_src(t)) >= 2)
 
 
 class Retriever:
@@ -236,6 +278,24 @@ class Retriever:
                 print("[Retriever] 리랭커 보강 부족 → 벡터 순위로 채움")
 
             print(f"[Retriever] 임계값 통과 {passed}개 → {len(filtered_results)}개로 보강 (top score={reranked_results[0].score:.3f})")
+
+        # 3-1b. 출처명·본문 매칭 최후 폴백 — 위까지 전부 실패(0개)했지만 질문의 '내용어'가 어떤
+        # 문서의 출처명이나 본문과 겹치면 그 문서는 실제로 관련 있다('체육관 대여방법'↔'실내체육관
+        # (스포츠센터)', '헬스시설'↔본문 '헬스 시설 이용안내'). 리랭커 브리틀함으로 0점 맞은 경우라
+        # 그 출처 청크를 벡터 순위로 살려 '못 찾음' 오답을 막는다. 코퍼스에 그 말이 아예 없으면
+        # 매칭되지 않아 발동 안 하므로 환각 방지(has_confident 취지)는 유지.
+        if not filtered_results and reranked_results:
+            terms = _source_match_terms(question, original_question)
+            matched_src = {r.metadata.get("source") for r in reranked_results
+                           if _source_hit(r.metadata.get("source"), r.text, terms)}
+            if matched_src:
+                for r in results:                       # results = 벡터 검색 원래 순서
+                    if len(filtered_results) >= MIN_FALLBACK:
+                        break
+                    if r.metadata.get("source") in matched_src and _key(r) not in seen:
+                        filtered_results.append(rr_by_key.get(_key(r), r)); seen.add(_key(r))
+                if filtered_results:
+                    print(f"[Retriever] 출처명 매칭 폴백 → {matched_src} ({len(filtered_results)}개 살림)")
 
         # 3-2. 같은 문서 보강 — 1등이 확신 있는 문서면 그 문서의 나머지 청크도 후보에서 끌어온다.
         # 리랭커가 공고의 '개요'만 올리고 '신청 방법' 섹션을 떨어뜨리는 경우를 복원하기 위함.
