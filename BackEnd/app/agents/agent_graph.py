@@ -345,6 +345,14 @@ _CHITCHAT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 챗봇 자기소개는 잡담 핸들러가 답하는데(_SELFINTRO_RE), 라우터가 먼저 다른 데로 보내버리는
+# 표현이 있다 — 실측으로 '자기소개 해줘'는 학과소개로 빠져 "어느 학과를 말씀하시는지" 되묻고,
+# '사용법 알려줘'는 RAG로 빠져 0건이 났다. 이 둘만 라우팅보다 앞에서 잡는다.
+# _SELFINTRO_RE 전체를 여기로 올리면 안 된다 — '뭐 할 수 있어'가 '동아리 뭐 할 수 있어?'를,
+# '소개 해'가 '간호학과 소개해줘'를 삼킨다. 그래서 대상이 앞에 붙을 수 없는 형태로만 좁혔다:
+# '사용법'은 문두 한정('도서관 사용법' 제외), '자기소개'는 '자기소개서'만 배제.
+_SELFINTRO_GATE_RE = re.compile(r'자기\s*소개(?!서)|^\s*사용법')
+
 
 async def _chitchat_gate(state: AgentState) -> dict:
     """rewrite 앞 잡담 감지 게이트 (후속질문 전용).
@@ -359,6 +367,12 @@ async def _chitchat_gate(state: AgentState) -> dict:
       오분류해 rewrite 기회를 뺏는 문제가 있었다. 정규식이 놓친 후속은 rewrite로 넘겨
       이전 질문과 합쳐 토픽 질문으로 만든 뒤 2차 라우팅에 맡긴다.
     """
+    # 자기소개는 후속질문이 아니라 '처음 켜자마자' 던지는 1차 질문이 대부분이라, prev 체크보다
+    # 앞에 둔다(아래 skip에 걸리면 라우터로 넘어가 학과소개·RAG로 새버린다).
+    if _SELFINTRO_GATE_RE.search(state["question"]):
+        print(f"[Graph] 챗봇 자기소개 매치 → 잡담 핸들러 직행: '{state['question']}'")
+        return {"intent": "general", "topic": "general", "confidence": 1.0}
+
     prev = state.get("prev_context")
     if not (prev and prev.get("prev_question")):
         return {}   # 1차 질문 → 게이트 skip
@@ -683,6 +697,21 @@ _OFFTOPIC_REPLY = (
     "죄송하지만 그 질문에는 답해드리기 어려워요. 저는 우송대학교 학사 질문"
     "(수강신청·졸업·장학금 등)을 전문으로 돕는 챗봇이에요. 학사 관련 궁금한 점을 편하게 물어봐 주세요!"
 )
+# '너 누구야'·'뭐 할 수 있어' 류 — 챗봇 자신에 대한 질문. 인사도 호응도 아니라 offtopic으로
+# 떨어져 "답해드리기 어려워요"라고 거절했다(실측). 처음 쓰는 사용자가 가장 먼저 던지는 질문이라
+# 첫 인상이 '못 하는 챗봇'이 된다. 날씨 같은 진짜 무관 질문과 달리 우리가 답할 수 있는 질문이다.
+_SELFINTRO_RE = re.compile(
+    r'(너|넌|니|당신|챗봇|봇|얘|쟤)\s*(는|은|가|이)?\s*(누구|뭐야|뭐니|뭔데|정체)|'
+    r'이름\s*(이|은)?\s*(뭐|무엇)|'
+    r'(뭘|뭐|무엇|어떤\s*걸?)\s*(할\s*수\s*있|도와|해\s*줄|알려\s*줄|가능)|'
+    r'기능\s*(이|은)?\s*(뭐|무엇|어떻)|'
+    r'자기\s*소개|소개\s*해|사용법|어떻게\s*쓰'
+)
+_SELFINTRO_REPLY = (
+    "저는 우송대학교 학사 안내 챗봇이에요. 수강신청·졸업요건·장학금·기숙사·학식·학사일정처럼 "
+    "학교 생활에서 궁금한 걸 학교 공식 자료에서 찾아 답해드려요.\n"
+    "예를 들어 '휴학 신청 방법', '오늘 학식 뭐야', '기숙사 비용 얼마야'처럼 물어봐 주세요!"
+)
 
 
 async def _handle_general(state: AgentState) -> dict:
@@ -695,6 +724,10 @@ async def _handle_general(state: AgentState) -> dict:
     q = state["question"].strip()
     if _GREETING_RE.match(q):
         answer = _GREETING_REPLY
+    # 자기소개는 호응(_ACK_RE)보다 먼저 본다 — '넌 뭐야?'처럼 호응 어휘와 겹칠 여지를 없애기 위함.
+    # 여기만 search를 쓴다('그래서 너 누구야?'처럼 앞에 말이 붙어도 잡아야 해서).
+    elif _SELFINTRO_RE.search(q):
+        answer = _SELFINTRO_REPLY
     elif _ACK_RE.match(q):
         answer = _ACK_REPLY
     else:
