@@ -310,6 +310,28 @@ async def _pre_check(state: AgentState) -> dict:
         ctx_type = state["pending_context"].get("type", "general")
         return {"intent": ctx_type, "done": False}
 
+    # 국가장학금 검수 FAQ 게이트 — 장학금류 질문이면 '라우팅 전에' Qdrant 검수 Q&A를 먼저 확인한다.
+    # → 장학금 포스터 RAG가 특정 학기 날짜로 엉뚱하게 답하기 전에 검수 답변이 이긴다.
+    # 멀티턴: 후속 질문("어떻게 신청해?")엔 장학금 단어가 없으니, 직전이 장학금 맥락이면
+    #   '국가장학금'을 붙여 보강해 조회한다("국가장학금 어떻게 신청해?"). 임계값 미만이면 통과(설문 등).
+    q = state.get("question", "")
+    _prev = state.get("prev_context") or {}
+    prev_q = _prev.get("prev_question", "") or ""
+    prev_topic = _prev.get("prev_topic", "") or ""
+    _SCH_KW = ("장학금", "국장", "국가장학", "학자금")
+    faq_q = None
+    if q and any(k in q for k in _SCH_KW):
+        faq_q = q
+    elif q and (prev_topic == "scholarship" or any(k in prev_q for k in _SCH_KW)):
+        # 후속 질문 — 직전이 장학금 맥락(직전 답변 topic 또는 직전 질문 키워드)이면 '국가장학금' 붙여 보강.
+        # (직전 답변 topic까지 봐서 "국장?→어떻게?→매 학기?"처럼 키워드 없는 후속이 이어져도 체인 유지)
+        faq_q = "국가장학금 " + q
+    if faq_q:
+        verbatim = await asyncio.get_event_loop().run_in_executor(None, _lookup_scholarship_faq, faq_q)
+        if verbatim:
+            return {"answer": verbatim, "source": "scholarship_faq", "source_file": None,
+                    "topic": "scholarship", "done": True}
+
     return {"done": False}
 
 
@@ -606,13 +628,50 @@ async def _handle_schedule(state: AgentState) -> dict:
     }
 
 
+# 국가장학금 검수 Q&A는 Qdrant(topic=scholarship_faq)에 '질문 임베딩 + 답변 원문'으로 저장돼 있다.
+# (관리: RAG 지식 목록, source='국가장학금 FAQ'). 질문으로 검색해 코사인 ≥ 임계값이면 답변을 '그대로'
+# 반환한다 — LLM을 안 거쳐 숫자(소득구간·성적 기준 등)가 변형되지 않는다.
+_SCHOLARSHIP_ABBR = {"국장": "국가장학금"}   # 학생 약어 → 정식 명칭 (매칭률↑)
+_SCHOLARSHIP_FAQ_THRESHOLD = 0.81
+
+
+def _lookup_scholarship_faq(question: str) -> str | None:
+    q = question
+    for _abbr, _full in _SCHOLARSHIP_ABBR.items():
+        if _abbr in q:
+            q = q.replace(_abbr, _full)
+    try:
+        qv = rag_service.embedding.embed_text(q)
+        results = rag_service.vector_store.search(qv, topic="scholarship_faq", limit=1)
+    except Exception as e:
+        print(f"[Scholarship FAQ] 조회 실패(무시): {e}")
+        return None
+    if results and results[0].score >= _SCHOLARSHIP_FAQ_THRESHOLD:
+        print(f"[Scholarship FAQ] 매칭 {results[0].score:.3f} ≥ {_SCHOLARSHIP_FAQ_THRESHOLD} → 원문 답변")
+        return results[0].text
+    return None
+
+
 async def _handle_scholarship(state: AgentState) -> dict:
-    """장학금 질문은 RAG로 답변을 생성하지 않고, 안내문 + '맞춤 설문' 제안(예/아니오)을 낸다.
-    (장학금은 카탈로그 DB가 정확한 원천이라 RAG 답변보다 신뢰도가 높다.)
-    프론트는 scholarship_card={'survey':True} 신호를 보고 설문 제안 버튼을 렌더한다."""
+    """장학금 질문 처리:
+      1) Qdrant 검수 Q&A(국가장학금)에 매칭되면 저장된 답변을 그대로 반환(LLM 미사용 = 숫자 안 틀림)
+      2) 없으면 안내문 + '맞춤 설문' 제안(예/아니오) — 프론트가 scholarship_card={'survey':True}로 렌더
+    """
     await _log(state["db"], state["student_id"], "scholarship")
+    # 1) 검수 Q&A 우선 (질문 임베딩 → Qdrant 코사인 검색 → 원문 답변)
+    loop = asyncio.get_event_loop()
+    verbatim = await loop.run_in_executor(None, _lookup_scholarship_faq, state["question"])
+    if verbatim:
+        return {
+            "answer": verbatim,
+            "next_pending_context": None,
+            "source": "scholarship_faq",
+            "source_file": None,
+            "topic": "scholarship",
+        }
+    # 2) 매칭 없으면 맞춤 설문 제안
     answer = (
-        "장학금 종류나 찾으시는 장학금은 사이드바의 **‘장학금 둘러보기’**에서 "
+        "장학금 종류나 찾으시는 장학금은 사이드바의 ‘장학금 둘러보기’에서 "
         "전체 목록을 확인하실 수 있어요.\n\n"
         "간단한 설문으로 **나에게 맞는 장학금**을 찾아드릴 수도 있어요. 확인해 드릴까요?"
     )
