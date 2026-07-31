@@ -56,7 +56,9 @@ _LOCATION_INTENT_RE = re.compile(r'어디|어딨|어디에|위치|찾아가|가�
 # ('학군단 뭐야/소개/모집 언제' → RAG, '학군단'·'학군단 어디' → campus 위치)
 _INFO_INTENT_RE = re.compile(
     r'뭐|뭔|무엇|어떤|소개|알려|설명|신청|방법|어떻게|언제|얼마|며칠|기간|'
-    r'지원|모집|혜택|자격|조건|정보|대해|되나|하나요|인가요|추천|목록|'
+    # '요건'은 '자격|조건'과 같은 층위인데 빠져 있었다. 실측: '솔브릿지국제경영대학 졸업요건'이
+    # 건물 별칭 '솔브릿지'에 걸려 지도로 답했고, 그 바람에 단과대→소속학과 되묻기가 아예 안 보였다.
+    r'지원|모집|혜택|자격|조건|요건|정보|대해|되나|하나요|인가요|추천|목록|'
     # 시설 이용·대여·예약 등 '서비스/절차' 질문 — 위치가 아니라 그 정보(RAG)를 원하는 것
     # '몇 시'(운영/개관 시간)는 정보 질문 — '시간'은 있는데 '몇 시까지 해'가 안 걸려 '도서관 몇
     # 시까지 해'가 지도로 답하던 문제(실측). '몇 층/몇 호'는 _LOCATION_INTENT_RE라 위치 유지.
@@ -310,6 +312,28 @@ async def _pre_check(state: AgentState) -> dict:
         ctx_type = state["pending_context"].get("type", "general")
         return {"intent": ctx_type, "done": False}
 
+    # 국가장학금 검수 FAQ 게이트 — 장학금류 질문이면 '라우팅 전에' Qdrant 검수 Q&A를 먼저 확인한다.
+    # → 장학금 포스터 RAG가 특정 학기 날짜로 엉뚱하게 답하기 전에 검수 답변이 이긴다.
+    # 멀티턴: 후속 질문("어떻게 신청해?")엔 장학금 단어가 없으니, 직전이 장학금 맥락이면
+    #   '국가장학금'을 붙여 보강해 조회한다("국가장학금 어떻게 신청해?"). 임계값 미만이면 통과(설문 등).
+    q = state.get("question", "")
+    _prev = state.get("prev_context") or {}
+    prev_q = _prev.get("prev_question", "") or ""
+    prev_topic = _prev.get("prev_topic", "") or ""
+    _SCH_KW = ("장학금", "국장", "국가장학", "학자금")
+    faq_q = None
+    if q and any(k in q for k in _SCH_KW):
+        faq_q = q
+    elif q and (prev_topic == "scholarship" or any(k in prev_q for k in _SCH_KW)):
+        # 후속 질문 — 직전이 장학금 맥락(직전 답변 topic 또는 직전 질문 키워드)이면 '국가장학금' 붙여 보강.
+        # (직전 답변 topic까지 봐서 "국장?→어떻게?→매 학기?"처럼 키워드 없는 후속이 이어져도 체인 유지)
+        faq_q = "국가장학금 " + q
+    if faq_q:
+        verbatim = await asyncio.get_event_loop().run_in_executor(None, _lookup_scholarship_faq, faq_q)
+        if verbatim:
+            return {"answer": verbatim, "source": "scholarship_faq", "source_file": None,
+                    "topic": "scholarship", "done": True}
+
     return {"done": False}
 
 
@@ -343,6 +367,14 @@ _CHITCHAT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 챗봇 자기소개는 잡담 핸들러가 답하는데(_SELFINTRO_RE), 라우터가 먼저 다른 데로 보내버리는
+# 표현이 있다 — 실측으로 '자기소개 해줘'는 학과소개로 빠져 "어느 학과를 말씀하시는지" 되묻고,
+# '사용법 알려줘'는 RAG로 빠져 0건이 났다. 이 둘만 라우팅보다 앞에서 잡는다.
+# _SELFINTRO_RE 전체를 여기로 올리면 안 된다 — '뭐 할 수 있어'가 '동아리 뭐 할 수 있어?'를,
+# '소개 해'가 '간호학과 소개해줘'를 삼킨다. 그래서 대상이 앞에 붙을 수 없는 형태로만 좁혔다:
+# '사용법'은 문두 한정('도서관 사용법' 제외), '자기소개'는 '자기소개서'만 배제.
+_SELFINTRO_GATE_RE = re.compile(r'자기\s*소개(?!서)|^\s*사용법')
+
 
 async def _chitchat_gate(state: AgentState) -> dict:
     """rewrite 앞 잡담 감지 게이트 (후속질문 전용).
@@ -357,6 +389,12 @@ async def _chitchat_gate(state: AgentState) -> dict:
       오분류해 rewrite 기회를 뺏는 문제가 있었다. 정규식이 놓친 후속은 rewrite로 넘겨
       이전 질문과 합쳐 토픽 질문으로 만든 뒤 2차 라우팅에 맡긴다.
     """
+    # 자기소개는 후속질문이 아니라 '처음 켜자마자' 던지는 1차 질문이 대부분이라, prev 체크보다
+    # 앞에 둔다(아래 skip에 걸리면 라우터로 넘어가 학과소개·RAG로 새버린다).
+    if _SELFINTRO_GATE_RE.search(state["question"]):
+        print(f"[Graph] 챗봇 자기소개 매치 → 잡담 핸들러 직행: '{state['question']}'")
+        return {"intent": "general", "topic": "general", "confidence": 1.0}
+
     prev = state.get("prev_context")
     if not (prev and prev.get("prev_question")):
         return {}   # 1차 질문 → 게이트 skip
@@ -606,13 +644,50 @@ async def _handle_schedule(state: AgentState) -> dict:
     }
 
 
+# 국가장학금 검수 Q&A는 Qdrant(topic=scholarship_faq)에 '질문 임베딩 + 답변 원문'으로 저장돼 있다.
+# (관리: RAG 지식 목록, source='국가장학금 FAQ'). 질문으로 검색해 코사인 ≥ 임계값이면 답변을 '그대로'
+# 반환한다 — LLM을 안 거쳐 숫자(소득구간·성적 기준 등)가 변형되지 않는다.
+_SCHOLARSHIP_ABBR = {"국장": "국가장학금"}   # 학생 약어 → 정식 명칭 (매칭률↑)
+_SCHOLARSHIP_FAQ_THRESHOLD = 0.81
+
+
+def _lookup_scholarship_faq(question: str) -> str | None:
+    q = question
+    for _abbr, _full in _SCHOLARSHIP_ABBR.items():
+        if _abbr in q:
+            q = q.replace(_abbr, _full)
+    try:
+        qv = rag_service.embedding.embed_text(q)
+        results = rag_service.vector_store.search(qv, topic="scholarship_faq", limit=1)
+    except Exception as e:
+        print(f"[Scholarship FAQ] 조회 실패(무시): {e}")
+        return None
+    if results and results[0].score >= _SCHOLARSHIP_FAQ_THRESHOLD:
+        print(f"[Scholarship FAQ] 매칭 {results[0].score:.3f} ≥ {_SCHOLARSHIP_FAQ_THRESHOLD} → 원문 답변")
+        return results[0].text
+    return None
+
+
 async def _handle_scholarship(state: AgentState) -> dict:
-    """장학금 질문은 RAG로 답변을 생성하지 않고, 안내문 + '맞춤 설문' 제안(예/아니오)을 낸다.
-    (장학금은 카탈로그 DB가 정확한 원천이라 RAG 답변보다 신뢰도가 높다.)
-    프론트는 scholarship_card={'survey':True} 신호를 보고 설문 제안 버튼을 렌더한다."""
+    """장학금 질문 처리:
+      1) Qdrant 검수 Q&A(국가장학금)에 매칭되면 저장된 답변을 그대로 반환(LLM 미사용 = 숫자 안 틀림)
+      2) 없으면 안내문 + '맞춤 설문' 제안(예/아니오) — 프론트가 scholarship_card={'survey':True}로 렌더
+    """
     await _log(state["db"], state["student_id"], "scholarship")
+    # 1) 검수 Q&A 우선 (질문 임베딩 → Qdrant 코사인 검색 → 원문 답변)
+    loop = asyncio.get_event_loop()
+    verbatim = await loop.run_in_executor(None, _lookup_scholarship_faq, state["question"])
+    if verbatim:
+        return {
+            "answer": verbatim,
+            "next_pending_context": None,
+            "source": "scholarship_faq",
+            "source_file": None,
+            "topic": "scholarship",
+        }
+    # 2) 매칭 없으면 맞춤 설문 제안
     answer = (
-        "장학금 종류나 찾으시는 장학금은 사이드바의 **‘장학금 둘러보기’**에서 "
+        "장학금 종류나 찾으시는 장학금은 사이드바의 ‘장학금 둘러보기’에서 "
         "전체 목록을 확인하실 수 있어요.\n\n"
         "간단한 설문으로 **나에게 맞는 장학금**을 찾아드릴 수도 있어요. 확인해 드릴까요?"
     )
@@ -681,6 +756,21 @@ _OFFTOPIC_REPLY = (
     "죄송하지만 그 질문에는 답해드리기 어려워요. 저는 우송대학교 학사 질문"
     "(수강신청·졸업·장학금 등)을 전문으로 돕는 챗봇이에요. 학사 관련 궁금한 점을 편하게 물어봐 주세요!"
 )
+# '너 누구야'·'뭐 할 수 있어' 류 — 챗봇 자신에 대한 질문. 인사도 호응도 아니라 offtopic으로
+# 떨어져 "답해드리기 어려워요"라고 거절했다(실측). 처음 쓰는 사용자가 가장 먼저 던지는 질문이라
+# 첫 인상이 '못 하는 챗봇'이 된다. 날씨 같은 진짜 무관 질문과 달리 우리가 답할 수 있는 질문이다.
+_SELFINTRO_RE = re.compile(
+    r'(너|넌|니|당신|챗봇|봇|얘|쟤)\s*(는|은|가|이)?\s*(누구|뭐야|뭐니|뭔데|정체)|'
+    r'이름\s*(이|은)?\s*(뭐|무엇)|'
+    r'(뭘|뭐|무엇|어떤\s*걸?)\s*(할\s*수\s*있|도와|해\s*줄|알려\s*줄|가능)|'
+    r'기능\s*(이|은)?\s*(뭐|무엇|어떻)|'
+    r'자기\s*소개|소개\s*해|사용법|어떻게\s*쓰'
+)
+_SELFINTRO_REPLY = (
+    "저는 우송대학교 학사 안내 챗봇이에요. 수강신청·졸업요건·장학금·기숙사·학식·학사일정처럼 "
+    "학교 생활에서 궁금한 걸 학교 공식 자료에서 찾아 답해드려요.\n"
+    "예를 들어 '휴학 신청 방법', '오늘 학식 뭐야', '기숙사 비용 얼마야'처럼 물어봐 주세요!"
+)
 
 
 async def _handle_general(state: AgentState) -> dict:
@@ -693,6 +783,10 @@ async def _handle_general(state: AgentState) -> dict:
     q = state["question"].strip()
     if _GREETING_RE.match(q):
         answer = _GREETING_REPLY
+    # 자기소개는 호응(_ACK_RE)보다 먼저 본다 — '넌 뭐야?'처럼 호응 어휘와 겹칠 여지를 없애기 위함.
+    # 여기만 search를 쓴다('그래서 너 누구야?'처럼 앞에 말이 붙어도 잡아야 해서).
+    elif _SELFINTRO_RE.search(q):
+        answer = _SELFINTRO_REPLY
     elif _ACK_RE.match(q):
         answer = _ACK_REPLY
     else:
