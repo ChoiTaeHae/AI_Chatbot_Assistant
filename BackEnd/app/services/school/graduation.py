@@ -100,7 +100,11 @@ def _keyword_departments(question: str) -> tuple[str, list[tuple[int, str]]]:
 # '우리/저희 학과'처럼 자기 학과를 가리키는 지시·소유 표현은 제외한다.
 _NAMED_UNIT_RE = re.compile(r"([가-힣A-Za-z]{2,})\s*(?:학과|전공|학부)")
 _UNIT_GENERIC_PREFIX = {"우리", "저희", "본인", "해당", "무슨", "어떤", "어느", "같은",
-                        "다른", "이번", "모든", "졸업", "전체"}
+                        "다른", "이번", "모든", "졸업", "전체",
+                        # 이수 '제도' 이름 — 학과명이 아니다. 빼두지 않으면 '복수+전공'이
+                        # 학과 명시로 오인돼 "말씀하신 학과·학부를 찾지 못했어요"로 빠진다
+                        # (실측: '복수전공 필수야?'). 다전공·부전공·주전공도 같은 층위.
+                        "복수", "다", "부", "주", "심화", "연계", "융합", "자기설계"}
 
 
 def _named_unresolved_unit(question: str) -> bool:
@@ -134,6 +138,11 @@ _YEAR_2_RE = re.compile(r"(?<!\d)(\d{2})\s*학번")
 # 있으면 그쪽이 우선(자기 코호트를 명시한 것). 등록 안 된 미래 연도면 리졸버가 가장 가까운
 # 연도로 폴백하고 그 사실을 답변에 고지한다("2029년 졸업요건은 없어 2026년 기준으로 안내").
 _YEAR_GRAD_RE = re.compile(r"(20\d{2})\s*년도?\s*(?:2월\s*)?졸업")
+# 마지막 폴백 — '학번/학년도/졸업'이 안 붙고 연도만 쓴 표기('2009년 간호학과 졸업요건').
+# _YEAR_GRAD_RE는 연도 '바로 뒤'에 졸업이 와야 잡히는데, 사이에 학과명이 끼면 놓친다.
+# 그러면 '연도 미언급'으로 처리돼 최신 연도 요건을 요청 연도인 양 답하고, 없는 연도라는
+# 고지도 안 나간다(실측: '2009년 간호학과 졸업요건' → "2026학번 기준" 안내, 폴백문구 없음).
+_YEAR_BARE_RE = re.compile(r"(?<!\d)(20\d{2})\s*년")
 
 
 def detect_admission_year(question: str) -> int | None:
@@ -152,6 +161,9 @@ def detect_admission_year(question: str) -> int | None:
     m = _YEAR_GRAD_RE.search(question)
     if m:
         return int(m.group(1))          # '2029년 졸업' → 2029 (없으면 리졸버가 폴백+고지)
+    m = _YEAR_BARE_RE.search(question)
+    if m:
+        return int(m.group(1))          # '2009년 …' → 2009 (미등록이면 리졸버가 폴백+고지)
     return None
 
 # ── 졸업 질문 유형 분류 프로토타입 (임베딩 기반) ──────────────────────
@@ -184,6 +196,22 @@ _GRADUATION_PROTOTYPES: dict[str, list[str]] = {
         "학번별 졸업 이수학점 기준이 궁금해요",
         "2020학번 교양 몇 학점 들어야 하나요?",
         "몇 학번은 교양 몇 학점 들어야 해요?",
+        # 다전공·복수전공·부전공 '의무 여부'는 학칙 제30조의2 / 졸업규정 제20조의2 조회다.
+        # both로 가면 _answer_my_dept가 학점 요건표+개인 현황을 통째로 쏟아내 정작 '의무인지'에
+        # 답하지 않는다(실측: '다전공 꼭 들어야 해?' → 졸업요건 전체 덤프).
+        "다전공을 꼭 이수해야 하나요?",
+        "다전공 의무 이수 대상이 누구인가요?",
+        "복수전공은 필수인가요?",
+        "부전공 이수 규정이 어떻게 되나요?",
+        "다전공 이수가 면제되는 경우가 있나요?",
+        # 학년별 수료기준도 '내 현황'이 아니라 규정(졸업규정 제21조·부칙) 조회다. 게다가 입학연도별로
+        # 기준이 달라(2026~ / 2019~2024 / 2018 이전) 개인 학점현황을 섞으면 오해를 부른다.
+        # 실측: '1학년 수료 기준 학점이 뭐야?' → both로 빠져 졸업요건 전체가 덤프됐다.
+        "수료 기준이 어떻게 되나요?",
+        "1학년 수료 기준 학점이 몇 학점인가요?",
+        "학년별 수료 학점 기준을 알려주세요",
+        "몇 학점을 취득해야 다음 학년으로 수료되나요?",
+        "수료와 졸업은 어떻게 다른가요?",
     ],
     "both": [
         "졸업하려면 학점이 몇 점 필요해요?",
@@ -321,7 +349,14 @@ class GraduationService:
         if is_other or is_other_year:
             dept_id = mentioned[0] if mentioned else student.dept_id
             dept_name = mentioned[1] if mentioned else my_dept_name
-            return await self._answer_dept_requirement(question, dept_id, dept_name, target_year, db)
+            dept_year = target_year
+            # 다른 학과를 '연도 명시 없이' 물으면 내 입학연도가 아니라 그 학과의 최신 요건 연도를
+            # 기준으로 삼는다. (내 2024학번을 남의 학과에 들이대면, 그 학과에 2024 요건이 없을 때
+            # "요청하신 2024년 없음 → 가장 가까운 연도로 대신 안내" 같은, 사용자가 묻지도 않은
+            # 혼란스러운 폴백 문구가 뜬다. 학생-없는 분기(line 277)와 동일하게 최신 연도로 맞춘다.)
+            if is_other and not mentioned_year:
+                dept_year = await self._latest_year(db, dept_id) or my_year
+            return await self._answer_dept_requirement(question, dept_id, dept_name, dept_year, db)
 
         # 내 학과(또는 학과 미언급) → 유형 분류로 라우팅
         cat = await self._classify_question(question)
@@ -379,7 +414,7 @@ class GraduationService:
             fallback_note = (
                 f"※ 요청하신 {admission_year}년 졸업요건은 등록돼 있지 않습니다. "
                 f"가장 가까운 {actual_year}년 졸업요건으로 대신 안내합니다.\n"
-            ) if is_fallback else ""
+            ) if (is_fallback and actual_year != admission_year) else ""
             req_context = (
                 fallback_note +
                 f"학과: {dept_name} ({actual_year}학번 기준)\n"
@@ -447,7 +482,7 @@ class GraduationService:
             fallback_note = (
                 f"※ 요청하신 {admission_year}년 졸업요건은 등록돼 있지 않습니다. "
                 f"가장 가까운 {actual_year}년 졸업요건으로 대신 안내합니다.\n"
-            ) if is_fallback else ""
+            ) if (is_fallback and actual_year != admission_year) else ""
             req_context = (
                 fallback_note +
                 f"전공 최소 이수학점: {rule.min_credits_major}학점\n"
@@ -676,8 +711,13 @@ class GraduationService:
         if context:
             # 컨텍스트를 과도하게(500자) 자르면 얇은 근거로 LLM이 빈자리를 창작(fabrication)한다.
             # (예: "호텔경영학과 졸업요건" → 없는 학점·TOEIC 숫자 지어냄)
-            # 리트리버가 이미 MAX_CHUNKS/MAX_MERGED_LENGTH로 상한을 두므로 넉넉히 사용한다.
-            return context[:2000], rag_service.primary_metadata(results, topic="graduation")
+            # 리트리버가 이미 MAX_CHUNKS/MAX_MERGED_LENGTH/MAX_TOTAL_CONTEXT(3200)로 상한을
+            # 두므로 여기서 또 조일 이유가 적다. 2000자였을 때는 리트리버가 넘겨준 컨텍스트의
+            # 뒤쪽이 잘려나갔다(실측: 간호학과 875자·외식조리 848자 폐기). 학과 문서는 최상위로
+            # 정렬돼 앞쪽에 오므로 학과 요건 자체가 유실되진 않았지만, 프롬프트가 요구하는
+            # '세부 졸업요건 빠짐없이 나열'의 근거(졸업사정 세부지침 등)가 깎여 나갔다.
+            # → 리트리버 상한과 맞춰 3000자로 올린다.
+            return context[:3000], rag_service.primary_metadata(results, topic="graduation")
         # 검색 0건. 호출부가 LLM 호출을 건너뛰도록 rag_empty 플래그를 남긴다 — 이 신호가 없으면
         # "관련 공식 문서를 찾지 못했습니다."가 컨텍스트로 LLM에 들어가 빈칸을 창작한다
         # (실측: '조기졸업' 답변에 근거 없는 '학부모와 상담' 등장, src=None).

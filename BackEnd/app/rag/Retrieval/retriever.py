@@ -108,9 +108,29 @@ class Retriever:
         - [일반 문서] article=None인 청크는 source URL 키로 합침
         - 합친 후 score는 그룹 내 가장 높은 값 유지
         - 합친 텍스트가 MAX_MERGED_LENGTH를 넘으면 거기서 중단 (LLM 컨텍스트 보호)
+        - 단, 그룹 내 '최고 점수 청크'(정답 앵커)는 상한에 걸려도 반드시 포함한다.
+
+        앵커 예외가 없으면, 입력이 chunk_index 오름차순이라 문서 '앞쪽'부터 채워지다가
+        상한에서 끊겨 뒤쪽의 정답 청크가 통째로 사라진다. (실측: '학사경고 기준' 질문에서
+        정의가 든 성적평가 chunk 7이 0.773으로 통과했는데도, 앞쪽 chunk 0~3이 2813자를
+        먹어치워 최종 컨텍스트에 '학사경고'라는 단어조차 남지 않고 "못 찾음"이 나갔다.)
+        선별 단계(search의 '같은 문서 보강')는 이미 관련도순으로 고르는데, 병합 단계에만
+        같은 대비가 빠져 있었다.
         """
         article_merged: dict[str, SearchResult] = {}
         source_merged: dict[str, SearchResult] = {}
+
+        # 그룹별 앵커(최고 점수 청크) 사전 식별 — 상한 초과 시 이 청크만은 예외로 붙인다.
+        anchor_id: dict[str, int] = {}
+        best_score: dict[str, float] = {}
+        for result in results:
+            article = result.metadata.get("article")
+            source = result.metadata.get("source", "")
+            key = f"{source}::{article}" if article else source
+            if key not in best_score or result.score > best_score[key]:
+                best_score[key] = result.score
+                anchor_id[key] = id(result)
+        anchor_done: set[str] = set()
 
         for result in results:
             article = result.metadata.get("article")
@@ -121,12 +141,16 @@ class Retriever:
                 key = f"{source}::{article}"
                 if key in article_merged:
                     existing = article_merged[key]
-                    
-                    # MAX_MERGED_LENGTH 초과 시 텍스트는 놔두고 점수만 갱신
+
+                    # MAX_MERGED_LENGTH 초과 시 텍스트는 놔두고 점수만 갱신.
+                    # 단 앵커(최고 점수 청크)는 아직 안 붙었으면 예외로 붙인다.
                     if len(existing.text) >= MAX_MERGED_LENGTH:
-                        existing.score = max(existing.score, result.score)
-                        continue
-                        
+                        is_anchor = anchor_id.get(key) == id(result) and key not in anchor_done
+                        if not is_anchor:
+                            existing.score = max(existing.score, result.score)
+                            continue
+                        anchor_done.add(key)
+
                     new_text = result.text.replace(f"{article} (계속)\n", "").strip()
                     merged_text = existing.text + "\n" + new_text
                     article_merged[key] = SearchResult(
@@ -142,10 +166,14 @@ class Retriever:
                 if key in source_merged:
                     existing = source_merged[key]
 
-                    # MAX_MERGED_LENGTH 초과 시 더 이상 텍스트를 붙이지 않음
+                    # MAX_MERGED_LENGTH 초과 시 더 이상 텍스트를 붙이지 않음.
+                    # 단 앵커(최고 점수 청크)는 아직 안 붙었으면 예외로 붙인다.
                     if len(existing.text) >= MAX_MERGED_LENGTH:
-                        existing.score = max(existing.score, result.score)
-                        continue
+                        is_anchor = anchor_id.get(key) == id(result) and key not in anchor_done
+                        if not is_anchor:
+                            existing.score = max(existing.score, result.score)
+                            continue
+                        anchor_done.add(key)
 
                     merged_text = existing.text + "\n\n" + result.text
                     source_merged[key] = SearchResult(

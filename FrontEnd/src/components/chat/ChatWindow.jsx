@@ -52,7 +52,7 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
         </div>
       ) : (
         /* 대화 화면 */
-        <div className="w-full max-w-3xl" style={{ padding: '32px 20px' }}>
+        <div className="w-full max-w-5xl" style={{ padding: '32px 20px' }}>
           {/* 대화 중에도 상단 인사 말풍선 유지 — 첫 메시지 후 휑해 보이지 않도록 */}
           <div className="flex items-start gap-4" style={{ marginBottom: '20px', paddingLeft: '8px' }}>
             <MascotAvatar className="h-12 w-12 shrink-0 object-contain mt-1" />
