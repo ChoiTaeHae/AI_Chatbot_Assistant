@@ -1,4 +1,4 @@
-"""
+﻿"""
 LangGraph 기반 학교 AI 에이전트
 
 분류 흐름:
@@ -21,7 +21,7 @@ from app.agents.topic_router import topic_router, SIMILARITY_THRESHOLD
 from app.models.DB_Table import ChatLog
 from app.services.llm_service import llm_service
 from app.prompts import GENERAL_HANDLER_PROMPT
-from app.services.school.campus import CampusService, has_building_hit
+from app.services.school.campus import CampusService, has_building_hit, building_hit_alias
 from app.services.school.department import answer_department_question
 from app.services.school.dining import answer_dining_question_with_meta
 from app.services.school.graduation import graduation_service
@@ -76,6 +76,41 @@ _INFO_INTENT_RE = re.compile(
 # 우연히 잡혀도(예: '동아리방 열쇠 어디서 받아요' → 학생회관 별칭 '동아리방') 지도 대신 RAG/FAQ로.
 # ('동아리방 어디야?' 같은 순수 위치질문은 행위어가 없어 그대로 campus로 간다)
 _PROCEDURE_RE = re.compile(r'열쇠|받아|받을|받나|받으러|받는|받고|받습|발급|신청|빌리|빌려|대여|반납|예약|대출')
+
+# 위치 질문에서 건물명 외에 붙어도 '내용어'로 치지 않는 말들 — 조사·어미·군말.
+# ('학생회관 어디야?' → 건물명 빼면 '어디야'만 남고, 이건 순수 위치 질문이다)
+_CAMPUS_FILLER_RE = re.compile(
+    r'어디|어딨|어디에|위치|찾아|가는|길|건물|층|호|가려면|가면|알려|줘|주세요|해줘|'
+    r'좀|는|은|이|가|을|를|의|에|에서|로|으로|야|요|입니다|인가|인가요|있어|있나|있나요|'
+    r'뭐야|어느|어떻게\s*가|무슨\s*건물|보여|알고|싶어|궁금|\?|!|\.|,'
+)
+
+
+async def _campus_gate(q: str) -> bool:
+    """건물명이 잡혔을 때 '지도로 답할 질문인지' 판정.
+
+    예전 조건은 "정보 의도어(_INFO_INTENT_RE)가 없으면 지도"였는데, 기본값이 지도라
+    사전에 없는 표현이 나올 때마다 엉뚱하게 지도가 떴다(두더지잡기). 실측 사례:
+      '기숙사 입사 제한 대상은?' → '입사/제한/대상'이 정보어 목록에 없어 → 지도(유학생기숙사)
+    그래서 판정을 뒤집는다 — **건물명을 떼고도 내용어가 남으면 그건 정보 질문**이다.
+      · '기숙사'            → 남는 말 없음        → 지도 O
+      · '학생회관 어디야?'  → '어디야'(군말)만    → 지도 O
+      · '기숙사 입사 제한 대상은?' → '입사 제한 대상' 남음 → 지도 X (RAG로)
+    명시적 위치 의도(어디/위치/몇 층…)가 있으면 내용어가 남아도 위치 질문으로 본다.
+    """
+    alias = await building_hit_alias(q)
+    if not alias:
+        return False
+    if _LOCATION_INTENT_RE.search(q):
+        return True
+    # 건물 별칭(공백 무시 매칭이므로 원문에서도 공백 무시하고) 제거 후 남는 내용어 확인
+    rest = re.sub(re.escape(alias), " ", q.replace(" ", ""), flags=re.IGNORECASE)
+    rest = _CAMPUS_FILLER_RE.sub(" ", rest)
+    rest = re.sub(r'[\s\W_]+', "", rest)
+    if rest:
+        print(f"[Graph] 건물명 '{alias}' 매칭됐지만 내용어 '{rest}' 남음 → campus 아님")
+        return False
+    return True
 
 
 # 학사일정 '날짜 질문' fast-path — 날짜 의도(언제/며칠/언제까지…) + 학사 이벤트 키워드면
@@ -536,7 +571,7 @@ async def _keyword_classify(state: AgentState) -> dict:
     #   '동캠학생회관'·'학군단 어디' → campus / '학군단 뭐야'·'학군단 모집 언제' → RAG로 넘김.
     # (regex 먼저 걸러 대부분의 질문은 DB 조회 없이 통과 — 정보의도어가 있으면 즉시 skip)
     q = state["question"]
-    if not _PROCEDURE_RE.search(q) and (_LOCATION_INTENT_RE.search(q) or not _INFO_INTENT_RE.search(q)) and await has_building_hit(q):
+    if not _PROCEDURE_RE.search(q) and await _campus_gate(q):
         print("[Graph] 키워드 분류 → campus (건물명 매칭)")
         return {"intent": "campus"}
     if _is_schedule_date_question(state["question"]):
