@@ -6,15 +6,15 @@ const TEAL = 'var(--brand)'
 const EMPTY = {
   name: '', scope: '교내', category: '', amount: '', eligibility: '', period: '', end_at: '', link: '',
   // 맞춤 설문 매칭 요건 — 전부 선택(비우면 '무관' → 필터 통과)
-  req_region: '', req_region_basis: '', req_min_gpa: '', req_grade: '', req_income: '',
-  req_age_max: '', req_major_field: '',
+  req_region: '', req_region_basis: '', req_min_gpa: '', req_grade: [], req_income: '',
+  req_age_max: '', req_major_field: [],
   req_multichild: false, req_foreigner: false, req_disabled: false, req_independent: false, req_veteran: false,
 }
 
 const BASIS_OPTS = [['', '무관'], ['본인', '본인 거주'], ['부모', '부모 거주']]
-const GRADE_OPTS = [['', '무관'], ['신입', '신입생'], ['재학', '재학생'], ['3학년이상', '3학년 이상'], ['대학원', '대학원']]
+const GRADE_OPTS = [['신입', '신입생'], ['재학', '재학생'], ['3학년이상', '3학년 이상'], ['대학원', '대학원']]   // 다중선택
 const INCOME_OPTS = [['', '무관'], ['기초', '기초생활수급'], ['차상위', '차상위'], ['중위100', '중위 100%↓'], ['중위200', '중위 100~200%']]
-const MAJOR_OPTS = [['', '무관'], ['인문사회', '인문·사회'], ['예술체육', '예술·체육'], ['이공', '이공']]
+const MAJOR_OPTS = [['인문사회', '인문·사회'], ['예술체육', '예술·체육'], ['이공', '이공']]   // 다중선택
 const REQ_FLAGS = [
   ['req_multichild', '다자녀'], ['req_foreigner', '외국인·유학생'], ['req_independent', '자취·독립'],
   ['req_disabled', '장애'], ['req_veteran', '보훈·유공자'],
@@ -67,8 +67,8 @@ export default function ScholarshipManager() {
       name: s.name || '', scope: s.scope || '교내', category: s.category || '', amount: s.amount || '',
       eligibility: s.eligibility || '', period: s.period || '', end_at: toLocalInput(s.end_at), link: s.link || '',
       req_region: s.req_region || '', req_region_basis: s.req_region_basis || '',
-      req_min_gpa: s.req_min_gpa ?? '', req_grade: s.req_grade || '', req_income: s.req_income || '',
-      req_age_max: s.req_age_max ?? '', req_major_field: s.req_major_field || '',
+      req_min_gpa: s.req_min_gpa ?? '', req_grade: s.req_grade ? s.req_grade.split(',') : [], req_income: s.req_income || '',
+      req_age_max: s.req_age_max ?? '', req_major_field: s.req_major_field ? s.req_major_field.split(',') : [],
       req_multichild: !!s.req_multichild, req_foreigner: !!s.req_foreigner, req_disabled: !!s.req_disabled,
       req_independent: !!s.req_independent, req_veteran: !!s.req_veteran,
     })
@@ -77,6 +77,8 @@ export default function ScholarshipManager() {
   function backToList() { setMode('list'); setEditingId(null); loadList() }
 
   function setField(k, v) { setForm((p) => ({ ...p, [k]: v })) }
+  // 배열 필드(학년·전공 다중선택) 토글 — p[k]가 배열, p 전체가 아님에 주의
+  const toggleArr = (k, v) => setForm((p) => ({ ...p, [k]: p[k].includes(v) ? p[k].filter((x) => x !== v) : [...p[k], v] }))
 
   async function save() {
     if (!form.name.trim()) { setMsg({ type: 'error', text: '장학금 이름은 필수예요.' }); return }
@@ -87,7 +89,9 @@ export default function ScholarshipManager() {
       category: form.category || null, amount: form.amount || null, eligibility: form.eligibility || null,
       period: form.period || null, link: form.link || null, end_at: form.end_at || null,
       req_region: form.req_region || null, req_region_basis: form.req_region_basis || null,
-      req_grade: form.req_grade || null, req_income: form.req_income || null, req_major_field: form.req_major_field || null,
+      req_grade: form.req_grade.length ? form.req_grade.join(',') : null,
+      req_income: form.req_income || null,
+      req_major_field: form.req_major_field.length ? form.req_major_field.join(',') : null,
       req_min_gpa: form.req_min_gpa === '' ? null : Number(form.req_min_gpa),
       req_age_max: form.req_age_max === '' ? null : Number(form.req_age_max),
     }
@@ -282,24 +286,43 @@ export default function ScholarshipManager() {
             <input type="number" min="15" max="99" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_age_max} onChange={(e) => setField('req_age_max', e.target.value)} placeholder="예: 34 (비우면 무관)" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className={labelCls}>학년 요건</span>
-            <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_grade} onChange={(e) => setField('req_grade', e.target.value)}>
-              {GRADE_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
             <span className={labelCls}>소득 요건 (상한)</span>
             <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_income} onChange={(e) => setField('req_income', e.target.value)}>
               {INCOME_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
             </select>
           </label>
-          <label className="flex flex-col gap-1">
-            <span className={labelCls}>전공계열</span>
-            <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_major_field} onChange={(e) => setField('req_major_field', e.target.value)}>
-              {MAJOR_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
-            </select>
-          </label>
         </div>
+
+        {/* 학년 요건 · 전공계열 — 다중 선택 (고른 것 중 하나라도 해당하면 대상 · 안 고르면 무관) */}
+        <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>학년 요건 <span className="font-normal text-(--text-faint)">(여러 개 선택 가능 · 안 고르면 무관)</span></p>
+        <div className="flex flex-wrap gap-2">
+          {GRADE_OPTS.map(([v, l]) => {
+            const on = form.req_grade.includes(v)
+            return (
+              <button key={v} type="button" onClick={() => toggleArr('req_grade', v)} className="rounded-full border transition" style={{
+                fontSize: '12px', padding: '6px 13px', fontWeight: on ? 700 : 500,
+                borderColor: on ? 'var(--brand)' : 'var(--border)',
+                background: on ? 'var(--brand)' : 'transparent',
+                color: on ? '#fff' : 'var(--text-muted)',
+              }}>{on ? '✓ ' : ''}{l}</button>
+            )
+          })}
+        </div>
+        <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>전공계열 <span className="font-normal text-(--text-faint)">(여러 개 선택 가능 · 안 고르면 무관)</span></p>
+        <div className="flex flex-wrap gap-2">
+          {MAJOR_OPTS.map(([v, l]) => {
+            const on = form.req_major_field.includes(v)
+            return (
+              <button key={v} type="button" onClick={() => toggleArr('req_major_field', v)} className="rounded-full border transition" style={{
+                fontSize: '12px', padding: '6px 13px', fontWeight: on ? 700 : 500,
+                borderColor: on ? 'var(--brand)' : 'var(--border)',
+                background: on ? 'var(--brand)' : 'transparent',
+                color: on ? '#fff' : 'var(--text-muted)',
+              }}>{on ? '✓ ' : ''}{l}</button>
+            )
+          })}
+        </div>
+
         <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>대상 조건 <span className="font-normal text-(--text-faint)">(해당 장학금이 특정 대상 전용일 때만 켜기)</span></p>
         <div className="flex flex-wrap gap-2">
           {REQ_FLAGS.map(([key, label]) => {
