@@ -321,7 +321,14 @@ class GraduationService:
         if is_other or is_other_year:
             dept_id = mentioned[0] if mentioned else student.dept_id
             dept_name = mentioned[1] if mentioned else my_dept_name
-            return await self._answer_dept_requirement(question, dept_id, dept_name, target_year, db)
+            dept_year = target_year
+            # 다른 학과를 '연도 명시 없이' 물으면 내 입학연도가 아니라 그 학과의 최신 요건 연도를
+            # 기준으로 삼는다. (내 2024학번을 남의 학과에 들이대면, 그 학과에 2024 요건이 없을 때
+            # "요청하신 2024년 없음 → 가장 가까운 연도로 대신 안내" 같은, 사용자가 묻지도 않은
+            # 혼란스러운 폴백 문구가 뜬다. 학생-없는 분기(line 277)와 동일하게 최신 연도로 맞춘다.)
+            if is_other and not mentioned_year:
+                dept_year = await self._latest_year(db, dept_id) or my_year
+            return await self._answer_dept_requirement(question, dept_id, dept_name, dept_year, db)
 
         # 내 학과(또는 학과 미언급) → 유형 분류로 라우팅
         cat = await self._classify_question(question)
@@ -379,7 +386,7 @@ class GraduationService:
             fallback_note = (
                 f"※ 요청하신 {admission_year}년 졸업요건은 등록돼 있지 않습니다. "
                 f"가장 가까운 {actual_year}년 졸업요건으로 대신 안내합니다.\n"
-            ) if is_fallback else ""
+            ) if (is_fallback and actual_year != admission_year) else ""
             req_context = (
                 fallback_note +
                 f"학과: {dept_name} ({actual_year}학번 기준)\n"
@@ -447,7 +454,7 @@ class GraduationService:
             fallback_note = (
                 f"※ 요청하신 {admission_year}년 졸업요건은 등록돼 있지 않습니다. "
                 f"가장 가까운 {actual_year}년 졸업요건으로 대신 안내합니다.\n"
-            ) if is_fallback else ""
+            ) if (is_fallback and actual_year != admission_year) else ""
             req_context = (
                 fallback_note +
                 f"전공 최소 이수학점: {rule.min_credits_major}학점\n"
@@ -676,8 +683,13 @@ class GraduationService:
         if context:
             # 컨텍스트를 과도하게(500자) 자르면 얇은 근거로 LLM이 빈자리를 창작(fabrication)한다.
             # (예: "호텔경영학과 졸업요건" → 없는 학점·TOEIC 숫자 지어냄)
-            # 리트리버가 이미 MAX_CHUNKS/MAX_MERGED_LENGTH로 상한을 두므로 넉넉히 사용한다.
-            return context[:2000], rag_service.primary_metadata(results, topic="graduation")
+            # 리트리버가 이미 MAX_CHUNKS/MAX_MERGED_LENGTH/MAX_TOTAL_CONTEXT(3200)로 상한을
+            # 두므로 여기서 또 조일 이유가 적다. 2000자였을 때는 리트리버가 넘겨준 컨텍스트의
+            # 뒤쪽이 잘려나갔다(실측: 간호학과 875자·외식조리 848자 폐기). 학과 문서는 최상위로
+            # 정렬돼 앞쪽에 오므로 학과 요건 자체가 유실되진 않았지만, 프롬프트가 요구하는
+            # '세부 졸업요건 빠짐없이 나열'의 근거(졸업사정 세부지침 등)가 깎여 나갔다.
+            # → 리트리버 상한과 맞춰 3000자로 올린다.
+            return context[:3000], rag_service.primary_metadata(results, topic="graduation")
         # 검색 0건. 호출부가 LLM 호출을 건너뛰도록 rag_empty 플래그를 남긴다 — 이 신호가 없으면
         # "관련 공식 문서를 찾지 못했습니다."가 컨텍스트로 LLM에 들어가 빈칸을 창작한다
         # (실측: '조기졸업' 답변에 근거 없는 '학부모와 상담' 등장, src=None).

@@ -75,7 +75,7 @@ class LlmService:
     # ── 컨텍스트 예산 맞추기 ──────────────────────────────────────
     def fit_context(self, context: str, overhead_text: str,
                     min_answer_tokens: int = 800, reserve: int = 64) -> str:
-        """답변 생성에 min_answer_tokens가 남도록 context를 앞에서부터 채우고 뒤를 자른다.
+        """답변 생성에 min_answer_tokens가 남도록 context를 줄인다(문서 단위로 뒤부터 제외).
 
         n_ctx(4096)는 프롬프트+답변의 '합계'라, 컨텍스트가 길면 답변이 잘린다. 예산을
         고정 상수(MAX_TOTAL_CONTEXT)로 잡으면 프롬프트 규칙 크기(RAG 골격만 946토큰)를 반영
@@ -97,7 +97,26 @@ class LlmService:
         ctx_toks = self.model.tokenize(context.encode("utf-8"))
         if len(ctx_toks) <= budget:
             return context
-        # 토큰 단위로 자른 뒤 줄 경계로 정리(문장 중간 절단 방지)
+
+        # 1) 문서 단위로 '뒤에서부터' 통째 제외.
+        # 문자열 중간을 자르면 리트리버가 병합할 때 뒤에 붙인 '정답 앵커'
+        # (_merge_same_article의 앵커 예외 — 문서 뒤쪽 청크가 정답인 경우)가 가장 먼저
+        # 날아간다. 실측 사례: '학사경고 기준'의 정의는 성적평가 문서 뒤쪽 청크에 있다.
+        # 컨텍스트는 '[source=…]' 헤더로 문서가 구분되고 점수 내림차순이라, 뒤 문서일수록
+        # 관련도가 낮다 → 뒤부터 버리는 게 정답을 지키면서 예산을 맞추는 방법이다.
+        parts = context.split("\n\n[source=")
+        if len(parts) > 1:
+            parts = [parts[0]] + [f"[source={p}" for p in parts[1:]]
+            while len(parts) > 1:
+                parts.pop()
+                cand = "\n\n".join(parts)
+                if len(self.model.tokenize(cand.encode("utf-8"))) <= budget:
+                    print(f"[LLM] 컨텍스트 예산 절단(문서 단위): {len(context)}자 → {len(cand)}자 "
+                          f"(오버헤드 {overhead}토큰, 답변보장 {min_answer_tokens}토큰)")
+                    return cand
+
+        # 2) 단일 문서만으로 예산을 넘는 경우에만 최후수단으로 토큰 절단
+        #    (줄 경계로 정리해 문장 중간 절단 방지)
         cut = self.model.detokenize(ctx_toks[:budget]).decode("utf-8", errors="ignore")
         trimmed = cut.rsplit("\n", 1)[0] if "\n" in cut else cut
         print(f"[LLM] 컨텍스트 예산 절단: {len(context)}자 → {len(trimmed)}자 "
