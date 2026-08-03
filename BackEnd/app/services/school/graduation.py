@@ -15,7 +15,7 @@ from app.services.rag_service import rag_service
 from app.rag.Embedding import BaaiEmbedding, baai_embedding
 from app.prompts import (
     GRADUATION_DB_PROMPT, GRADUATION_RAG_PROMPT, GRADUATION_COMBINED_PROMPT,
-    GRADUATION_OTHER_DEPT_PROMPT, GRADUATION_MY_DEPT_PROMPT,
+    GRADUATION_OTHER_DEPT_PROMPT, GRADUATION_MY_DEPT_PROMPT, WEAK_EVIDENCE_DIRECTIVE,
 )
 
 
@@ -105,6 +105,24 @@ _UNIT_GENERIC_PREFIX = {"우리", "저희", "본인", "해당", "무슨", "어�
                         # 학과 명시로 오인돼 "말씀하신 학과·학부를 찾지 못했어요"로 빠진다
                         # (실측: '복수전공 필수야?'). 다전공·부전공·주전공도 같은 층위.
                         "복수", "다", "부", "주", "심화", "연계", "융합", "자기설계"}
+
+
+def _ensure_fallback_notice(answer: str, requested_year: int, actual_year: int,
+                            is_fallback: bool) -> str:
+    """대체 연도로 답했으면 그 사실을 반드시 첫 줄에 남긴다(코드로 확정).
+
+    프롬프트에도 같은 지시가 있지만 LLM이 낮은 확률로 빠뜨린다(실측: '2029학년도 간호학과
+    졸업요건' 8회 중 7회는 고지했는데 1회 누락 → 사용자에겐 2026년 요건이 2029년 것처럼 보임).
+    요청 연도와 실제 연도가 다르다는 건 코드가 이미 아는 사실이므로, LLM 재량에 맡기지 않는다.
+    이미 LLM이 요청 연도를 언급했으면 중복으로 붙이지 않는다.
+    """
+    if not is_fallback or actual_year == requested_year or not answer:
+        return answer
+    if str(requested_year) in answer:      # LLM이 이미 밝힘
+        return answer
+    print(f"[Graduation] 폴백 고지 누락 감지 → 코드로 첨부 ({requested_year}→{actual_year})")
+    return (f"{requested_year}년 졸업요건은 아직 등록되어 있지 않아, "
+            f"가장 가까운 {actual_year}학번 기준으로 안내해 드릴게요.\n\n{answer}")
 
 
 def _named_unresolved_unit(question: str) -> bool:
@@ -456,6 +474,7 @@ class GraduationService:
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
+        result = _ensure_fallback_notice(result, admission_year, actual_year, is_fallback)
 
         # 파일 제안은 '완성된 답변' 기준(질문 기준은 신호가 약함). graduation은 현재 파일이 없어
         # 결과가 늘 비지만, 파일이 추가되면 자동으로 동작한다.
@@ -526,6 +545,7 @@ class GraduationService:
             prompt = _CERT_FOCUS_DIRECTIVE + prompt
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
+        result = _ensure_fallback_notice(result, admission_year, actual_year, is_fallback)
 
         # 파일 제안은 '완성된 답변' 기준. graduation은 현재 파일이 없어 결과가 늘 빈다.
         loop = asyncio.get_event_loop()
@@ -656,6 +676,10 @@ class GraduationService:
             )
 
         prompt = self._build_rag_prompt(question, rag_context)
+        # 리랭커 0점 → 어휘 매칭으로만 살아난 컨텍스트면 '단정 금지' 지시를 앞에 붙인다.
+        if metadata.get("weak_evidence"):
+            print("[Graduation] ⚠️ 근거 약함(어휘 매칭 구제) → 단정 금지 지시 주입")
+            prompt = WEAK_EVIDENCE_DIRECTIVE + prompt
         t2 = time.time()
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")

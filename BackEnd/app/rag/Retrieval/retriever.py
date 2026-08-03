@@ -54,7 +54,16 @@ _SRC_MATCH_STOPWORDS = (
     "이용시간", "운영시간", "이용", "운영", "시간", "방법", "이용법", "대여", "대관", "예약",
     "신청", "정보", "안내", "문의", "사용", "위치", "어디", "어딨", "언제", "얼마", "어떻게",
     "알려줘", "알려", "뭐야", "뭔가요", "있나요", "있어", "요금", "가격", "비용",
+    # 규정 문서라면 어디에나 나오는 행정 일반어 — 남겨두면 '내용어' 행세를 하며 무관한 문서를
+    # 살려낸다. 실측: '재수강도 특별학점 처리 가능한가요?'에서 '처리' 하나가 졸업종합시험규정·
+    # 졸업사정세부지침을 끌어와, 리랭커가 전부 0점을 준 상태에서 LLM이 사실과 반대되는 답을
+    # 지어냈다(실제 규정은 '재수강하는 경우에도 학점인정을 적용할 수 있다').
+    "처리", "가능", "여부", "대상", "기준", "사항", "내용", "관련", "규정", "지침", "절차",
+    "제출", "확인", "포함", "적용", "인정",
 )
+# 조사·어미 — 토큰 끝에 붙어 '재수강도'처럼 매칭을 어긋나게 만든다.
+_SRC_PARTICLES = ("으로", "에서", "에게", "까지", "부터", "이나", "라도", "든지",
+                  "은", "는", "이", "가", "을", "를", "도", "만", "의", "에", "과", "와", "랑")
 _SRC_TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 _SRC_NORM_RE = re.compile(r"[\s()（）\[\]·・/,_-]")
 
@@ -73,6 +82,11 @@ def _source_match_terms(*queries: str) -> list[str]:
         for w in _SRC_MATCH_STOPWORDS:
             s = s.replace(w, " ")
         for t in _SRC_TOKEN_RE.findall(s):
+            # 조사 제거 — '재수강도' → '재수강'. 떼고 남은 게 2자 미만이면 원형을 쓴다.
+            for p in _SRC_PARTICLES:
+                if t.endswith(p) and len(t) - len(p) >= 2:
+                    t = t[: -len(p)]
+                    break
             if len(t) >= 2 and t not in terms:
                 terms.append(t)
     return terms
@@ -321,9 +335,15 @@ class Retriever:
                     if len(filtered_results) >= MIN_FALLBACK:
                         break
                     if r.metadata.get("source") in matched_src and _key(r) not in seen:
-                        filtered_results.append(rr_by_key.get(_key(r), r)); seen.add(_key(r))
+                        rescued = rr_by_key.get(_key(r), r)
+                        # 근거 약함 표시 — 리랭커가 전부 0점을 준 상태에서 '어휘가 겹친다'는
+                        # 이유만으로 살린 청크다. 답변 단계가 이 신호를 보고 단정을 피하도록 한다.
+                        # (실측: 이 표시가 없어 '재수강은 특별학점 대상이 아니다'라는, 규정과
+                        #  정반대인 단정이 생성됐다. 실제 규정은 '재수강도 적용할 수 있다')
+                        rescued.metadata["weak_evidence"] = True
+                        filtered_results.append(rescued); seen.add(_key(r))
                 if filtered_results:
-                    print(f"[Retriever] 출처명 매칭 폴백 → {matched_src} ({len(filtered_results)}개 살림)")
+                    print(f"[Retriever] 출처명 매칭 폴백 → {matched_src} ({len(filtered_results)}개 살림, 근거약함 표시)")
 
         # 3-2. 같은 문서 보강 — 1등이 확신 있는 문서면 그 문서의 나머지 청크도 후보에서 끌어온다.
         # 리랭커가 공고의 '개요'만 올리고 '신청 방법' 섹션을 떨어뜨리는 경우를 복원하기 위함.
