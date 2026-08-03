@@ -107,6 +107,19 @@ _UNIT_GENERIC_PREFIX = {"우리", "저희", "본인", "해당", "무슨", "어�
                         "복수", "다", "부", "주", "심화", "연계", "융합", "자기설계"}
 
 
+# 소속 학과가 없는 계정(관리자·DEV 등)이 '내 졸업요건'류를 물었을 때의 안내.
+# 이 계정은 학과·입학연도가 정해지지 않아 개인 기준 답변이 원리상 불가능한데, 예전엔
+# 생 RAG가 0건을 내면 "자료를 찾지 못했어요"만 나가 시스템 결함처럼 보였다(실측:
+# admin 계정 '내년에 졸업하려면 뭐 필요해?' → 못 찾음. 같은 질문이 학생 계정에선 정상).
+_NO_DEPT_GUIDE = (
+    "이 계정에는 소속 학과 정보가 없어서 '내 졸업요건'은 안내해 드릴 수 없어요.\n\n"
+    "학과를 함께 알려주시면 그 학과 기준으로 안내해 드릴게요. "
+    "(예: `간호학과 졸업요건`, `2025학번 컴퓨터공학전공 졸업요건`)"
+)
+# 졸업 경로의 '못 찾음' 응답 판별용
+_GRAD_NOT_FOUND_MARKERS = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없")
+
+
 def _ensure_fallback_notice(answer: str, requested_year: int, actual_year: int,
                             is_fallback: bool) -> str:
     """대체 연도로 답했으면 그 사실을 반드시 첫 줄에 남긴다(코드로 확정).
@@ -149,7 +162,9 @@ _CERT_FOCUS_DIRECTIVE = (
 # 요건은 학과 × 입학연도로 DB에 있으므로(43학과 × 2020~2026), 연도를 못 읽으면 남의 학번을
 # 물어도 내 학번 요건이 나온다("2025학년도 컴퓨터공학과 졸업요건"인데 2022 기준 답변).
 #   지원 표기: '2025학번', '2025학년도', '25학번', '25학년도 입학'
-_YEAR_4_RE = re.compile(r"(20\d{2})\s*(?:학번|학년도)")
+# 19xx도 받는다. 20\d{2}만 보던 때는 '1999학번 졸업요건'이 '연도 미언급'으로 처리돼
+# 내 학번(2024) 요건이 1999년 것인 양 그대로 안내됐다 — 없는 연도라는 고지도 못 나갔다(실측).
+_YEAR_4_RE = re.compile(r"((?:19|20)\d{2})\s*(?:학번|학년도)")
 _YEAR_2_RE = re.compile(r"(?<!\d)(\d{2})\s*학번")
 # 명시적으로 언급된 '졸업 목표 연도'("2029년 졸업", "2029년도 2월 졸업 예정") — 엄밀히는 학번이
 # 아니지만 사용자가 그 연도 기준 요건을 물은 것으로 보고 '대상 연도'로 삼는다. 학번/학년도가
@@ -160,7 +175,12 @@ _YEAR_GRAD_RE = re.compile(r"(20\d{2})\s*년도?\s*(?:2월\s*)?졸업")
 # _YEAR_GRAD_RE는 연도 '바로 뒤'에 졸업이 와야 잡히는데, 사이에 학과명이 끼면 놓친다.
 # 그러면 '연도 미언급'으로 처리돼 최신 연도 요건을 요청 연도인 양 답하고, 없는 연도라는
 # 고지도 안 나간다(실측: '2009년 간호학과 졸업요건' → "2026학번 기준" 안내, 폴백문구 없음).
-_YEAR_BARE_RE = re.compile(r"(?<!\d)(20\d{2})\s*년")
+_YEAR_BARE_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*년")
+
+# 2자리 학번의 세기 판정 경계. '25학번'=2025 / '99학번'=1999.
+# 없을 때는 무조건 2000을 더해 '99학번'이 2099(미래)로 읽혔다 — 미등록 미래 연도라
+# 폴백은 걸리지만 고지 문구에 엉뚱한 연도가 찍힌다.
+_YY_CENTURY_SPLIT = 50
 
 
 def detect_admission_year(question: str) -> int | None:
@@ -175,7 +195,8 @@ def detect_admission_year(question: str) -> int | None:
         return int(m.group(1))
     m = _YEAR_2_RE.search(question)
     if m:
-        return 2000 + int(m.group(1))   # '25학번' → 2025
+        yy = int(m.group(1))            # '25학번' → 2025 / '99학번' → 1999
+        return (1900 if yy >= _YY_CENTURY_SPLIT else 2000) + yy
     m = _YEAR_GRAD_RE.search(question)
     if m:
         return int(m.group(1))          # '2029년 졸업' → 2029 (없으면 리졸버가 폴백+고지)
@@ -323,7 +344,14 @@ class GraduationService:
                 year = detect_admission_year(question) or await self._latest_year(db, mentioned[0])
                 if year:
                     return await self._answer_dept_requirement(question, mentioned[0], mentioned[1], year, db)
-            return await self._answer_from_rag(question)
+            # 학과 미언급 → 생 RAG. 절차·규정 질문('졸업 신청 방법')은 여기서 정상 처리된다.
+            # 다만 '내 졸업요건'류는 이 계정으로 답이 나올 수 없다. RAG까지 0건이면 '자료가 없다'가
+            # 아니라 '이 계정에 학과 정보가 없다'고 정확히 알려 원인을 찾을 수 있게 한다.
+            answer, meta = await self._answer_from_rag(question)
+            if any(m in answer for m in _GRAD_NOT_FOUND_MARKERS):
+                print("[Graduation] 학과 없는 계정 + RAG 0건 → 계정 안내로 대체")
+                return _NO_DEPT_GUIDE, meta
+            return answer, meta
         try:
             my_year = int(student.student_no[:4])
         except (ValueError, TypeError, IndexError):

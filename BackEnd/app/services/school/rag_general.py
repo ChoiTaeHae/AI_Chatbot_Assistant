@@ -331,7 +331,11 @@ _ACTION_CONCEPTS: dict[str, tuple[str, ...]] = {
     "방법": ("방법", "어떻게", "어케", "하는법", "는법", "하려면", "려면", "떼고", "떼주", "어디"),
     "신청": ("신청", "접수", "지원", "넣", "내려"),
     "절차": ("절차", "과정", "순서", "어떻게", "하려면", "어디"),
-    "발급": ("발급", "떼", "받"),
+    # '발급'만 방법 씨앗이 빠져 있어, 증명서류 질문에서 '어떻게 해?'가 '발급 방법'으로 정규화되는
+    # 정당한 변환이 날조로 오판됐다(실측: '재증명 어떻게해?' → '제증명 발급 방법' 폐기 → 구어 원본이
+    # 그대로 라우팅돼 '재-'가 재입학과 가까워 readmission으로 새고 검색 0건).
+    # '뭐야/얼마야'는 여전히 넣지 않으므로 '○○이 뭐야?' → '○○ 발급 방법' 같은 성격 변질은 계속 막힌다.
+    "발급": ("발급", "떼", "받", "어떻게", "어케", "하려면", "려면", "방법", "하는법", "는법"),
 }
 
 
@@ -413,7 +417,18 @@ def _keeps_topic(question: str, rewritten: str) -> bool:
     if not terms:
         return True                      # 모호한 후속 질문 → 검사 skip
     rw = (rewritten or "").replace(" ", "")
-    return any(_stem_in(t, rw) for t in terms)
+    if any(_stem_in(t, rw) for t in terms):
+        return True
+
+    # 표기만 바뀐 경우(오타 교정·동의어)는 '이탈'이 아니다. 양쪽을 검색어 딕셔너리의
+    # 공식어로 환산해 겹치면 같은 주제로 본다.
+    # 실측: '재증명 어떻게해?'(오타) → '제증명 발급 방법'(정확한 교정)이 글자가 달라
+    # 폐기됐고, 구어 원본이 그대로 라우팅돼 '재-'가 재입학과 가까워 readmission으로 샜다
+    # (0.663 → 검색 0건). 둘 다 '증명서'로 환산되므로 여기서 살린다.
+    q_off = _official_terms(question)
+    if q_off and (q_off & _official_terms(rewritten)):
+        return True
+    return False
 
 
 # ── 검색어 딕셔너리 ────────────────────────────────────────────────
@@ -444,6 +459,20 @@ def set_search_synonyms(mapping: dict | None) -> None:
             cleaned[term] = officials
     _search_synonyms = cleaned or dict(DEFAULT_SEARCH_SYNONYMS)
     print(f"[RAG_GENERAL] 검색어 딕셔너리 {len(_search_synonyms)}개 로드")
+
+
+def _official_terms(text: str) -> set[str]:
+    """텍스트에 들어 있는 딕셔너리 표제어를 '공식어 집합'으로 환산.
+
+    '재증명'과 '제증명'처럼 표기가 달라도 같은 공식어('증명서')로 모이면 같은 주제로
+    볼 수 있다. _keeps_topic이 오타 교정을 주제 이탈로 오판하지 않도록 쓰는 보조 함수.
+    """
+    t = (text or "").replace(" ", "")
+    out: set[str] = set()
+    for term, officials in _search_synonyms.items():
+        if term.replace(" ", "") in t:
+            out.update(o.replace(" ", "") for o in officials)
+    return out
 
 
 def expand_search_query(query: str) -> str:
