@@ -20,8 +20,21 @@ export async function getScholarships(kind = '장학금', scope = '교내', q = 
 }
 
 /**
+ * 맞춤 설문 자동 연동 프로필 (설문 모달 상단 표시용).
+ * 반환: { name, gpa, grade_year, major_field, dept_name }
+ */
+export async function fetchMyScholarshipProfile() {
+  const res = await authFetch(`${BASE}/scholarships/profile`, { method: 'GET' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || '내 정보를 불러오지 못했습니다.')
+  }
+  return res.json()
+}
+
+/**
  * 맞춤 장학금 설문 필터. answers는 설문 답(성적·학년·전공은 서버가 학생 레코드에서 자동 연동).
- * 반환: { count, items:[...], profile:{ name, gpa, grade_year, major_field } }
+ * 반환: { count, items:[...], profile:{ name, gpa, grade_year, major_field, dept_name } }
  */
 export async function matchScholarships(answers) {
   const res = await authFetch(`${BASE}/scholarships/match`, {

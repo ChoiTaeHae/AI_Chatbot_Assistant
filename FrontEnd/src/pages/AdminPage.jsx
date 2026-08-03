@@ -11,6 +11,7 @@ import { fetchFiles, uploadFile, deleteFile, downloadFile } from '../api/admins/
 import { fetchChatSessions, fetchSessionMessages, upsertMessageFeedback } from '../api/admins/chats'
 import ScheduleManager from '../components/admin/ScheduleManager'
 import ScholarshipManager from '../components/admin/ScholarshipManager'
+import DepartmentManager from '../components/admin/DepartmentManager'
 import ThemeToggle from '../components/common/ThemeToggle'
 
 // 파일 관리 탭에서 숨길 topic — 장학금 파일은 '장학금 관리' 화면에서 전용 관리
@@ -62,6 +63,11 @@ const NAV_ITEMS = [
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+    </svg>
+  )},
+  { id: 'departments', label: '학과 관리', icon: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
     </svg>
   )},
 ]
@@ -680,6 +686,13 @@ export default function AdminPage() {
           {activeNav === 'scholarships' && (
             <div className="flex-1 flex flex-col overflow-y-auto" style={{ gap: '20px' }}>
               <ScholarshipManager />
+            </div>
+          )}
+
+          {/* 학과 관리 */}
+          {activeNav === 'departments' && (
+            <div className="flex-1 flex flex-col overflow-y-auto" style={{ gap: '20px' }}>
+              <DepartmentManager />
             </div>
           )}
 

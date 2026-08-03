@@ -6,11 +6,12 @@ import traceback
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.Database import get_db
 from app.core.deps import get_current_user
-from app.models.DB_Table import Student
+from app.models.DB_Table import Student, Department
 from app.services.school.scholarship_catalog import (
     get_catalog, get_scope_counts, get_kind_counts, match_scholarships,
 )
@@ -30,6 +31,7 @@ class MatchRequest(BaseModel):
     disabled: bool = False               # 장애
     independent: bool = False            # 자취/독립 거주
     veteran: bool = False                # 보훈·국가유공자(후손)
+    excellent: bool = False              # '성적 우수 장학금만' 필터 (태그된 것만)
 
 
 @router.get("/scholarships", summary="장학금 카탈로그 (둘러보기 모달)")
@@ -54,6 +56,24 @@ async def list_scholarships(
         raise HTTPException(status_code=503, detail="장학금 정보를 불러오지 못했어요.")
 
 
+@router.get("/scholarships/profile", summary="맞춤 설문 자동 연동 프로필 (학년·전공 등)")
+async def my_scholarship_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: Student = Depends(get_current_user),
+):
+    """설문 모달 상단에 '자동 연동' 표시용 — 로그인 학생의 학년·전공(학과명)·성적."""
+    dept_name = None
+    if getattr(current_user, "dept_id", None):
+        dept_name = await db.scalar(select(Department.name).where(Department.id == current_user.dept_id))
+    return {
+        "name": current_user.name,
+        "gpa": getattr(current_user, "gpa", None),
+        "grade_year": getattr(current_user, "grade_year", None),
+        "major_field": getattr(current_user, "major_field", None),
+        "dept_name": dept_name,
+    }
+
+
 @router.post("/scholarships/match", summary="맞춤 장학금 필터 (설문)")
 async def match(
     body: MatchRequest,
@@ -62,12 +82,16 @@ async def match(
 ):
     """설문 답 + 학생 더미 성적/학년/전공으로 맞는 장학금을 필터해서 반환."""
     try:
+        dept_name = None
+        if getattr(current_user, "dept_id", None):
+            dept_name = await db.scalar(select(Department.name).where(Department.id == current_user.dept_id))
         result = await match_scholarships(
             db,
             body.model_dump(),
             gpa=getattr(current_user, "gpa", None),
             grade_year=getattr(current_user, "grade_year", None),
             major_field=getattr(current_user, "major_field", None),
+            dept_name=dept_name,
         )
         # 설문 모달의 '연동됨' 표시용 — 자동으로 가져온 학생 프로필
         result["profile"] = {
@@ -75,6 +99,7 @@ async def match(
             "gpa": getattr(current_user, "gpa", None),
             "grade_year": getattr(current_user, "grade_year", None),
             "major_field": getattr(current_user, "major_field", None),
+            "dept_name": dept_name,
         }
         return result
     except Exception:

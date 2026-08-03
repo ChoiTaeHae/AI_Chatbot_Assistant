@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, or_, func, update, delete, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.DB_Table import ScholarshipCatalog, ScholarshipFile, DocumentFile
+from app.models.DB_Table import ScholarshipCatalog, ScholarshipFile, DocumentFile, Department
 
 # 마감 판정은 한국시간(KST, DST 없음) 벽시계 기준. end_at도 KST 벽시계로 저장된 naive 값.
 _KST = timezone(timedelta(hours=9))
@@ -225,6 +225,7 @@ async def match_scholarships(
     gpa: float | None = None,
     grade_year: int | None = None,
     major_field: str | None = None,
+    dept_name: str | None = None,
 ) -> dict:
     """설문 답 + 학생 더미(성적/학년/전공)로 장학금을 필터. 요건이 '무관(NULL/False)'이면 통과(폭넓게).
     반환: {count, items:[...]} — items는 모달 표시/딥링크용 _to_item 형태."""
@@ -258,6 +259,10 @@ async def match_scholarships(
         majors = [m for m in (r.req_major_field or "").split(",") if m]
         if majors and major_field and major_field not in majors:
             continue
+        # 대상 학과(다중) — 학생 학과가 목록에 있으면 통과. 비면 무관.
+        depts = [d for d in (r.req_departments or "").split(",") if d]
+        if depts and dept_name and dept_name not in depts:
+            continue
         if r.req_multichild and not answers.get("multichild"):
             continue
         if r.req_foreigner and not answers.get("foreigner"):
@@ -267,6 +272,10 @@ async def match_scholarships(
         if r.req_independent and not answers.get("independent"):
             continue
         if r.req_veteran and not answers.get("veteran"):
+            continue
+        # 성적 우수 — 순수 태그. 설문에서 '성적 우수 장학금만'을 켰을 때만 태그된 것으로 좁힌다.
+        # (학점 요건은 별도의 최소 학점 req_min_gpa가 담당 — 여기선 GPA를 보지 않는다.)
+        if answers.get("excellent") and not r.req_excellent:
             continue
         matched.append(r)
 
@@ -362,8 +371,8 @@ async def get_file_links(db: AsyncSession) -> dict[int, list[dict]]:
 # ─────────────────────────── 관리자: 장학금 CRUD (장학금 관리 화면) ───────────────────────────
 _REQ_FIELDS = (
     "req_region", "req_region_basis", "req_min_gpa", "req_grade", "req_income",
-    "req_age_max", "req_major_field", "req_multichild", "req_foreigner",
-    "req_disabled", "req_independent", "req_veteran",
+    "req_age_max", "req_major_field", "req_departments", "req_multichild", "req_foreigner",
+    "req_disabled", "req_independent", "req_veteran", "req_excellent",
 )
 _EDITABLE = ("name", "kind", "scope", "category", "amount", "eligibility", "period", "end_at", "link") + _REQ_FIELDS
 
@@ -385,6 +394,12 @@ def _admin_item(row: ScholarshipCatalog, files: list[dict]) -> dict:
         "files": files,   # [{topic, name, is_primary}]
         **{f: getattr(row, f) for f in _REQ_FIELDS},   # 맞춤 설문 매칭 요건
     }
+
+
+async def list_department_names(db: AsyncSession) -> list[str]:
+    """장학금 관리 '대상 학과' 다중선택용 — 학과명 목록(가나다순)."""
+    rows = (await db.execute(select(Department.name).order_by(Department.name))).scalars().all()
+    return [n for n in rows if n]
 
 
 async def list_catalog_admin(db: AsyncSession) -> list[dict]:
