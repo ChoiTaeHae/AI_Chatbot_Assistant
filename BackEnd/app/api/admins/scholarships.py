@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.Database import get_db
 from app.services.school.scholarship_catalog import (
-    list_catalog_admin, create_catalog, update_catalog, delete_catalog,
+    list_catalog_admin, create_catalog, update_catalog, delete_catalog, list_department_names,
 )
 
 router = APIRouter()
@@ -35,11 +35,13 @@ class ScholarshipIn(BaseModel):
     req_income: str | None = None
     req_age_max: int | None = None
     req_major_field: str | None = None
+    req_departments: str | None = None
     req_multichild: bool = False
     req_foreigner: bool = False
     req_disabled: bool = False
     req_independent: bool = False
     req_veteran: bool = False
+    req_excellent: bool = False
 
 
 def _validate(body: ScholarshipIn) -> None:
@@ -54,6 +56,11 @@ def _validate(body: ScholarshipIn) -> None:
 @router.get("/scholarships", summary="장학금 전체 목록 (관리)")
 async def list_scholarships(db: AsyncSession = Depends(get_db)):
     return await list_catalog_admin(db)
+
+
+@router.get("/departments", summary="학과 목록 (지원 요건 '대상 학과' 다중선택용)")
+async def list_departments(db: AsyncSession = Depends(get_db)):
+    return await list_department_names(db)
 
 
 @router.post("/scholarships", summary="장학금 추가")

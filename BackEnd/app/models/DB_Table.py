@@ -507,11 +507,13 @@ class ScholarshipCatalog(Base):
     req_income       = Column(String(20), nullable=True)   # 소득 상한: '기초'|'차상위'|'중위100'|'중위200'|None
     req_age_max      = Column(Integer, nullable=True)       # 나이 상한. NULL=무관
     req_major_field  = Column(String(120), nullable=True)  # 전공계열(다중, 콤마): '인문사회,예술체육,이공' 중. 비면 무관
+    req_departments  = Column(String(500), nullable=True)  # 대상 학과(다중, 콤마: '간호학과,물리치료학과'). 비면 무관
     req_multichild   = Column(Boolean, nullable=False, server_default="false")  # 다자녀 가정 대상
     req_foreigner    = Column(Boolean, nullable=False, server_default="false")  # 외국인/유학생 대상
     req_disabled     = Column(Boolean, nullable=False, server_default="false")  # 장애 대상
     req_independent  = Column(Boolean, nullable=False, server_default="false")  # 자취/주거 지원
     req_veteran      = Column(Boolean, nullable=False, server_default="false")  # 보훈·국가유공자(후손)
+    req_excellent    = Column(Boolean, nullable=False, server_default="false")  # 성적 우수 대상 (자동연동 학점 ≥ 우수 기준)
 
     __table_args__ = (
         Index("ix_scholarship_catalog_scope", "scope"),

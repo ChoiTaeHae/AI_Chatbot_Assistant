@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { matchScholarships } from '../../api/scholarship'
+import { useState, useEffect } from 'react'
+import { matchScholarships, fetchMyScholarshipProfile } from '../../api/scholarship'
 
 const TEAL = 'var(--brand)'
 
@@ -37,10 +37,17 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)  // { count, items, profile }
+  const [myProfile, setMyProfile] = useState(null)  // 자동 연동 표시용 (설문 열 때 조회)
+
+  // 설문 열자마자 내 학년·전공(학과명)·성적을 불러와 상단에 표시 (제출 전에도 보이게)
+  useEffect(() => {
+    fetchMyScholarshipProfile().then(setMyProfile).catch(() => {})
+  }, [])
 
   const [a, setA] = useState({
     self_region: '', parent_region: '', income: '', interests: [], age: '',
     multichild: false, foreigner: false, independent: false, disabled: false, veteran: false,
+    excellent: false,   // '성적 우수 장학금만' 결과 필터
   })
   const set = (k, v) => setA((p) => ({ ...p, [k]: v }))
   const toggleInterest = (c) =>
@@ -85,11 +92,24 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
         {step === 'form' ? (
           <>
             <div style={{ padding: '16px 18px', overflowY: 'auto' }} className="flex-1">
-              {/* 자동 연동 안내 */}
+              {/* 자동 연동 안내 — 내 학년·전공·성적을 실제 값으로 표시 */}
               <div className="rounded-lg" style={{ background: 'var(--brand-tint)', padding: '9px 12px', marginBottom: '16px' }}>
                 <p className="text-(--text-muted)" style={{ fontSize: '12px' }}>
                   <span className="emoji">🔗</span> 성적 · 학년 · 전공은 <b>내 정보에서 자동 연동</b>돼요.
                 </p>
+                {myProfile && (myProfile.grade_year || myProfile.dept_name || myProfile.gpa != null) && (
+                  <div className="flex flex-wrap items-center gap-1.5" style={{ marginTop: '8px' }}>
+                    {myProfile.grade_year && (
+                      <span className="rounded-full font-semibold text-white" style={{ fontSize: '11px', padding: '2px 9px', background: TEAL }}>{myProfile.grade_year}학년</span>
+                    )}
+                    {myProfile.dept_name && (
+                      <span className="rounded-full font-semibold text-white" style={{ fontSize: '11px', padding: '2px 9px', background: TEAL }}>{myProfile.dept_name}</span>
+                    )}
+                    {myProfile.gpa != null && (
+                      <span className="rounded-full font-semibold" style={{ fontSize: '11px', padding: '2px 9px', background: 'var(--surface-2)', color: 'var(--text-muted)' }}>학점 {myProfile.gpa}</span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2" style={{ gap: '14px' }}>
@@ -151,6 +171,19 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
                     </button>
                   )
                 })}
+              </div>
+
+              {/* 장학금 유형 필터 — 성적 우수로 태그된 장학금만 보기 */}
+              <p className="text-xs font-bold text-(--text-muted)" style={{ marginTop: '18px', marginBottom: '8px' }}>장학금 유형 필터</p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => set('excellent', !a.excellent)} className="rounded-full border transition" style={{
+                  fontSize: '12px', padding: '6px 13px', fontWeight: a.excellent ? 700 : 500,
+                  borderColor: a.excellent ? 'var(--brand)' : 'var(--modal-edge)',
+                  background: a.excellent ? 'var(--brand)' : 'transparent',
+                  color: a.excellent ? '#fff' : 'var(--text-muted)',
+                }}>
+                  {a.excellent ? '✓ ' : ''}🏅 성적 우수 장학금만
+                </button>
               </div>
 
               {error && <p className="text-red-400" style={{ fontSize: '12px', marginTop: '14px' }}>{error}</p>}
