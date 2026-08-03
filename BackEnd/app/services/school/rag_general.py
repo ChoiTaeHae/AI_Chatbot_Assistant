@@ -5,7 +5,7 @@ import re
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 from app.rag.Retrieval.retriever import MAX_TOTAL_CONTEXT   # 보강 블록도 같은 예산 안에서 다룬다
-from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT, SYSTEM_PROMPT
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT, SYSTEM_PROMPT, WEAK_EVIDENCE_DIRECTIVE
 
 # 재작성 드리프트 임계값 — 원문과 재작성의 의미 유사도가 이 값 미만이면
 # 환각(엉뚱한 주제로 변형)으로 보고 원본 질문을 사용한다. (bge-m3 코사인, 튜닝 가능)
@@ -891,6 +891,10 @@ async def answer_rag_general_question_with_metadata(
                 overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT
                 context = llm_service.fit_context(context, overhead)
                 prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
+                # 리랭커 0점 → 어휘 매칭으로만 살아난 컨텍스트면 '단정 금지' 지시를 앞에 붙인다.
+                if metadata.get("weak_evidence"):
+                    print("[RAG_GENERAL] ⚠️ 근거 약함(어휘 매칭 구제) → 단정 금지 지시 주입")
+                    prompt = WEAK_EVIDENCE_DIRECTIVE + prompt
                 # 사실 조회 답변은 결정론적으로(temp 0.0) — 같은 질문에 목록·표 완비가 매번 달라지던
                 # 변덕 억제(예: 주차 정기권 3개 요금 중 1개만 뽑힘). 졸업·일정·동아리 핸들러와 동일 원칙.
                 answer = await llm_service.answer(prompt, max_tokens=1536, temperature=0.0)

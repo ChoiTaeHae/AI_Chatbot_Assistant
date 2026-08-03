@@ -225,6 +225,9 @@ class RagService:
             "url": metadata.get("url"),
             "contact_name": metadata.get("contact_name"),
             "contact_phone": metadata.get("contact_phone"),
+            # 리랭커가 전부 0점을 줘 '출처명·본문 어휘 매칭'으로만 살아난 컨텍스트인지.
+            # 호출부(핸들러)가 이 값을 보고 LLM에 '단정 금지' 지시를 덧붙인다.
+            "weak_evidence": any(r.metadata.get("weak_evidence") for r in results),
         }
 
 
