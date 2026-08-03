@@ -88,6 +88,19 @@ def _strip_context_labels(answer: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 
+# 파생 일정을 가리키는 수식어 — 본 일정과 이름이 겹쳐 헤드라인이 뒤바뀌는 원인이 된다.
+_DERIVED_QUALIFIERS = ("변경", "정정")
+
+
+def _drop_derived(hit: list, kw_text: str) -> list:
+    """질문이 '변경·정정'을 직접 묻지 않았으면 파생 일정을 후보에서 뺀다. 빼서 비면 원래대로."""
+    if not any(q in kw_text for q in _DERIVED_QUALIFIERS):
+        base = [r for r in hit if not any(q in (r.event or "") for q in _DERIVED_QUALIFIERS)]
+        if base:
+            return base
+    return hit
+
+
 def _narrow_by_specific_keyword(rows: list, keywords: list[str]) -> list:
     """가장 구체적인(긴) 키워드에 맞는 행만 남긴다 — 헤드라인 선정 전용.
 
@@ -95,11 +108,33 @@ def _narrow_by_specific_keyword(rows: list, keywords: list[str]) -> list:
     전체 목록에 남는 건 유용하지만(관련 일정 안내), 헤드라인까지 그중 가장 가까운 것으로
     잡으면 질문과 다른 일정을 답으로 내놓는다.
     실측: '성적 이의신청 언제야' → 헤드라인이 '성적입력 및 성적공고 기간'이 됐다.
+
+    파생 수식어('변경'·'정정')는 한 겹 더 걸러야 한다. 위 매칭은 부분 포함이라 '수강신청'이
+    '수강신청 변경 기간'에도 걸리는데, 이건 이름이 비슷할 뿐 다른 기간이다.
+    실측: '수강신청 언제야' → 헤드라인이 '2학기 수강신청 변경 기간'이 되고, 모델이 옮겨
+    적으며 '변경'을 흘려 "2학기 수강신청은 8월 12일부터"라고 단정했다(실제 수강신청은
+    7/27~31로 이미 종료). 프롬프트로 "'변경'을 빼지 마라"를 지시해봤더니 8B가 오히려 더
+    흘려 멀쩡하던 '수강정정 기간' 답변까지 깨졌다(실측) → 후보 단계에서 코드로 정리한다.
+    질문이 '변경·정정'을 직접 물었으면 그대로 두고, 걸러낸 결과가 비면 원래 후보를 쓴다.
+    (전체 목록에는 어느 경우든 그대로 남으므로 정보가 사라지지 않는다)
+
+    키워드가 여럿이면 '가장 긴 것 하나'로는 부족하다 — 나머지 키워드가 통째로 버려진다.
+    실측: '겨울학기 언제 개강해' → 긴 쪽('겨울학기')만 써서 겨울학기 수강신청·개강·종강·
+    성적입력이 전부 후보로 남았고, 그중 가장 가까운 '겨울학기 수강신청 기간(11/25)'이
+    헤드라인이 됐다(정답은 '겨울학기 개강 12/21'). 그래서 키워드를 모두 품은 행을 먼저
+    본다. 교집합이 비면(예: '계절학기 수강신청' — DB 이름은 '겨울학기 수강신청 기간'이라
+    '계절학기'가 안 들어감) 기존대로 긴 키워드 순으로 내려간다.
     """
+    if len(keywords) > 1:
+        kws = [k.replace(" ", "") for k in keywords]
+        both = [r for r in rows
+                if all(k in (r.event or "").replace(" ", "") for k in kws)]
+        if both:
+            return _drop_derived(both, "".join(kws))
     for kw in sorted(keywords, key=len, reverse=True):
         hit = [r for r in rows if kw in (r.event or "").replace(" ", "")]
         if hit:
-            return hit
+            return _drop_derived(hit, kw)
     return rows
 
 
@@ -113,15 +148,45 @@ def _headline(rows: list, today: date, keywords: list[str] | None = None) -> str
 
     rows는 시작일 오름차순이라 처음 만나는 것이 가장 가까운 일정이다.
     """
+    row, state = pick_headline_row(rows, today, keywords)
+    if row is None:
+        return "다음 일정: 없음 (조회된 일정이 모두 지났습니다)"
+    prefix = _HEADLINE_PREFIX[state]
+    return f"{prefix}: {row.event} — {_fmt_range_full(row.start_date, row.end_date)}"
+
+
+# pick_headline_row가 돌려주는 상태별 말머리.
+_HEADLINE_PREFIX = {"ongoing": "진행 중", "upcoming": "다음 일정", "past": "가장 최근(종료)"}
+
+
+def pick_headline_row(rows: list, today: date, keywords: list[str] | None = None):
+    """헤드라인으로 삼을 행과 그 상태(ongoing/upcoming/past)를 반환.
+
+    헤드라인은 코드가 골라 주는데 전체 목록은 날짜순이라, 둘의 첫 줄이 어긋나면 모델이
+    헤드라인을 버리고 목록 맨 위를 답으로 삼는다. 실측: '수강신청 언제야'에서 헤드라인은
+    '겨울학기 수강신청 기간(11/25)'이었는데 답변은 목록 첫 줄인 '2학기 수강신청 변경
+    기간(8/12)'을 "2학기 수강신청은 8월 12일부터"라고 옮겨 적었다. 고른 행을 목록에서도
+    맨 앞에 두면 어느 쪽을 보든 같은 답이 된다.
+
+    다가오는 일정이 없으면 '가장 최근에 끝난 것'까지 내려간다. 여기서 None을 돌려주면
+    호출부의 '첫 줄을 코드가 확정' 장치가 통째로 꺼져 버려서, 정작 물어본 날짜를 모델이
+    목록에서 알아서 찾아 쓰는 상태로 되돌아간다. 실측: '여름학기 언제 개강해'(8/3 기준
+    여름학기가 전부 과거) → 첫 줄이 "관련 일정이 모두 지났어요."로 끝나고 정답인
+    개강일(6/22)은 목록에서 찾아 읽어야 했다. 종료 사실은 말머리와 (종료됨) 표시로 전한다.
+    """
     pool = _narrow_by_specific_keyword(rows, keywords) if keywords else rows
     ongoing = next((r for r in pool if r.start_date and r.start_date <= today
                     and (r.end_date or r.start_date) >= today), None)
     if ongoing:
-        return f"진행 중: {ongoing.event} — {_fmt_range_full(ongoing.start_date, ongoing.end_date)}"
+        return ongoing, "ongoing"
     upcoming = next((r for r in pool if r.start_date and r.start_date > today), None)
     if upcoming:
-        return f"다음 일정: {upcoming.event} — {_fmt_range_full(upcoming.start_date, upcoming.end_date)}"
-    return "다음 일정: 없음 (조회된 일정이 모두 지났습니다)"
+        return upcoming, "upcoming"
+    # 전부 과거 — 가장 늦게 끝난 것을 쓴다. rows 순서는 호출부마다 다르므로(다가오는 것
+    # 다음에 최근 과거가 붙는 식) 순서에 기대지 않고 날짜로 직접 고른다.
+    recent = max((r for r in pool if r.start_date),
+                 key=lambda r: (r.end_date or r.start_date), default=None)
+    return recent, "past"
 
 
 def _schedule_lines(rows: list, today: date) -> str:
@@ -295,10 +360,17 @@ class ScheduleService:
             metadata["no_match"] = True
             return ("해당 학사일정을 찾지 못했어요. 관리자에게 학사일정 등록을 요청해 주세요.", metadata)
 
+        # 헤드라인으로 고른 일정을 목록에서도 맨 앞으로 옮긴다 — 어긋나면 모델이 목록 첫 줄을
+        # 답으로 삼아 헤드라인이 무력화된다(pick_headline_row 설명 참조).
+        kws = self._extract_keywords(question)
+        head_row, head_state = pick_headline_row(rows, today, kws)
+        if head_row is not None:
+            rows = [head_row] + [r for r in rows if r is not head_row]
+
         # 프론트 미니 달력 카드용 — 선별된 일정을 구조화해서 함께 반환(일정이 걸친 '주'만 렌더)
         metadata["schedule_card"] = self.build_card(rows)
 
-        head = _headline(rows, today, self._extract_keywords(question))
+        head = _headline(rows, today, kws)
         context = f"{head}\n\n전체 목록:\n{_schedule_lines(rows, today)}"
         prompt = SCHEDULE_PROMPT.format(
             today=f"{today.year}년 {today.month}월 {today.day}일",
@@ -308,6 +380,31 @@ class ScheduleService:
         # 날짜가 흔들리면 안 되므로 결정론적으로(temp 0.0) 문장화만 시킨다.
         answer = await llm_service.answer(prompt, max_tokens=512, temperature=0.0)
         answer = _strip_context_labels(answer)
+
+        # 첫 줄(요약)은 코드가 만든 문장으로 덮어쓴다. 모델이 일정 이름을 자기 식으로 바꿔 써서
+        # 바로 아래 목록과 모순되는 답이 나왔다 — 실측: 헤드라인이 '겨울학기 수강신청 기간
+        # (11/25~27)'인데 첫 줄을 "2학기 수강신청은 11월 25일부터 27일까지예요"로 썼고,
+        # 같은 답변의 목록엔 '2학기 수강신청 기간: 7/27~7/31 (종료됨)'이 따로 있었다.
+        # 프롬프트로 "이름을 바꾸지 마라"를 지시해봤더니 8B가 오히려 더 흘려 멀쩡하던 답변까지
+        # 깨졌다(실측). 고르는 일에 이어 '이름 표기'까지 코드가 확정하고, 모델에게는 목록
+        # 문장화만 남긴다(이 서비스의 기본 원칙). 형식은 이미 잘 나오던 답변들과 같다.
+        # 이미 끝난 일정을 헤드라인으로 쓸 때는 '(종료됨)'을 코드가 붙인다. 안 붙이면 첫 줄만
+        # 읽고 다가올 일정으로 오해한다(목록 쪽엔 _schedule_lines가 이미 같은 표시를 단다).
+        if head_row is not None and answer:
+            mark = " (종료됨)" if head_state == "past" else ""
+            head_line = (f"{head_row.event}: "
+                         f"{_fmt_range_full(head_row.start_date, head_row.end_date)}{mark}")
+            lines = answer.split("\n")
+            i = next((n for n, ln in enumerate(lines) if ln.strip()), None)
+            if i is None:
+                answer = head_line
+            elif lines[i].lstrip().startswith("-"):
+                lines.insert(i, head_line + "\n")     # 모델이 요약 없이 목록만 냈으면 앞에 붙인다
+                answer = "\n".join(lines)
+            elif lines[i].strip() != head_line:
+                lines[i] = head_line                  # 모델이 쓴 요약 문장을 교체
+                answer = "\n".join(lines)
+
         # 답변이 비면 목록만이라도 보여준다(헤드라인 줄은 말머리라 제외).
         return (answer or _schedule_lines(rows, today)), metadata
 
@@ -351,8 +448,19 @@ class ScheduleService:
         )).scalars().all()
         matched = _dedup(matched)
         upcoming = [r for r in matched if r.end_date and r.end_date >= today]
-        past = [r for r in matched if not (r.end_date and r.end_date >= today)]
-        return upcoming + list(reversed(past))[: self._MAX_PAST_ITEMS]
+        past = list(reversed([r for r in matched if not (r.end_date and r.end_date >= today)]))
+        # 과거 일정은 _MAX_PAST_ITEMS개만 남는데 '최근 순'으로만 자르면 질문이 콕 집은 일정이
+        # 잘려나간다. 실측: '여름학기 언제 개강해'(8/3 기준 여름학기가 전부 과거)에서 개강일
+        # (6/22)이 성적입력·성적정정에 밀려 컨텍스트에서 사라졌고, 모델이 그 빈자리를
+        # '여름학기 개강: 7월 24일'(DB에 없는 행)로 지어냈다. 자르기 전에 질문 키워드를 모두
+        # 품은 행을 앞으로 올려, 물어본 일정이 먼저 살아남게 한다. 키워드가 하나뿐이면 모든
+        # 후보가 그 하나를 품고 있어 순서가 안 바뀌므로 둘 이상일 때만 적용한다.
+        if len(keywords) > 1:
+            kws = [k.replace(" ", "") for k in keywords]
+            exact = [r for r in past if all(k in (r.event or "").replace(" ", "") for k in kws)]
+            if exact:
+                past = exact + [r for r in past if r not in exact]
+        return upcoming + past[: self._MAX_PAST_ITEMS]
 
     # ── 타 토픽 보강 (schedule을 배타적 토픽이 아니라 '레이어'로 쓰는 진입점) ──
     async def collect_related(self, question: str, db: AsyncSession) -> list:
@@ -419,7 +527,8 @@ class ScheduleService:
     # 학사일정 대표 키워드 — 질문에 등장하면 이벤트 필터로 사용(공백 제거 비교)
     _EVENT_KEYWORDS = [
         "수강신청", "수강정정", "수강변경", "수강철회", "수강취소",
-        "개강", "종강", "개학", "방학", "휴학", "복학", "자퇴", "전과", "재입학",
+        "개강", "종강", "개학", "여름방학", "겨울방학", "방학",
+        "휴학", "복학", "자퇴", "전과", "재입학",
         "등록금", "등록", "분납", "장학",
         "성적정정", "성적입력", "성적공고", "이의신청", "성적",
         "졸업사정", "학위수여식", "졸업식", "졸업", "학위",
@@ -447,6 +556,17 @@ class ScheduleService:
         # '수강정정'은 달력에 없고 같은 뜻이 '수강신청 변경 기간'으로 저장돼 있다. 매핑 없으면
         # '수강정정 기간'이 0건→no_match→RAG로 새서 엉뚱한 재수강 규칙을 답했다(실측).
         "수강정정": ["수강신청 변경", "수강변경"],
+        # 달력에 '방학'이라는 이름의 행이 아예 없다(314행 중 0건). 학교가 방학을 별도 일정으로
+        # 적지 않고 '종강일~개강일'로만 표기하기 때문이다. 매핑이 없으면 '방학 언제부터'가
+        # 0건→no_match→RAG로 새서 "여름방학은 여름학기 2학점 이상 이수 후 시작"이라는
+        # 엉뚱한 답이 나갔다(실측). 계절학기는 방학 '안에' 있는 별개 일정이라 섞으면 안 된다.
+        # 없는 '방학' 행을 만들어 넣는 대신, 학교가 실제로 적어 둔 경계 일정을 그대로 보여준다.
+        "방학": ["1학기 종강일", "2학기 개강일", "2학기 종강일", "1학기 개강일"],
+        # 계절을 밝힌 질문엔 그쪽 경계만 준다. 안 나누면 '겨울방학 언제야'에 여름방학 경계
+        # (1학기 종강·2학기 개강)까지 섞여 나와 네 줄이 통째로 같은 답이 된다(실측).
+        # '방학'만 물었을 땐 위 매핑이 그대로 걸려 네 경계를 다 보여준다(계절 미상이므로).
+        "여름방학": ["1학기 종강일", "2학기 개강일"],
+        "겨울방학": ["2학기 종강일", "1학기 개강일"],
         "시험": ["정기평가", "수시(중간)평가"],
         "중간고사": ["수시(중간)평가"],
         "중간시험": ["수시(중간)평가"],
