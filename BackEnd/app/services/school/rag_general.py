@@ -260,8 +260,21 @@ def format_certificate_info(context: str, question: str) -> str:
     # 블록 밖에 있어, 증명서명만 보고 블록을 반환하면 '편제학년에 의거 발급' 같은 엉뚱한 한 줄만
     # 나온다(실측: '재학증명서 떼는 법'). 이런 질문은 빈 문자열 → LLM이 전체 컨텍스트로 답한다.
     # ('발급 기준'은 블록이 곧 답이므로 '기준'은 절차 신호에서 제외한다)
-    _METHOD_HINTS = ("떼", "방법", "어떻게", "어케", "하려면", "려면", "받으러", "받는법", "발급받", "신청", "절차")
-    is_method_query = any(h in qn for h in _METHOD_HINTS)
+    #
+    # 힌트가 '발급받'이라 뒤에 '받'이 붙어야만 걸렸고, 맨 '발급'을 놓쳤다 — 실측: '성적증명서
+    # 발급'이 절차 대신 "[성적증명서] 본 대학에서 이수한 성적의 증명서" 한 줄만 냈다(같은 질문에
+    # '방법'만 붙이면 webminwon 절차를 정상 출력). 동어반복이라 정보량이 0인데 답한 것처럼 보인다.
+    # 판정이 틀렸을 때의 손해가 대칭이 아니라 넓히는 쪽을 택했다 — 블록을 반환하면 LLM은 그
+    # 블록만 보므로 절차를 말할 길이 사라지지만(회복 불가), 스킵하면 전체 컨텍스트를 보므로
+    # 기준도 함께 답할 수 있다(회복 가능).
+    # 단 '발급 기준/대상/요건/조건/자격'은 블록이 곧 답이므로 그 결합형만 도려내고 검사한다.
+    # (문자열을 지우는 방식이라 '발급대상이랑 신청방법'처럼 섞인 질문은 '신청/방법'이 살아남는다)
+    _METHOD_HINTS = ("떼", "방법", "어떻게", "어케", "하려면", "려면", "받으러", "받는법", "발급", "신청", "절차")
+    _CRITERIA_NOUNS = ("기준", "대상", "요건", "조건", "자격")
+    qn_hint = qn
+    for _w in _CRITERIA_NOUNS:
+        qn_hint = qn_hint.replace("발급" + _w, "")
+    is_method_query = any(h in qn_hint for h in _METHOD_HINTS)
 
     if matched and not is_list_query and not is_method_query:
         return "\n\n".join(f"[{name}]\n{blocks[name]}" for name in matched)
