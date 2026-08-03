@@ -34,3 +34,10 @@ export async function deleteScholarship(id) {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '장학금 삭제 실패')
   return res.json()
 }
+
+/** 학과 목록 (지원 요건 '대상 학과' 다중선택용) — string[] */
+export async function fetchDepartments() {
+  const res = await authFetch(`${BASE}/departments`)
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '학과 목록 조회 실패')
+  return res.json()
+}

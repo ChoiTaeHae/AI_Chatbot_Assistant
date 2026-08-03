@@ -147,11 +147,13 @@ async def lifespan(app: FastAPI):
                 ("req_min_gpa", "DOUBLE PRECISION"), ("req_grade", "VARCHAR(120)"),
                 ("req_income", "VARCHAR(20)"), ("req_age_max", "INTEGER"),
                 ("req_major_field", "VARCHAR(120)"),
+                ("req_departments", "VARCHAR(500)"),
                 ("req_multichild", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_foreigner", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_disabled", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_independent", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_veteran", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_excellent", "BOOLEAN NOT NULL DEFAULT false"),
             ]:
                 await conn.execute(text(f"ALTER TABLE scholarship_catalog ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
             # 학년·전공계열은 다중선택(콤마 저장)으로 바뀌어 폭을 넓힌다 (기존 VARCHAR(20) → 120, 멱등)
