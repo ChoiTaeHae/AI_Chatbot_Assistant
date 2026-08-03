@@ -209,6 +209,27 @@ async def _search_db_with_room(keyword: str) -> tuple[Building | None, Room | No
         return building, None
 
 
+async def building_hit_alias(question: str) -> str | None:
+    """has_building_hit과 같은 판정을 하되, 매칭된 '별칭 문자열'을 돌려준다.
+
+    라우팅에서 "질문이 건물명만 덩그러니 있는 것인지"를 판단하려면 어떤 말이 건물로
+    잡혔는지 알아야 한다. (예: '기숙사 입사 제한 대상은?'에서 잡힌 건 '기숙사'뿐이고
+    나머지 '입사 제한 대상'은 위치와 무관한 내용어 → 지도가 아니라 정보 질문)
+    """
+    cands = {_norm_alias(c) for c in _make_keyword_candidates(question) if _norm_alias(c)}
+    if not cands:
+        return None
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(Building.name, Building.aliases))).all()
+    for name, aliases in rows:
+        tokens = {_norm_alias(name), _norm_alias(re.sub(r"\s*\([^)]*\)", "", str(name)))}
+        tokens |= {_norm_alias(a) for a in (aliases or [])}
+        matched = cands & {t for t in tokens if t}
+        if matched:
+            return max(matched, key=len)     # 가장 구체적인 별칭
+    return None
+
+
 async def has_building_hit(question: str) -> bool:
     """LLM 없이(후보 토큰 기반) 질문이 '특정 건물을 지칭'하는지 빠르게 확인한다.
 

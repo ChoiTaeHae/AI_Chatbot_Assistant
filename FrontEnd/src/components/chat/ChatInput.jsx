@@ -36,7 +36,7 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
 
   return (
     <div style={{ flexShrink: 0, background: 'var(--surface-card)', padding: '10px 16px 16px' }}>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} style={{ maxWidth: '1024px', margin: '0 auto' }}>
         <div style={{ position: 'relative', borderRadius: '16px', border: '1px solid var(--border)', background: 'var(--surface-2)', padding: '10px 14px', boxShadow: '0 2px 8px -4px rgba(0,0,0,0.06)' }}>
           <textarea
             ref={textareaRef}
