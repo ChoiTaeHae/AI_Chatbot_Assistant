@@ -895,6 +895,24 @@ async def answer_rag_general_question_with_metadata(
             # 파싱 실패(청크가 검색에 안 잡힘 등)면 빈 문자열 → 아래 기존 LLM 경로로 그대로 이어진다.
             answer = format_certificate_info(context, question) if is_certificate else ""
             if not answer:
+                # ── 근거가 약한데 검수 FAQ가 있으면 LLM을 아예 안 태운다 ──────────────
+                # weak_evidence는 '리랭커가 전부 0점 → 어휘 겹침만으로 살린 컨텍스트'라는 뜻이다.
+                # 이 상태로 LLM에 넘기면 질문의 단어를 빌려 없는 사실을 만든다. 아래 '단정 금지'
+                # 지시로 눌러 봤지만 8B는 지시를 흘렸다(실측: '엠티 언제가?'→2019년 솔숲 일정을
+                # "엠티는 다음과 같습니다"로 단정, '과잠 언제 맞춰?'→공결 사유 목록).
+                # 사람이 검수한 FAQ가 있으면 그게 정답이므로 모델을 거치지 않고 그대로 낸다.
+                # FAQ가 없으면 아무 일도 일어나지 않고 기존 흐름(단정 금지 지시)으로 이어진다
+                # → 리랭커 저점수 정답('도서 대출 몇 권' 0.001)이 죽지 않는다.
+                if metadata.get("weak_evidence"):
+                    from app.services.faq_index import faq_lookup
+                    hit = await loop.run_in_executor(None, faq_lookup, question)
+                    if hit:
+                        print(f"[RAG_GENERAL] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
+                        metadata["source"] = "faq"
+                        # 잡았던 무관 문서의 출처·연락처가 FAQ 답변에 붙지 않도록 비운다.
+                        for k in ("url", "contact_name", "contact_phone", "source_file"):
+                            metadata.pop(k, None)
+                        return hit[0], metadata
                 # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트에서 파일 목록·
                 # <FILES> 태그 지시를 뺐다 — 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로
                 # 무용했고, 목록을 넣지 않으니 프롬프트가 가벼워진다(오버헤드 감소 → 답변 토큰 여유 증가).
