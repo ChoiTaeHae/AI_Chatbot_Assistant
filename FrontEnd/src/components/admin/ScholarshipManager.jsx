@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { fetchScholarships, createScholarship, updateScholarship, deleteScholarship } from '../../api/admins/scholarships'
+import { fetchScholarships, createScholarship, updateScholarship, deleteScholarship, fetchDepartments } from '../../api/admins/scholarships'
 import { fetchFiles, linkScholarshipFile, unlinkScholarshipFile, uploadFile, deleteFile } from '../../api/admins/files'
 
 const TEAL = 'var(--brand)'
@@ -7,8 +7,9 @@ const EMPTY = {
   name: '', scope: '교내', category: '', amount: '', eligibility: '', period: '', end_at: '', link: '',
   // 맞춤 설문 매칭 요건 — 전부 선택(비우면 '무관' → 필터 통과)
   req_region: '', req_region_basis: '', req_min_gpa: '', req_grade: [], req_income: '',
-  req_age_max: '', req_major_field: [],
+  req_age_max: '', req_major_field: [], req_departments: [],
   req_multichild: false, req_foreigner: false, req_disabled: false, req_independent: false, req_veteran: false,
+  req_excellent: false,
 }
 
 const BASIS_OPTS = [['', '무관'], ['본인', '본인 거주'], ['부모', '부모 거주']]
@@ -16,6 +17,7 @@ const GRADE_OPTS = [['신입', '신입생'], ['재학', '재학생'], ['3학년�
 const INCOME_OPTS = [['', '무관'], ['기초', '기초생활수급'], ['차상위', '차상위'], ['중위100', '중위 100%↓'], ['중위200', '중위 100~200%']]
 const MAJOR_OPTS = [['인문사회', '인문·사회'], ['예술체육', '예술·체육'], ['이공', '이공'], ['의학계열', '의학계열']]   // 다중선택
 const REQ_FLAGS = [
+  ['req_excellent', '성적 우수'],
   ['req_multichild', '다자녀'], ['req_foreigner', '외국인·유학생'], ['req_independent', '자취·독립'],
   ['req_disabled', '장애'], ['req_veteran', '보훈·유공자'],
 ]
@@ -24,6 +26,54 @@ const REQ_FLAGS = [
 function toLocalInput(iso) {
   if (!iso) return ''
   return iso.slice(0, 16)
+}
+
+/** 대상 학과 다중선택 — 검색 콤보박스. 선택은 칩으로, 검색해서 목록에서 추가. */
+function DeptMultiSelect({ all, selected, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const boxRef = useRef(null)
+  useEffect(() => {
+    const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const kw = q.trim().toLowerCase()
+  const filtered = all.filter((d) => !selected.includes(d) && (!kw || d.toLowerCase().includes(kw))).slice(0, 60)
+  return (
+    <div ref={boxRef}>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" style={{ marginBottom: '6px' }}>
+          {selected.map((d) => (
+            <span key={d} className="inline-flex items-center gap-1 rounded-full text-white" style={{ fontSize: '11.5px', padding: '3px 5px 3px 10px', background: TEAL }}>
+              {d}
+              <button type="button" onClick={() => onChange(selected.filter((x) => x !== d))} className="inline-flex items-center justify-center hover:bg-white/25 rounded-full" style={{ width: '16px', height: '16px', fontSize: '10px' }} aria-label="제거">✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="relative">
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          placeholder="학과 검색해서 추가 (여러 개 선택 · 비우면 무관)"
+          className="w-full text-sm text-(--text) border border-(--border) rounded-lg bg-(--surface-card) outline-none focus:border-(--brand)"
+          style={{ padding: '8px 10px' }}
+        />
+        {open && filtered.length > 0 && (
+          <div className="absolute left-0 right-0 z-20 border border-(--border) rounded-lg bg-(--surface-card) shadow-lg overflow-y-auto" style={{ top: 'calc(100% + 4px)', maxHeight: '220px' }}>
+            {filtered.map((d) => (
+              <button type="button" key={d} onClick={() => { onChange([...selected, d]); setQ('') }}
+                className="w-full text-left text-sm text-(--text-body) hover:bg-(--brand-tint) transition" style={{ padding: '7px 12px' }}>
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function ScholarshipManager() {
@@ -39,6 +89,7 @@ export default function ScholarshipManager() {
   const [fileSearch, setFileSearch] = useState('')
   const [uploading, setUploading] = useState(false)
   const [pendingFile, setPendingFile] = useState(null)   // 저장(생성) 시 함께 첨부할 파일
+  const [departments, setDepartments] = useState([])     // 대상 학과 다중선택용 학과명 목록
   const fileInputRef = useRef(null)
   const newFileInputRef = useRef(null)
 
@@ -50,7 +101,12 @@ export default function ScholarshipManager() {
     try { const d = await fetchFiles(); setFilesByTopic(d.files || {}) }
     catch (e) { console.error(e) }
   }
-  useEffect(() => { (async () => { setLoading(true); await Promise.all([loadList(), loadFiles()]); setLoading(false) })() }, [])
+  useEffect(() => { (async () => {
+    setLoading(true)
+    await Promise.all([loadList(), loadFiles()])
+    fetchDepartments().then(setDepartments).catch(() => {})
+    setLoading(false)
+  })() }, [])
 
   // 근로 롤백 — 장학금만 관리
   const scholarships = useMemo(() => list.filter((s) => s.kind !== '근로'), [list])
@@ -69,8 +125,9 @@ export default function ScholarshipManager() {
       req_region: s.req_region || '', req_region_basis: s.req_region_basis || '',
       req_min_gpa: s.req_min_gpa ?? '', req_grade: s.req_grade ? s.req_grade.split(',') : [], req_income: s.req_income || '',
       req_age_max: s.req_age_max ?? '', req_major_field: s.req_major_field ? s.req_major_field.split(',') : [],
+      req_departments: s.req_departments ? s.req_departments.split(',') : [],
       req_multichild: !!s.req_multichild, req_foreigner: !!s.req_foreigner, req_disabled: !!s.req_disabled,
-      req_independent: !!s.req_independent, req_veteran: !!s.req_veteran,
+      req_independent: !!s.req_independent, req_veteran: !!s.req_veteran, req_excellent: !!s.req_excellent,
     })
     setEditingId(s.id); setPendingFile(null); setFileSearch(''); setMsg(null); setMode('form')
   }
@@ -92,6 +149,7 @@ export default function ScholarshipManager() {
       req_grade: form.req_grade.length ? form.req_grade.join(',') : null,
       req_income: form.req_income || null,
       req_major_field: form.req_major_field.length ? form.req_major_field.join(',') : null,
+      req_departments: form.req_departments.length ? form.req_departments.join(',') : null,
       req_min_gpa: form.req_min_gpa === '' ? null : Number(form.req_min_gpa),
       req_age_max: form.req_age_max === '' ? null : Number(form.req_age_max),
     }
@@ -192,7 +250,7 @@ export default function ScholarshipManager() {
                   <div className="flex items-center gap-2 text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
                     {s.period && <span><span className="emoji">🗓</span> {s.period}</span>}
                     <span><span className="emoji">📎</span> 파일 {s.files?.length || 0}</span>
-                    {(s.req_region || s.req_min_gpa != null || s.req_income || s.req_multichild || s.req_foreigner || s.req_disabled || s.req_independent || s.req_veteran) && (
+                    {(s.req_region || s.req_min_gpa != null || s.req_income || s.req_multichild || s.req_foreigner || s.req_disabled || s.req_independent || s.req_veteran || s.req_excellent) && (
                       <span style={{ color: TEAL }}><span className="emoji">🎯</span> 요건 설정됨</span>
                     )}
                   </div>
@@ -322,6 +380,9 @@ export default function ScholarshipManager() {
             )
           })}
         </div>
+
+        <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>대상 학과 <span className="font-normal text-(--text-faint)">(특정 학과 전용일 때 · 여러 개 선택 · 안 고르면 무관)</span></p>
+        <DeptMultiSelect all={departments} selected={form.req_departments} onChange={(v) => setField('req_departments', v)} />
 
         <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>대상 조건 <span className="font-normal text-(--text-faint)">(해당 장학금이 특정 대상 전용일 때만 켜기)</span></p>
         <div className="flex flex-wrap gap-2">

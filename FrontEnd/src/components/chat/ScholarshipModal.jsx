@@ -68,7 +68,7 @@ const MT = {
         noVisible: '표시할 항목이 없어요. (기간마감 숨김 해제해 보세요)',
         noItems: (k) => `등록된 ${k} 항목이 없어요.`,
         expired: '기간마감', condition: '조건', detailNote: '세부 내용은 첨부된 공고문을 확인해 주세요',
-        files: '첨부파일', viewNotice: '공고 보기' },
+        files: '첨부파일', viewNotice: '공고 보기', findMatch: '맞춤 장학금 찾기' },
   en: { title: 'Scholarships', subtitle: 'Woosong Univ. scholarship info', close: 'Close',
         scholarship: 'Scholarship', work: 'Work-Study', inSchool: 'On-campus', outSchool: 'Off-campus',
         searchHint: 'Search (name/condition)', clearSearch: 'Clear search', hideExpired: 'Hide expired',
@@ -77,7 +77,7 @@ const MT = {
         noVisible: 'Nothing to show. (Try unhiding expired items)',
         noItems: (k) => `No ${k} items registered.`,
         expired: 'Expired', condition: 'Eligibility', detailNote: 'See the attached notice for details',
-        files: 'Attachments', viewNotice: 'View notice' },
+        files: 'Attachments', viewNotice: 'View notice', findMatch: 'Find my scholarships' },
   zh: { title: '奖学金浏览', subtitle: '又松大学奖学金信息', close: '关闭',
         scholarship: '奖学金', work: '勤工俭学', inSchool: '校内', outSchool: '校外',
         searchHint: '搜索（名称·条件）', clearSearch: '清除搜索', hideExpired: '隐藏已截止',
@@ -86,10 +86,10 @@ const MT = {
         noVisible: '没有可显示的项目。（请尝试取消隐藏已截止项目）',
         noItems: (k) => `没有已登记的${k}项目。`,
         expired: '已截止', condition: '条件', detailNote: '详细内容请查看附件公告',
-        files: '附件', viewNotice: '查看公告' },
+        files: '附件', viewNotice: '查看公告', findMatch: '匹配奖学金' },
 }
 
-export default function ScholarshipModal({ lang = 'ko', initialScope = '교내', initialCategories = null, initialQuery = '', onBack, onClose }) {
+export default function ScholarshipModal({ lang = 'ko', initialScope = '교내', initialCategories = null, initialQuery = '', onBack, onOpenSurvey, onClose }) {
   const mt = MT[lang] || MT.ko
   const kind = '장학금'   // 근로 롤백 — 장학금 전용 모달
   const [scope, setScope] = useState(initialScope) // '전체' | '교내' | '교외'
@@ -186,6 +186,13 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
             <p className="font-bold text-(--text)" style={{ fontSize: '15px' }}>{mt.title}</p>
             <p className="text-(--text-faint)" style={{ fontSize: '12px' }}>{mt.subtitle}</p>
           </div>
+          {onOpenSurvey && !onBack && (
+            <button onClick={onOpenSurvey}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-full font-bold text-white transition hover:brightness-110"
+              style={{ fontSize: '12.5px', padding: '7px 14px', background: TEAL }}>
+              <span className="emoji">🎯</span> {mt.findMatch}
+            </button>
+          )}
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-body) text-lg" aria-label={mt.close}>✕</button>
         </div>
 

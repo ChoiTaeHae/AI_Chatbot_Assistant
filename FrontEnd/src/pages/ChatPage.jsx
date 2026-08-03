@@ -202,6 +202,7 @@ export default function ChatPage() {
           initialCategories={scholarship.categories || null}
           initialQuery={scholarship.query || ''}
           onBack={scholarship.fromSurvey ? () => setScholarship(null) : undefined}
+          onOpenSurvey={() => { setScholarship(null); setSurvey(true) }}
           onClose={() => { setScholarship(null); setSurvey(false) }}
         />
       )}

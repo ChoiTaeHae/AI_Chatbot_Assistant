@@ -8,6 +8,7 @@ from app.api.admins.service import router as service_router
 from app.api.admins.security import router as security_router
 from app.api.admins.files import router as files_router
 from app.api.admins.scholarships import router as scholarships_router
+from app.api.admins.departments import router as departments_router
 from app.api.admins.chats import router as chats_router
 
 # 모든 /api/admins/* 라우터에 관리자 인증 적용
@@ -19,4 +20,5 @@ router.include_router(service_router)
 router.include_router(security_router)
 router.include_router(files_router)
 router.include_router(scholarships_router)
+router.include_router(departments_router)
 router.include_router(chats_router)

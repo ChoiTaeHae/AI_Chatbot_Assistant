@@ -887,6 +887,13 @@ def _route_embedding(state: AgentState) -> str:
     # ("네" 같은 짧은 응답이 general 1등인데 확신도 0.58로 아래 게이트에 걸려 RAG로 빠지던 버그).
     if handler == "general":
         return "general"
+    # 학과 안내(college_department)는 저신뢰여도 항상 DB 핸들러(handle_department)로 보낸다.
+    # 이 토픽엔 옛 '단과대 소개' RAG 문서 몇 건이 남아 있어, '글로벌미디어AI영상학과 소개'처럼
+    # 이름이 특이해 유사도가 낮은 학과 질문이 RAG로 새면 자유전공학부·솔브릿지 같은 엉뚱한
+    # 대학 소개를 답한다(참고: services/school/department.py 도크스트링). 학과 핸들러는 DB로
+    # 단과대·학부·학과를 모두 답하고, 못 찾으면 정직히 "못 찾았다"고 하므로 환각이 없다.
+    if handler == "department":
+        return "department"
     if score >= _HIGH_CONFIDENCE and handler:
         return handler
     # 저신뢰 폴백의 예외 — 분류된 topic에 Qdrant 문서가 0개인 경우(dining·campus·schedule처럼
