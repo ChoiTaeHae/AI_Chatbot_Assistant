@@ -514,6 +514,7 @@ class ScholarshipCatalog(Base):
     req_independent  = Column(Boolean, nullable=False, server_default="false")  # 자취/주거 지원
     req_veteran      = Column(Boolean, nullable=False, server_default="false")  # 보훈·국가유공자(후손)
     req_excellent    = Column(Boolean, nullable=False, server_default="false")  # 성적 우수 대상 (자동연동 학점 ≥ 우수 기준)
+    req_flags_preferential = Column(Boolean, nullable=False, server_default="false")  # 대상 조건 성격: True=우대(안 거름·일반학생 포함) / False=필수(OR로 거름)
 
     __table_args__ = (
         Index("ix_scholarship_catalog_scope", "scope"),

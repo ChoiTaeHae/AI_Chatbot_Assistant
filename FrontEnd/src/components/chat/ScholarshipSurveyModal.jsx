@@ -8,17 +8,24 @@ const REGIONS = [
   '', '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
   '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
 ]
-// 소득 구간 — value는 백엔드 매칭 코드, label은 표시
+// 학자금 지원구간(국가장학금 소득분위) — value는 백엔드 매칭 값, label은 표시
 const INCOMES = [
-  { v: '', label: '해당없음 · 모름' },
-  { v: '기초', label: '기초생활수급' },
-  { v: '차상위', label: '차상위계층' },
-  { v: '중위100', label: '중위소득 100% 이하' },
-  { v: '중위200', label: '중위소득 100~200%' },
+  { v: '', label: '모름 · 해당없음' },
+  { v: '복지', label: '복지자격(기초·차상위)' },
+  { v: '1', label: '1구간' }, { v: '2', label: '2구간' }, { v: '3', label: '3구간' }, { v: '4', label: '4구간' }, { v: '5', label: '5구간' },
+  { v: '6', label: '6구간' }, { v: '7', label: '7구간' }, { v: '8', label: '8구간' }, { v: '9', label: '9구간' }, { v: '10', label: '10구간' },
+]
+// 학년 — 정수 grade_year로 매칭(신입=1). 빈 값=선택 안 함
+const GRADES = [
+  { v: '', label: '선택 안 함' },
+  { v: '1', label: '1학년 (신입)' },
+  { v: '2', label: '2학년' },
+  { v: '3', label: '3학년' },
+  { v: '4', label: '4학년' },
 ]
 // 관심 유형 — 카탈로그의 실제 카테고리(선택 시 결과에서 앞으로 정렬)
 const INTERESTS = [
-  '학업지원금(생활비)', '지자체', '학업장려금', '우수인재',
+  '성적 우수', '학업지원금(생활비)', '지자체', '학업장려금', '우수인재',
   '학회·연구지원', '인재육성', '주거복지(주거지원) 장학금', '취·창업지원형', '취업연계형',
 ]
 // 예/아니오 토글 항목
@@ -45,9 +52,8 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
   }, [])
 
   const [a, setA] = useState({
-    self_region: '', parent_region: '', income: '', interests: [], age: '',
+    self_region: '', parent_region: '', income: '', interests: [], age: '', gpa: '', grade_year: '',
     multichild: false, foreigner: false, independent: false, disabled: false, veteran: false,
-    excellent: false,   // '성적 우수 장학금만' 결과 필터
   })
   const set = (k, v) => setA((p) => ({ ...p, [k]: v }))
   const toggleInterest = (c) =>
@@ -56,7 +62,12 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
   async function submit() {
     setLoading(true); setError(null)
     try {
-      const payload = { ...a, age: a.age ? Number(a.age) : null }
+      const payload = {
+        ...a,
+        age: a.age ? Number(a.age) : null,
+        gpa: a.gpa === '' ? null : Number(a.gpa),
+        grade_year: a.grade_year === '' ? null : Number(a.grade_year),
+      }
       const res = await matchScholarships(payload)
       setResult(res)
       setStep('result')
@@ -92,22 +103,14 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
         {step === 'form' ? (
           <>
             <div style={{ padding: '16px 18px', overflowY: 'auto' }} className="flex-1">
-              {/* 자동 연동 안내 — 내 학년·전공·성적을 실제 값으로 표시 */}
+              {/* 자동 연동 안내 — 전공만 내 정보 연동, 학년·학점은 직접 입력 */}
               <div className="rounded-lg" style={{ background: 'var(--brand-tint)', padding: '9px 12px', marginBottom: '16px' }}>
                 <p className="text-(--text-muted)" style={{ fontSize: '12px' }}>
-                  <span className="emoji">🔗</span> 성적 · 학년 · 전공은 <b>내 정보에서 자동 연동</b>돼요.
+                  <span className="emoji">🔗</span> 전공은 <b>내 정보에서 자동 연동</b>돼요. 학년 · 학점은 아래에 직접 입력하세요.
                 </p>
-                {myProfile && (myProfile.grade_year || myProfile.dept_name || myProfile.gpa != null) && (
+                {myProfile && myProfile.dept_name && (
                   <div className="flex flex-wrap items-center gap-1.5" style={{ marginTop: '8px' }}>
-                    {myProfile.grade_year && (
-                      <span className="rounded-full font-semibold text-white" style={{ fontSize: '11px', padding: '2px 9px', background: TEAL }}>{myProfile.grade_year}학년</span>
-                    )}
-                    {myProfile.dept_name && (
-                      <span className="rounded-full font-semibold text-white" style={{ fontSize: '11px', padding: '2px 9px', background: TEAL }}>{myProfile.dept_name}</span>
-                    )}
-                    {myProfile.gpa != null && (
-                      <span className="rounded-full font-semibold" style={{ fontSize: '11px', padding: '2px 9px', background: 'var(--surface-2)', color: 'var(--text-muted)' }}>학점 {myProfile.gpa}</span>
-                    )}
+                    <span className="rounded-full font-semibold text-white" style={{ fontSize: '11px', padding: '2px 9px', background: TEAL }}>{myProfile.dept_name}</span>
                   </div>
                 )}
               </div>
@@ -126,7 +129,13 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs font-bold text-(--text-muted)">소득 구간</span>
+                  <span className="text-xs font-bold text-(--text-muted)">학년</span>
+                  <select className={selectCls} style={{ padding: '8px 10px' }} value={a.grade_year} onChange={(e) => set('grade_year', e.target.value)}>
+                    {GRADES.map((o) => <option key={o.v || 'none'} value={o.v}>{o.label}</option>)}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-bold text-(--text-muted)">학자금 지원구간</span>
                   <select className={selectCls} style={{ padding: '8px 10px' }} value={a.income} onChange={(e) => set('income', e.target.value)}>
                     {INCOMES.map((o) => <option key={o.v || 'none'} value={o.v}>{o.label}</option>)}
                   </select>
@@ -134,6 +143,10 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-bold text-(--text-muted)">나이</span>
                   <input type="number" min="15" max="99" className={selectCls} style={{ padding: '8px 10px' }} value={a.age} onChange={(e) => set('age', e.target.value)} placeholder="예: 22" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-bold text-(--text-muted)">학점 <span className="font-normal text-(--text-faint)">(4.5 만점)</span></span>
+                  <input type="number" min="0" max="4.5" step="0.1" className={selectCls} style={{ padding: '8px 10px' }} value={a.gpa} onChange={(e) => set('gpa', e.target.value)} placeholder="예: 3.8" />
                 </label>
               </div>
 
@@ -171,19 +184,6 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
                     </button>
                   )
                 })}
-              </div>
-
-              {/* 장학금 유형 필터 — 성적 우수로 태그된 장학금만 보기 */}
-              <p className="text-xs font-bold text-(--text-muted)" style={{ marginTop: '18px', marginBottom: '8px' }}>장학금 유형 필터</p>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => set('excellent', !a.excellent)} className="rounded-full border transition" style={{
-                  fontSize: '12px', padding: '6px 13px', fontWeight: a.excellent ? 700 : 500,
-                  borderColor: a.excellent ? 'var(--brand)' : 'var(--modal-edge)',
-                  background: a.excellent ? 'var(--brand)' : 'transparent',
-                  color: a.excellent ? '#fff' : 'var(--text-muted)',
-                }}>
-                  {a.excellent ? '✓ ' : ''}🏅 성적 우수 장학금만
-                </button>
               </div>
 
               {error && <p className="text-red-400" style={{ fontSize: '12px', marginTop: '14px' }}>{error}</p>}
