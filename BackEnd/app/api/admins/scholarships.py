@@ -42,6 +42,7 @@ class ScholarshipIn(BaseModel):
     req_independent: bool = False
     req_veteran: bool = False
     req_excellent: bool = False
+    req_flags_preferential: bool = False   # True=우대(안 거름) / False=필수(OR로 거름)
 
 
 def _validate(body: ScholarshipIn) -> None:

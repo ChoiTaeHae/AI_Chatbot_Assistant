@@ -9,12 +9,21 @@ const EMPTY = {
   req_region: '', req_region_basis: '', req_min_gpa: '', req_grade: [], req_income: '',
   req_age_max: '', req_major_field: [], req_departments: [],
   req_multichild: false, req_foreigner: false, req_disabled: false, req_independent: false, req_veteran: false,
-  req_excellent: false,
+  req_excellent: false, req_flags_preferential: false,
 }
 
 const BASIS_OPTS = [['', '무관'], ['본인', '본인 거주'], ['부모', '부모 거주']]
 const GRADE_OPTS = [['신입', '신입생'], ['재학', '재학생'], ['3학년이상', '3학년 이상'], ['대학원', '대학원']]   // 다중선택
-const INCOME_OPTS = [['', '무관'], ['기초', '기초생활수급'], ['차상위', '차상위'], ['중위100', '중위 100%↓'], ['중위200', '중위 100~200%']]
+// 소득 요건 = 국가장학금 학자금 지원구간. '복지'(복지자격) 또는 'N구간 이하'
+const INCOME_OPTS = [
+  ['', '무관'],
+  ['복지', '복지자격(기초·차상위)'],
+  ['1', '1구간 이하'], ['2', '2구간 이하'], ['3', '3구간 이하'], ['4', '4구간 이하'], ['5', '5구간 이하'],
+  ['6', '6구간 이하'], ['7', '7구간 이하'], ['8', '8구간 이하'], ['9', '9구간 이하'], ['10', '10구간 이하'],
+]
+// 레거시 값 정규화: 기초·차상위→복지자격, 구간/복지→그대로, 중위%등→무관(관리자 재선택)
+const _INCOME_LEGACY = { 기초: '복지', 차상위: '복지' }
+const normIncome = (v) => (!v ? '' : (_INCOME_LEGACY[v] || (/^(복지|10|[1-9])$/.test(v) ? v : '')))
 const MAJOR_OPTS = [['인문사회', '인문·사회'], ['예술체육', '예술·체육'], ['이공', '이공'], ['의학계열', '의학계열']]   // 다중선택
 const REQ_FLAGS = [
   ['req_excellent', '성적 우수'],
@@ -123,11 +132,12 @@ export default function ScholarshipManager() {
       name: s.name || '', scope: s.scope || '교내', category: s.category || '', amount: s.amount || '',
       eligibility: s.eligibility || '', period: s.period || '', end_at: toLocalInput(s.end_at), link: s.link || '',
       req_region: s.req_region || '', req_region_basis: s.req_region_basis || '',
-      req_min_gpa: s.req_min_gpa ?? '', req_grade: s.req_grade ? s.req_grade.split(',') : [], req_income: s.req_income || '',
+      req_min_gpa: s.req_min_gpa ?? '', req_grade: s.req_grade ? s.req_grade.split(',') : [], req_income: normIncome(s.req_income),
       req_age_max: s.req_age_max ?? '', req_major_field: s.req_major_field ? s.req_major_field.split(',') : [],
       req_departments: s.req_departments ? s.req_departments.split(',') : [],
       req_multichild: !!s.req_multichild, req_foreigner: !!s.req_foreigner, req_disabled: !!s.req_disabled,
       req_independent: !!s.req_independent, req_veteran: !!s.req_veteran, req_excellent: !!s.req_excellent,
+      req_flags_preferential: !!s.req_flags_preferential,
     })
     setEditingId(s.id); setPendingFile(null); setFileSearch(''); setMsg(null); setMode('form')
   }
@@ -344,7 +354,7 @@ export default function ScholarshipManager() {
             <input type="number" min="15" max="99" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_age_max} onChange={(e) => setField('req_age_max', e.target.value)} placeholder="예: 34 (비우면 무관)" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className={labelCls}>소득 요건 (상한)</span>
+            <span className={labelCls}>학자금 지원구간 (상한)</span>
             <select className={inputCls} style={{ padding: '8px 10px' }} value={form.req_income} onChange={(e) => setField('req_income', e.target.value)}>
               {INCOME_OPTS.map(([v, l]) => <option key={v || 'none'} value={v}>{l}</option>)}
             </select>
@@ -384,7 +394,7 @@ export default function ScholarshipManager() {
         <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>대상 학과 <span className="font-normal text-(--text-faint)">(특정 학과 전용일 때 · 여러 개 선택 · 안 고르면 무관)</span></p>
         <DeptMultiSelect all={departments} selected={form.req_departments} onChange={(v) => setField('req_departments', v)} />
 
-        <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>대상 조건 <span className="font-normal text-(--text-faint)">(해당 장학금이 특정 대상 전용일 때만 켜기)</span></p>
+        <p className={labelCls} style={{ marginTop: '14px', marginBottom: '8px' }}>대상 조건 <span className="font-normal text-(--text-faint)">(다자녀·장애·보훈·자취·외국인 등 · 아래 '필수/우대'로 성격 지정)</span></p>
         <div className="flex flex-wrap gap-2">
           {REQ_FLAGS.map(([key, label]) => {
             const on = form[key]
@@ -396,6 +406,23 @@ export default function ScholarshipManager() {
                 color: on ? '#fff' : 'var(--text-muted)',
               }}>
                 {on ? '✓ ' : ''}{label}
+              </button>
+            )
+          })}
+        </div>
+        {/* 대상 조건 성격: 필수(거름) vs 우대(안 거름·일반 학생 포함) */}
+        <div className="flex items-center flex-wrap gap-2" style={{ marginTop: '10px' }}>
+          <span className="text-[11px] font-bold text-(--text-muted)">대상 조건 성격</span>
+          {[[false, '필수 — 이 대상만 (하나라도 해당해야)'], [true, '우대 — 일반 학생도 포함 (안내용)']].map(([val, lbl]) => {
+            const on = form.req_flags_preferential === val
+            return (
+              <button key={String(val)} type="button" onClick={() => setField('req_flags_preferential', val)} className="rounded-full border transition" style={{
+                fontSize: '11px', padding: '4px 11px', fontWeight: on ? 700 : 500,
+                borderColor: on ? 'var(--brand)' : 'var(--border)',
+                background: on ? 'var(--brand)' : 'transparent',
+                color: on ? '#fff' : 'var(--text-muted)',
+              }}>
+                {on ? '✓ ' : ''}{lbl}
               </button>
             )
           })}
