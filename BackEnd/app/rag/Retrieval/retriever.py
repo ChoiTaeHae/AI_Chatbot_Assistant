@@ -136,14 +136,18 @@ class Retriever:
 
         # 그룹별 앵커(최고 점수 청크) 사전 식별 — 상한 초과 시 이 청크만은 예외로 붙인다.
         anchor_id: dict[str, int] = {}
+        anchor_text: dict[str, str] = {}
         best_score: dict[str, float] = {}
+        group_scores: dict[str, list[float]] = {}
         for result in results:
             article = result.metadata.get("article")
             source = result.metadata.get("source", "")
             key = f"{source}::{article}" if article else source
+            group_scores.setdefault(key, []).append(result.score)
             if key not in best_score or result.score > best_score[key]:
                 best_score[key] = result.score
                 anchor_id[key] = id(result)
+                anchor_text[key] = result.text
         anchor_done: set[str] = set()
 
         for result in results:
@@ -198,8 +202,23 @@ class Retriever:
                 else:
                     source_merged[key] = result
 
+        # 병합 결과에 '앵커 청크 본문'을 남긴다. 병합 텍스트는 chunk_index 순이라 정답이
+        # 문서 뒤쪽 청크면 맨 끝으로 밀리는데, 병합 후에는 그게 어디였는지 알 방법이 없어진다
+        # (점수도 그룹 최고값 하나로 뭉개진다). 답변 단계가 이 값을 컨텍스트 앞머리로 끌어올려
+        # 쓴다(rag_general._prepend_focus). 여기서는 표시만 하고 순서·내용은 건드리지 않는다.
+        # 함께 남기는 sibling_best는 '앵커를 뺀 나머지 형제의 최고 점수'다. 이게 사실상 0이면
+        # 리랭커가 형제 전부를 무관으로 판정한 것이라 답변 단계가 꼬리를 버릴 수 있다.
+        # 반대로 조금이라도 점수가 있으면(실측: 기숙사 간사 신청의 정답 섹션 0.064) 그 형제가
+        # 정답일 수 있으므로 반드시 남긴다 — 이 보강을 만든 이유가 바로 그 케이스다.
+        for key, merged in list(article_merged.items()) + list(source_merged.items()):
+            txt = anchor_text.get(key)
+            if txt and txt != merged.text:      # 그룹에 청크가 하나뿐이면 남길 이유가 없다
+                merged.metadata["anchor_text"] = txt
+                scores = sorted(group_scores.get(key, []), reverse=True)
+                merged.metadata["sibling_best"] = scores[1] if len(scores) > 1 else 0.0
+
         all_results = list(article_merged.values()) + list(source_merged.values())
-        
+
         # 최종 반환 시 관련도 점수가 가장 높은 순으로 정렬하여 반환
         return sorted(all_results, key=lambda r: r.score, reverse=True)
 
