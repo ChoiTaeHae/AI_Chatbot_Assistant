@@ -164,12 +164,12 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'var(--scrim)', paddingLeft: isDesktop ? '288px' : '16px', paddingRight: '16px' }}
+      style={{ background: 'var(--scrim)', padding: isDesktop ? '24px' : '12px' }}
       onClick={onClose}
     >
       <div
         className="bg-(--surface-modal) rounded-2xl shadow-2xl border border-(--modal-edge) overflow-hidden flex flex-col"
-        style={{ width: '100%', maxWidth: '820px', height: '82vh', maxHeight: '760px' }}
+        style={{ width: '100%', maxWidth: '1160px', height: '100%', maxHeight: '960px' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
@@ -301,21 +301,21 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
                 </button>
 
                 {open && (
-                  <div style={{ padding: '8px 12px 10px' }}>
+                  <div style={{ padding: '8px 12px 10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(480px, 1fr))', gap: '12px', alignItems: 'stretch' }}>
                     {g.items.map((it) => {
                       const files = it.files || []
                       const filesOpen = !!openFiles[it.id]
                       return (
-                      <div key={it.id} className="rounded-2xl" style={{ padding: '14px 16px', marginBottom: '10px', background: 'var(--item-bubble)', boxShadow: 'var(--item-shadow)' }}>
-                        <div className="flex items-center flex-wrap" style={{ columnGap: '8px', rowGap: '4px' }}>
-                          <span className="font-medium text-(--text)" style={{ fontSize: '13px' }}>{highlight(it.name, query)}</span>
-                          {it.amount && <span className="font-semibold rounded-full shrink-0" style={{ fontSize: '11px', padding: '2px 9px', background: 'var(--brand-tint2)', color: TEAL }}>{it.amount}</span>}
+                      <div key={it.id} className="rounded-2xl" style={{ padding: '14px 16px', background: 'var(--item-bubble)', boxShadow: 'var(--item-shadow)', display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        <div className="flex items-start flex-wrap" style={{ columnGap: '8px', rowGap: '4px' }}>
+                          <span className="font-semibold text-(--text)" style={{ fontSize: '17px', lineHeight: 1.35 }}>{highlight(it.name, query)}</span>
+                          {it.amount && <span className="font-semibold rounded-full shrink-0" style={{ fontSize: '13px', padding: '3px 11px', background: 'var(--brand-tint2)', color: TEAL }}>{it.amount}</span>}
                         </div>
                         {/* 기간 + 마감 */}
                         {(it.period || it.expired) && (
                           <div className="flex items-center flex-wrap gap-2" style={{ marginTop: '6px' }}>
                             {it.period && (
-                              <span className="rounded-full inline-flex items-center gap-1" style={{ fontSize: '11px', padding: '2px 9px', background: it.expired ? 'var(--danger-tint)' : 'var(--amber-tint)', color: it.expired ? 'var(--danger-text)' : 'var(--amber-text)' }}>
+                              <span className="rounded-full inline-flex items-center gap-1" style={{ fontSize: '12px', padding: '2px 10px', background: it.expired ? 'var(--danger-tint)' : 'var(--amber-tint)', color: it.expired ? 'var(--danger-text)' : 'var(--amber-text)' }}>
                                 <span className="emoji">🗓</span> {it.period}
                               </span>
                             )}
@@ -327,24 +327,24 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
 
                         {/* 조건 */}
                         {it.eligibility && (
-                          <p className="text-(--text-muted)" style={{ fontSize: '12px', marginTop: '7px' }}>
+                          <p className="text-(--text-muted)" style={{ fontSize: '15px', marginTop: '8px', lineHeight: 1.55 }}>
                             <span className="text-(--text-faint)">{mt.condition} : </span>{highlight(it.eligibility, query)}
                           </p>
                         )}
 
                         {/* 안내 문구 */}
                         {files.length > 0 && (
-                          <p className="text-(--text-faint)" style={{ fontSize: '11px', marginTop: '3px' }}>{mt.detailNote}</p>
+                          <p className="text-(--text-faint)" style={{ fontSize: '13px', marginTop: '4px' }}>{mt.detailNote}</p>
                         )}
 
                         {/* 액션: 첨부파일 · 공고 링크 */}
                         {(files.length > 0 || it.link) && (
-                          <div className="flex items-center flex-wrap gap-2" style={{ marginTop: '10px' }}>
+                          <div className="flex items-center flex-wrap gap-2" style={{ marginTop: 'auto', paddingTop: '10px' }}>
                             {files.length > 0 && (
                               <button
                                 onClick={() => setOpenFiles((p) => ({ ...p, [it.id]: !p[it.id] }))}
                                 className="inline-flex items-center gap-1 rounded-full hover:bg-(--brand-tint) transition"
-                                style={{ fontSize: '11px', padding: '3px 11px', color: TEAL, border: `1px solid ${TEAL}` }}
+                                style={{ fontSize: '13px', padding: '5px 13px', color: TEAL, border: `1px solid ${TEAL}` }}
                               >
                                 <span className="emoji">📎</span> {mt.files} {files.length}
                                 <Chevron open={filesOpen} size={12} />
@@ -354,7 +354,7 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
                               <a
                                 href={it.link} target="_blank" rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 rounded-full hover:bg-(--brand-tint) transition"
-                                style={{ fontSize: '11px', padding: '3px 11px', color: TEAL, border: `1px solid ${TEAL}`, textDecoration: 'none' }}
+                                style={{ fontSize: '13px', padding: '5px 13px', color: TEAL, border: `1px solid ${TEAL}`, textDecoration: 'none' }}
                               >
                                 <span className="emoji">🔗</span> {mt.viewNotice}
                               </a>
@@ -369,12 +369,12 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
                               <button
                                 key={f.name}
                                 onClick={() => downloadFileWithAuth(f.topic, f.name)}
-                                className="inline-flex items-center gap-1.5 text-left hover:text-(--brand) transition"
+                                className="flex items-center gap-1.5 w-full min-w-0 text-left hover:text-(--brand) transition"
                                 style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '2px 0' }}
                                 title={f.name}
                               >
                                 <span className="emoji shrink-0" style={{ color: TEAL }}>📄</span>
-                                <span className="truncate" style={{ maxWidth: '340px' }}>{stripExt(f.name)}</span>
+                                <span className="truncate flex-1 min-w-0">{stripExt(f.name)}</span>
                               </button>
                             ))}
                           </div>
