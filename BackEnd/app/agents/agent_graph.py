@@ -474,6 +474,16 @@ async def _embedding_classify(state: AgentState) -> dict:
     """
     loop = asyncio.get_event_loop()
     route_query = state.get("search_query") or state["question"]
+    # 검색어 딕셔너리를 '라우팅에도' 적용한다. 지금까지는 검색 단계에만 걸려서, 구어·오타
+    # 표기가 엉뚱한 토픽으로 확정되면 그 토픽 문서만 뒤지다 0건이 됐다.
+    # 실측: '재증명이 뭐야?'가 '재-' 때문에 readmission(0.574)으로 새고 재입학 문서만 검색 →
+    # 못 찾음. 공식어 '증명서'를 붙이면 rag_general(0.670)로 바로잡힌다.
+    # (학칙→학생규칙, 공결→출석인정 등 기존 매핑은 토픽이 그대로라 회귀 없음 — 실측 확인)
+    try:
+        from app.services.school.rag_general import expand_search_query
+        route_query = expand_search_query(route_query)
+    except Exception as e:
+        print(f"[Graph] 라우팅 딕셔너리 확장 실패(원본으로 진행): {e}")
     try:
         topic_name, handler_type, score, all_scores = await loop.run_in_executor(
             None, topic_router.route_with_score, route_query

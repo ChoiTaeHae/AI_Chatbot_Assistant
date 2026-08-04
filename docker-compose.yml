@@ -13,6 +13,8 @@ services:
       - ./BackEnd/llm:/app/llm
       - ./BackEnd/documents:/app/documents
       - ./BackEnd/app:/app/app
+      # 운영/점검 스크립트(회귀 배터리·시딩 등) — 이미지 재빌드 없이 수정 즉시 반영
+      - ./BackEnd/scripts:/app/scripts
       - ./models:/app/models
       # Vertex 서비스계정 키 — 이미지에 굽지 않고 마운트(:ro). 키 갱신 시 restart만으로 반영
       - ./BackEnd/gcp-sa.json:/app/gcp-sa.json:ro
