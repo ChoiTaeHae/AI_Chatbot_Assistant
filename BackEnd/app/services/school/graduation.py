@@ -15,7 +15,8 @@ from app.services.rag_service import rag_service
 from app.rag.Embedding import BaaiEmbedding, baai_embedding
 from app.prompts import (
     GRADUATION_DB_PROMPT, GRADUATION_RAG_PROMPT, GRADUATION_COMBINED_PROMPT,
-    GRADUATION_OTHER_DEPT_PROMPT, GRADUATION_MY_DEPT_PROMPT,
+    GRADUATION_OTHER_DEPT_PROMPT, GRADUATION_MY_DEPT_PROMPT, WEAK_EVIDENCE_DIRECTIVE,
+    GRADUATION_COHORT_DIRECTIVE,
 )
 
 
@@ -107,6 +108,41 @@ _UNIT_GENERIC_PREFIX = {"우리", "저희", "본인", "해당", "무슨", "어�
                         "복수", "다", "부", "주", "심화", "연계", "융합", "자기설계"}
 
 
+# 소속 학과가 없는 계정(관리자·DEV 등)이 '내 졸업요건'류를 물었을 때의 안내.
+# 이 계정은 학과·입학연도가 정해지지 않아 개인 기준 답변이 원리상 불가능한데, 예전엔
+# 생 RAG가 0건을 내면 "자료를 찾지 못했어요"만 나가 시스템 결함처럼 보였다(실측:
+# admin 계정 '내년에 졸업하려면 뭐 필요해?' → 못 찾음. 같은 질문이 학생 계정에선 정상).
+_NO_DEPT_GUIDE = (
+    "이 계정에는 소속 학과 정보가 없어서 '내 졸업요건'은 안내해 드릴 수 없어요.\n\n"
+    "학과를 함께 알려주시면 그 학과 기준으로 안내해 드릴게요. "
+    "(예: `간호학과 졸업요건`, `2025학번 컴퓨터공학전공 졸업요건`)"
+)
+# 졸업 경로의 '못 찾음' 응답 판별용
+_GRAD_NOT_FOUND_MARKERS = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없")
+
+# 1인칭으로 '자기 현황'을 묻는 표현 — '내 학점', '제가 졸업 가능한가요' 등.
+# '내년'·'안내'·'내용'처럼 다른 낱말 속의 '내'는 걸리지 않도록 앞뒤를 좁게 제한한다.
+_OWN_STATUS_RE = re.compile(r"(?:^|\s)(?:내|제|저|나)(?:\s|가|는|의|를)|본인|내가|제가|나의")
+
+
+def _ensure_fallback_notice(answer: str, requested_year: int, actual_year: int,
+                            is_fallback: bool) -> str:
+    """대체 연도로 답했으면 그 사실을 반드시 첫 줄에 남긴다(코드로 확정).
+
+    프롬프트에도 같은 지시가 있지만 LLM이 낮은 확률로 빠뜨린다(실측: '2029학년도 간호학과
+    졸업요건' 8회 중 7회는 고지했는데 1회 누락 → 사용자에겐 2026년 요건이 2029년 것처럼 보임).
+    요청 연도와 실제 연도가 다르다는 건 코드가 이미 아는 사실이므로, LLM 재량에 맡기지 않는다.
+    이미 LLM이 요청 연도를 언급했으면 중복으로 붙이지 않는다.
+    """
+    if not is_fallback or actual_year == requested_year or not answer:
+        return answer
+    if str(requested_year) in answer:      # LLM이 이미 밝힘
+        return answer
+    print(f"[Graduation] 폴백 고지 누락 감지 → 코드로 첨부 ({requested_year}→{actual_year})")
+    return (f"{requested_year}년 졸업요건은 아직 등록되어 있지 않아, "
+            f"가장 가까운 {actual_year}학번 기준으로 안내해 드릴게요.\n\n{answer}")
+
+
 def _named_unresolved_unit(question: str) -> bool:
     for m in _NAMED_UNIT_RE.finditer(question or ""):
         if m.group(1) not in _UNIT_GENERIC_PREFIX:
@@ -131,7 +167,9 @@ _CERT_FOCUS_DIRECTIVE = (
 # 요건은 학과 × 입학연도로 DB에 있으므로(43학과 × 2020~2026), 연도를 못 읽으면 남의 학번을
 # 물어도 내 학번 요건이 나온다("2025학년도 컴퓨터공학과 졸업요건"인데 2022 기준 답변).
 #   지원 표기: '2025학번', '2025학년도', '25학번', '25학년도 입학'
-_YEAR_4_RE = re.compile(r"(20\d{2})\s*(?:학번|학년도)")
+# 19xx도 받는다. 20\d{2}만 보던 때는 '1999학번 졸업요건'이 '연도 미언급'으로 처리돼
+# 내 학번(2024) 요건이 1999년 것인 양 그대로 안내됐다 — 없는 연도라는 고지도 못 나갔다(실측).
+_YEAR_4_RE = re.compile(r"((?:19|20)\d{2})\s*(?:학번|학년도)")
 _YEAR_2_RE = re.compile(r"(?<!\d)(\d{2})\s*학번")
 # 명시적으로 언급된 '졸업 목표 연도'("2029년 졸업", "2029년도 2월 졸업 예정") — 엄밀히는 학번이
 # 아니지만 사용자가 그 연도 기준 요건을 물은 것으로 보고 '대상 연도'로 삼는다. 학번/학년도가
@@ -142,7 +180,23 @@ _YEAR_GRAD_RE = re.compile(r"(20\d{2})\s*년도?\s*(?:2월\s*)?졸업")
 # _YEAR_GRAD_RE는 연도 '바로 뒤'에 졸업이 와야 잡히는데, 사이에 학과명이 끼면 놓친다.
 # 그러면 '연도 미언급'으로 처리돼 최신 연도 요건을 요청 연도인 양 답하고, 없는 연도라는
 # 고지도 안 나간다(실측: '2009년 간호학과 졸업요건' → "2026학번 기준" 안내, 폴백문구 없음).
-_YEAR_BARE_RE = re.compile(r"(?<!\d)(20\d{2})\s*년")
+_YEAR_BARE_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*년")
+
+# 2자리 학번의 세기 판정 경계. '25학번'=2025 / '99학번'=1999.
+# 없을 때는 무조건 2000을 더해 '99학번'이 2099(미래)로 읽혔다 — 미등록 미래 연도라
+# 폴백은 걸리지만 고지 문구에 엉뚱한 연도가 찍힌다.
+_YY_CENTURY_SPLIT = 50
+
+# 입학연도에 따라 값이 갈리는 규정 — 이런 질문은 검색어에 학번을 붙여 해당 코호트 표를 끌어온다.
+# (아무 질문에나 붙이면 리랭커 점수가 흔들려 멀쩡한 절차 질문까지 망가진다)
+_COHORT_SENSITIVE_RE = re.compile(r"수료|편입|경과조치|학번별|입학연도별|입학년도별")
+
+# 수료기준 전용 보조검색 — 구간별 표가 본문·부칙에 흩어져 있어 일반 검색으로는 질문 표현에
+# 따라 한 구간만 잡히거나 아예 안 잡힌다(실측: '학년별 수료 기준 알려줘' → 34~67 표 미포함,
+# 결국 "확인 못 함"으로 끝남). 규정 문서로 범위를 좁혀 '수료기준' 한 단어로 재검색하면
+# 청크 18·20·7·11이 함께 잡혀 모든 구간 표가 확보된다(실측).
+_COMPLETION_RE = re.compile(r"수료")
+_COMPLETION_SRC = "졸업종합시험_및_졸업에_관한_규정"
 
 
 def detect_admission_year(question: str) -> int | None:
@@ -157,7 +211,8 @@ def detect_admission_year(question: str) -> int | None:
         return int(m.group(1))
     m = _YEAR_2_RE.search(question)
     if m:
-        return 2000 + int(m.group(1))   # '25학번' → 2025
+        yy = int(m.group(1))            # '25학번' → 2025 / '99학번' → 1999
+        return (1900 if yy >= _YY_CENTURY_SPLIT else 2000) + yy
     m = _YEAR_GRAD_RE.search(question)
     if m:
         return int(m.group(1))          # '2029년 졸업' → 2029 (없으면 리졸버가 폴백+고지)
@@ -305,7 +360,24 @@ class GraduationService:
                 year = detect_admission_year(question) or await self._latest_year(db, mentioned[0])
                 if year:
                     return await self._answer_dept_requirement(question, mentioned[0], mentioned[1], year, db)
-            return await self._answer_from_rag(question)
+            # 1인칭 개인 현황 질문은 이 계정으로 답이 나올 수 없다 — 학과·학번이 없어 기준이
+            # 정해지지 않는다. RAG로 내려보내면 검수 FAQ가 유사도만으로 가로채 엉뚱한 답을 낸다
+            # (실측: admin '내 졸업학점 얼마나 남았어?' → 근거약함 게이트가 학점포기 FAQ를
+            # 0.711로 물어와 "학점 포기는 최대 9학점…"을 verbatim으로 냈다).
+            # 학생 계정은 이 분기 자체를 지나지 않으므로 일반 사용자 답변에는 영향이 없다.
+            if _OWN_STATUS_RE.search(question) and await self._classify_question(question) == "personal":
+                print("[Graduation] 학과 없는 계정 + 개인 현황 질문 → 계정 안내")
+                return _NO_DEPT_GUIDE, {"source": "database", "source_file": None,
+                                        "topic": "graduation", "url": None}
+
+            # 학과 미언급 → 생 RAG. 절차·규정 질문('졸업 신청 방법')은 여기서 정상 처리된다.
+            # 다만 '내 졸업요건'류는 이 계정으로 답이 나올 수 없다. RAG까지 0건이면 '자료가 없다'가
+            # 아니라 '이 계정에 학과 정보가 없다'고 정확히 알려 원인을 찾을 수 있게 한다.
+            answer, meta = await self._answer_from_rag(question)
+            if any(m in answer for m in _GRAD_NOT_FOUND_MARKERS):
+                print("[Graduation] 학과 없는 계정 + RAG 0건 → 계정 안내로 대체")
+                return _NO_DEPT_GUIDE, meta
+            return answer, meta
         try:
             my_year = int(student.student_no[:4])
         except (ValueError, TypeError, IndexError):
@@ -361,8 +433,9 @@ class GraduationService:
         # 내 학과(또는 학과 미언급) → 유형 분류로 라우팅
         cat = await self._classify_question(question)
         if cat == "document":
-            # 절차/일정 질문 → RAG
-            return await self._answer_from_rag(question)
+            # 절차/일정 질문 → RAG. 학번을 함께 넘겨, 입학연도별로 갈리는 규정(수료기준 등)에서
+            # 이 학생에게 해당하는 구간을 고르게 한다(질문에 연도가 명시되면 그쪽이 우선).
+            return await self._answer_from_rag(question, cohort_year=target_year)
         # personal / both → 내 학과 졸업요건(학점+서술형) + 본인 학점 이수현황을 함께
         # (요건/현황 분류가 표현 겹침으로 불안정 → 둘 다 보여줘 분류 어려움을 우회)
         # target_year는 여기선 항상 my_year와 같다(다르면 위 분기로 빠짐) — 의도를 드러내려 통일.
@@ -456,6 +529,7 @@ class GraduationService:
         # (0.3에서 '학점 기준' 섹션이 통째로 누락되는 변덕이 관측됨)
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
+        result = _ensure_fallback_notice(result, admission_year, actual_year, is_fallback)
 
         # 파일 제안은 '완성된 답변' 기준(질문 기준은 신호가 약함). graduation은 현재 파일이 없어
         # 결과가 늘 비지만, 파일이 추가되면 자동으로 동작한다.
@@ -526,6 +600,7 @@ class GraduationService:
             prompt = _CERT_FOCUS_DIRECTIVE + prompt
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
+        result = _ensure_fallback_notice(result, admission_year, actual_year, is_fallback)
 
         # 파일 제안은 '완성된 답변' 기준. graduation은 현재 파일이 없어 결과가 늘 빈다.
         loop = asyncio.get_event_loop()
@@ -613,10 +688,23 @@ class GraduationService:
     # 경로 2: 공식 문서 (RAG)
     # =============================================
 
-    async def _answer_from_rag(self, question: str) -> tuple[str, dict]:
+    async def _answer_from_rag(self, question: str, cohort_year: int | None = None) -> tuple[str, dict]:
+        """규정 문서 조회 답변.
+
+        cohort_year: 이 답변의 '기준 학번'. 입학연도별로 값이 갈리는 규정(수료기준 등)에서
+        어느 구간을 골라야 하는지 LLM에 알려준다. 학과 없는 계정처럼 기준이 없으면 None.
+        """
         import time
         t1 = time.time()
-        rag_context, metadata = await self._search_rag(question)
+        # 입학연도별로 갈리는 규정은 검색어에도 학번을 붙여야 그 코호트 표가 딸려온다.
+        # 프롬프트 지시만으로는 부족했다 — 근거 자체가 안 실려 LLM이 최신 표(2026학년도 입학자
+        # 기준)를 질문자 학번 것인 양 답했다(실측: 2024학번에게 30/32학점. 실제는 34~67학점).
+        # 실측: '1학년 수료 기준 학점' → 34/67 미포함 / '… 2024학번' → 포함.
+        search_q = question
+        if cohort_year and _COHORT_SENSITIVE_RE.search(question or ""):
+            search_q = f"{question} {cohort_year}학번"
+            print(f"[Graduation] 코호트 민감 질문 → 검색어에 학번 부착: '{search_q}'")
+        rag_context, metadata = await self._search_rag(search_q)
         print(f"[Graduation] RAG 검색 완료: {time.time()-t1:.1f}초")
 
         from app.services.file_service import AVAILABLE_FILES
@@ -626,6 +714,23 @@ class GraduationService:
         files = await loop.run_in_executor(
             None, match_relevant_files, question, AVAILABLE_FILES.get("graduation", [])
         )
+
+        # 수료 질문이면 규정 문서로 범위를 좁혀 '수료기준'만으로 한 번 더 검색해, 구간별 표를
+        # 모두 컨텍스트 앞에 확보한다. 어느 구간을 고를지는 GRADUATION_COHORT_DIRECTIVE가 판단.
+        if cohort_year and _COMPLETION_RE.search(question or ""):
+            try:
+                extra = await loop.run_in_executor(
+                    None, lambda: rag_service.retriever.search(
+                        question="수료기준", source=_COMPLETION_SRC,
+                        topic="graduation", original_question="수료기준")
+                )
+                if extra:
+                    add = "\n\n".join(r.text for r in extra)
+                    rag_context = f"[수료기준 관련 조문]\n{add}\n\n{rag_context or ''}"[:3200]
+                    metadata["rag_empty"] = False
+                    print(f"[Graduation] 수료기준 보조검색 → +{len(extra)}청크")
+            except Exception as e:
+                print(f"[Graduation] 수료기준 보조검색 실패(무시): {e}")
 
         # 검색 0건이면 LLM을 호출하지 않는다. "못 찾음" 문자열을 컨텍스트로 받은 LLM이 근거 없이
         # 절차·수치를 창작하기 때문(rag_general의 동일 가드를 여기에도 세운다).
@@ -655,7 +760,32 @@ class GraduationService:
                 metadata,
             )
 
+        # 근거가 약한데 검수 FAQ가 있으면 LLM을 아예 안 태운다(rag_general과 같은 처방).
+        # 위 '0건' FAQ 폴백은 검색이 통째로 실패했을 때만 걸려서, 어휘 매칭으로 무관 문서가
+        # 살아난 경우는 빠져나간다. 실측: '재수강 최대 학점 몇이야?'가 졸업규정을 잡고
+        # "재수강 최대 학점은 없습니다"로 단정했다(FAQ엔 6학점·2회·A+가 있는데도).
+        if metadata.get("weak_evidence"):
+            # 이 경로는 LLM을 건너뛰므로 오매칭이 곧 확정 오답 → 엄격 임계값(0.75)을 쓴다.
+            # 실측: '내 졸업학점 얼마나 남았어?'가 0.711로 학점포기 FAQ를, '졸업 신청 방법'이
+            # 0.707로 학사경고 FAQ를 물어와 그대로 나갔다.
+            from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
+            hit = await loop.run_in_executor(
+                None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
+            if hit:
+                print(f"[Graduation] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
+                metadata["source"] = "faq"
+                for k in ("url", "contact_name", "contact_phone", "source_file"):
+                    metadata.pop(k, None)
+                return hit[0], metadata
+
         prompt = self._build_rag_prompt(question, rag_context)
+        # 입학연도별로 값이 갈리는 규정은 '누구 기준인지'를 고정해준다(수료기준·편입생 학점 등).
+        if cohort_year:
+            prompt = GRADUATION_COHORT_DIRECTIVE.format(year=cohort_year) + prompt
+        # 리랭커 0점 → 어휘 매칭으로만 살아난 컨텍스트면 '단정 금지' 지시를 앞에 붙인다.
+        if metadata.get("weak_evidence"):
+            print("[Graduation] ⚠️ 근거 약함(어휘 매칭 구제) → 단정 금지 지시 주입")
+            prompt = WEAK_EVIDENCE_DIRECTIVE + prompt
         t2 = time.time()
         result = await llm_service.answer(prompt)
         print(f"[Graduation] LLM 추론 완료: {time.time()-t2:.1f}초")

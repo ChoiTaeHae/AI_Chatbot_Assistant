@@ -1,11 +1,11 @@
-import asyncio
+﻿import asyncio
 import math
 import re
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
-from app.rag.Retrieval.retriever import MAX_TOTAL_CONTEXT   # 보강 블록도 같은 예산 안에서 다룬다
-from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT, SYSTEM_PROMPT
+from app.rag.Retrieval.retriever import MAX_TOTAL_CONTEXT, SCORE_THRESHOLD   # 보강 블록도 같은 예산 안에서 다룬다
+from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT, SYSTEM_PROMPT, WEAK_EVIDENCE_DIRECTIVE
 
 # 재작성 드리프트 임계값 — 원문과 재작성의 의미 유사도가 이 값 미만이면
 # 환각(엉뚱한 주제로 변형)으로 보고 원본 질문을 사용한다. (bge-m3 코사인, 튜닝 가능)
@@ -88,6 +88,11 @@ _PREDICATE_SUFFIXES = (
     # 의문 종결형은 '가요'처럼 뭉뚱그리면 명사와 부딪히므로 정확형만 넣는다.
     # 여기서 놓쳐도 치명적이지 않다 — 원문으로 검색했다가 0건이면 지연 재작성이 구제한다.
     "뭔가요", "뭐예요", "뭐죠", "뭔데",
+    # 조건 연결어미 — '받으면·놓치면·탈락하면'처럼 조건절 동사가 주제어로 오인되면
+    # 정상적인 맥락 병합이 폐기된다(실측: '학사경고가 뭐야?' 뒤 '두 번 받으면 어떻게 돼?'의
+    # 주제어가 ['받으면']으로 잡혀 재작성 '학사경고 누적 제적 기준'이 이탈로 반려 → 검색 0건).
+    # 긴 것부터 매칭돼야 하므로 순서 주의. 어간이 2자 미만이면 위 로직이 통째로 버린다.
+    "으려면", "하려면", "려면", "으면", "하면", "면",
 )
 _TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 
@@ -100,7 +105,12 @@ _YEAR_QUALIFIER_RE = re.compile(r"^\d{1,4}(학번|학년도|년도|학년)")
 # 걸면 진짜 주제어를 먹는다('자격'→'자격증', '시간'→'시간표'). exact 일치라 자격증/시간표는 안전.
 # ('전과 신청 방법' 뒤 '자격 조건은?'이 '자격'만으로 '검색어 형태'로 오판돼 이전 맥락 병합이
 #  통째로 생략되던 문제 — 실측: graduation으로 오라우팅)
-_GENERIC_EXACT = ("자격", "시간")
+# '벌점·기간·비용…'도 같은 층위다 — 단독으로는 무엇의 벌점인지 정해지지 않아 이전 맥락을
+# 붙여야 한다. 빠져 있으면 '주제어 보유'로 오판돼 정상적인 맥락 병합이 폐기된다.
+# (실측: '기숙사 입사 조건' 뒤 '벌점은 어떻게 되나요?' → 재작성 '기숙사 벌점 기준'이 정확했는데
+#  '기숙사 차용'으로 반려 → 원문이 school_rules로 라우팅돼 검색 0건 '못 찾음')
+_GENERIC_EXACT = ("자격", "시간", "벌점", "기간", "비용", "요금", "금액",
+                  "횟수", "점수", "대상", "서류", "절차", "방법", "조건", "기준")
 # 위 속성어에 붙는 조사 — '신청 자격은?'의 '자격은'도 속성어로 인정해 후속 병합이 되게 한다.
 # (조사만 떼어 exact 확인하므로 '자격증'·'시간표'는 조사가 아니라 그대로 주제어로 유지된다)
 _EXACT_PARTICLES = ("은", "는", "이", "가", "을", "를", "도", "의", "만")
@@ -260,8 +270,21 @@ def format_certificate_info(context: str, question: str) -> str:
     # 블록 밖에 있어, 증명서명만 보고 블록을 반환하면 '편제학년에 의거 발급' 같은 엉뚱한 한 줄만
     # 나온다(실측: '재학증명서 떼는 법'). 이런 질문은 빈 문자열 → LLM이 전체 컨텍스트로 답한다.
     # ('발급 기준'은 블록이 곧 답이므로 '기준'은 절차 신호에서 제외한다)
-    _METHOD_HINTS = ("떼", "방법", "어떻게", "어케", "하려면", "려면", "받으러", "받는법", "발급받", "신청", "절차")
-    is_method_query = any(h in qn for h in _METHOD_HINTS)
+    #
+    # 힌트가 '발급받'이라 뒤에 '받'이 붙어야만 걸렸고, 맨 '발급'을 놓쳤다 — 실측: '성적증명서
+    # 발급'이 절차 대신 "[성적증명서] 본 대학에서 이수한 성적의 증명서" 한 줄만 냈다(같은 질문에
+    # '방법'만 붙이면 webminwon 절차를 정상 출력). 동어반복이라 정보량이 0인데 답한 것처럼 보인다.
+    # 판정이 틀렸을 때의 손해가 대칭이 아니라 넓히는 쪽을 택했다 — 블록을 반환하면 LLM은 그
+    # 블록만 보므로 절차를 말할 길이 사라지지만(회복 불가), 스킵하면 전체 컨텍스트를 보므로
+    # 기준도 함께 답할 수 있다(회복 가능).
+    # 단 '발급 기준/대상/요건/조건/자격'은 블록이 곧 답이므로 그 결합형만 도려내고 검사한다.
+    # (문자열을 지우는 방식이라 '발급대상이랑 신청방법'처럼 섞인 질문은 '신청/방법'이 살아남는다)
+    _METHOD_HINTS = ("떼", "방법", "어떻게", "어케", "하려면", "려면", "받으러", "받는법", "발급", "신청", "절차")
+    _CRITERIA_NOUNS = ("기준", "대상", "요건", "조건", "자격")
+    qn_hint = qn
+    for _w in _CRITERIA_NOUNS:
+        qn_hint = qn_hint.replace("발급" + _w, "")
+    is_method_query = any(h in qn_hint for h in _METHOD_HINTS)
 
     if matched and not is_list_query and not is_method_query:
         return "\n\n".join(f"[{name}]\n{blocks[name]}" for name in matched)
@@ -318,7 +341,11 @@ _ACTION_CONCEPTS: dict[str, tuple[str, ...]] = {
     "방법": ("방법", "어떻게", "어케", "하는법", "는법", "하려면", "려면", "떼고", "떼주", "어디"),
     "신청": ("신청", "접수", "지원", "넣", "내려"),
     "절차": ("절차", "과정", "순서", "어떻게", "하려면", "어디"),
-    "발급": ("발급", "떼", "받"),
+    # '발급'만 방법 씨앗이 빠져 있어, 증명서류 질문에서 '어떻게 해?'가 '발급 방법'으로 정규화되는
+    # 정당한 변환이 날조로 오판됐다(실측: '재증명 어떻게해?' → '제증명 발급 방법' 폐기 → 구어 원본이
+    # 그대로 라우팅돼 '재-'가 재입학과 가까워 readmission으로 새고 검색 0건).
+    # '뭐야/얼마야'는 여전히 넣지 않으므로 '○○이 뭐야?' → '○○ 발급 방법' 같은 성격 변질은 계속 막힌다.
+    "발급": ("발급", "떼", "받", "어떻게", "어케", "하려면", "려면", "방법", "하는법", "는법"),
 }
 
 
@@ -400,7 +427,18 @@ def _keeps_topic(question: str, rewritten: str) -> bool:
     if not terms:
         return True                      # 모호한 후속 질문 → 검사 skip
     rw = (rewritten or "").replace(" ", "")
-    return any(_stem_in(t, rw) for t in terms)
+    if any(_stem_in(t, rw) for t in terms):
+        return True
+
+    # 표기만 바뀐 경우(오타 교정·동의어)는 '이탈'이 아니다. 양쪽을 검색어 딕셔너리의
+    # 공식어로 환산해 겹치면 같은 주제로 본다.
+    # 실측: '재증명 어떻게해?'(오타) → '제증명 발급 방법'(정확한 교정)이 글자가 달라
+    # 폐기됐고, 구어 원본이 그대로 라우팅돼 '재-'가 재입학과 가까워 readmission으로 샜다
+    # (0.663 → 검색 0건). 둘 다 '증명서'로 환산되므로 여기서 살린다.
+    q_off = _official_terms(question)
+    if q_off and (q_off & _official_terms(rewritten)):
+        return True
+    return False
 
 
 # ── 검색어 딕셔너리 ────────────────────────────────────────────────
@@ -431,6 +469,20 @@ def set_search_synonyms(mapping: dict | None) -> None:
             cleaned[term] = officials
     _search_synonyms = cleaned or dict(DEFAULT_SEARCH_SYNONYMS)
     print(f"[RAG_GENERAL] 검색어 딕셔너리 {len(_search_synonyms)}개 로드")
+
+
+def _official_terms(text: str) -> set[str]:
+    """텍스트에 들어 있는 딕셔너리 표제어를 '공식어 집합'으로 환산.
+
+    '재증명'과 '제증명'처럼 표기가 달라도 같은 공식어('증명서')로 모이면 같은 주제로
+    볼 수 있다. _keeps_topic이 오타 교정을 주제 이탈로 오판하지 않도록 쓰는 보조 함수.
+    """
+    t = (text or "").replace(" ", "")
+    out: set[str] = set()
+    for term, officials in _search_synonyms.items():
+        if term.replace(" ", "") in t:
+            out.update(o.replace(" ", "") for o in officials)
+    return out
 
 
 def expand_search_query(query: str) -> str:
@@ -531,11 +583,60 @@ async def _respace_query(q: str) -> str | None:
     return None
 
 
-async def _rewrite_query(question: str, prev_question: str | None = None, force: bool = False) -> str:
+# ── 재작성 실패·반려 시 폴백 정규화 ────────────────────────────────
+# LLM 재작성이 실패(429·장애)하거나 가드에 반려되면 지금까지는 '구어체 원문'을 그대로 검색에
+# 넣었다. 그런데 리랭커는 구어체에 극도로 약해 30개 청크가 전부 0.000이 되는 일이 잦다
+# (실측: '내년에 졸업하려면 뭐 필요해?'). 그래서 LLM 없이 군말·어미만 걷어낸 검색어를 만든다.
+#
+# 원칙: **의미어는 절대 건드리지 않는다.** 요건·기준·조건·학점·방법·절차·신청·기간·자격 등은
+# 검색에 꼭 필요한 말이라 제거 대상에 넣지 않는다(학과명 추출용 _DEPT_KW_STOPWORDS를 재사용하면
+# 이것들까지 날아가므로 별도 목록을 쓴다).
+# 이 결과는 '검색어·라우팅'에만 쓰이고, LLM 답변 프롬프트에는 항상 원문이 들어간다
+# (llm_question) — 그래서 질문 의도가 훼손되지 않는다.
+_FALLBACK_FILLERS = (
+    "알려주세요", "알려줘", "알려", "해주세요", "해줘", "주세요",
+    "뭐에요", "뭔가요", "뭐야", "뭔데", "궁금해요", "궁금해", "궁금",
+    "어떻게해", "어떻게 해", "어떡해", "좀",
+    "인가요", "하나요", "되나요", "있나요", "있어요", "습니까", "까요",
+)
+_FALLBACK_PARTICLES = ("으로", "에서", "까지", "부터", "은", "는", "이", "가",
+                       "을", "를", "도", "의", "에", "과", "와")
+
+
+def _fallback_normalize(question: str) -> str:
+    """군말·어미·조사만 걷어낸 검색용 문자열. 남는 게 없으면 원문을 그대로 돌려준다."""
+    if not question:
+        return question
+    s = question
+    for w in _FALLBACK_FILLERS:
+        s = s.replace(w, " ")
+    s = re.sub(r"[?!.,~·]+", " ", s)
+    toks = []
+    for t in s.split():
+        for p in _FALLBACK_PARTICLES:
+            if t.endswith(p) and len(t) - len(p) >= 2:
+                t = t[: -len(p)]
+                break
+        if t:
+            toks.append(t)
+    out = " ".join(toks).strip()
+    if not out or len(out) < 2:
+        return question
+    if out != question:
+        print(f"[RAG_GENERAL] 폴백 정규화: '{question}' → '{out}'")
+    return out
+
+
+async def _rewrite_query(question: str, prev_question: str | None = None, force: bool = False,
+                         normalize_on_reject: bool = False) -> str:
     """구어체 질문을 검색용 공식 용어로 변환.
 
     prev_question이 있으면(topic 유지된 후속 질문) 이전 질문의 주제어를 보충해
     재작성한다 — "기간은 얼마나 돼?"가 엉뚱한 검색어로 변환되는 것을 방지.
+
+    normalize_on_reject=True면 가드 반려·빈출력 시 원문 대신 '규칙 기반 정규화문'을 돌려준다.
+    검색 전용 호출에서만 켠다 — 라우팅에 쓰면 군말 제거로 임베딩이 미세하게 움직여 근소한
+    차이의 토픽이 뒤집힌다(실측: '국가장학금 소득분위 기준 알려줘' scholarship→work_study).
 
     force=True면 검색어 형태 판정을 건너뛴다 — '지연 재작성'(원문 검색이 0건이라 뒤늦게
     재작성을 시도하는 경로) 전용. 그때도 생략하면 아무 일도 일어나지 않는다."""
@@ -562,37 +663,79 @@ async def _rewrite_query(question: str, prev_question: str | None = None, force:
     # 빈 출력이거나 원본과 동일 → 원본 사용
     if not rewritten or rewritten == question:
         print(f"[RAG_GENERAL] 질문 재작성 실패/빈출력 → 원본 사용: '{question}'")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
     # 주제어 가드: 현재 질문에 뚜렷한 주제어가 있는데 재작성이 그걸 잃었으면(= 이전 주제로
     # 갈아탄 것) 원본 사용. 아래 드리프트 가드는 기준문에 이전 질문이 섞여 있어 이 경우를
     # 못 잡으므로, 그보다 먼저 확정적으로 차단한다.
     if not _keeps_topic(question, rewritten):
         print(f"[RAG_GENERAL] 재작성이 주제어 이탈 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
 
     # 행위 개념 날조 가드: 원문·이전질문에 없던 '신청/방법/절차/발급'을 재작성이 만들어 냈으면
     # 폐기한다. 이 프레임이 붙으면 근거에 없는 절차·기한을 LLM이 발명한다(F스포렉스 사례).
     invented = _invents_action(question, rewritten, prev_question)
     if invented:
         print(f"[RAG_GENERAL] 재작성이 없던 '{invented}' 개념 날조 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
 
     # 이전 주제 차용 가드: 현재 질문이 스스로 주제를 특정하는데(주제어 보유) 이전 질문의
     # 주제어까지 새로 붙었으면 폐기한다. '학칙 알려줘'(이전 '공결') → '공결 학칙' 오염 차단.
     borrowed = _borrows_prev_topic(question, rewritten, prev_question)
     if borrowed:
         print(f"[RAG_GENERAL] 재작성이 이전 주제어 '{borrowed}' 차용 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
 
     # 드리프트 가드: 재작성이 원문과 의미가 너무 멀어지면(예: 공결→전과) 원본 사용
     # 맥락 통합 시엔 주제어가 이전 질문에서 오므로 이전+현재를 합친 텍스트와 비교
     drift_ref = f"{prev_question} {question}" if prev_question else question
     if await _is_semantic_drift(drift_ref, rewritten):
         print(f"[RAG_GENERAL] 재작성 드리프트 감지 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
     print(f"[RAG_GENERAL] 질문 재작성: '{question}' → '{rewritten}'"
           + (f" (이전 질문 맥락 통합: '{prev_question}')" if prev_question else ""))
     return rewritten
+
+
+# 컨텍스트 앞머리에 얹는 '핵심 부분' 블록의 라벨.
+_FOCUS_HEAD = "[질문과 가장 관련 높은 부분]"
+_FULL_HEAD = "[전체 참고 자료]"
+# 1등 청크 대비 컨텍스트가 이 배수 이상으로 부풀었을 때만 앞머리를 만든다.
+_FOCUS_DILUTION = 1.5
+# 형제 최고점이 이 미만이면 '리랭커가 사실상 0점을 줬다'로 보고 꼬리를 버린다.
+# 실측 하한(기숙사 간사 신청의 정답 섹션 0.064)보다 넉넉히 아래로 잡아 그 케이스를 지킨다.
+_SIBLING_NOISE = 0.01
+
+
+def _prepend_focus(context: str, top_text: str, sibling_best: float = 1.0) -> str:
+    """리랭커 1등 청크를 컨텍스트 맨 앞에 한 번 더 얹는다(원본은 제자리에 그대로 둔다).
+
+    같은 문서 보강이 1등 문서의 형제 청크를 최대 6개까지 끌어오는데, 그 형제엔 점수 조건이
+    없어 0점짜리도 들어온다. 병합은 chunk_index 순이라 정답이 문서 뒤쪽 청크면 컨텍스트
+    맨 끝으로 밀린다. 실측: '학사경고 받으면 어떻게 돼?'에서 정답(성적평가 idx=7, 0.921,
+    515자)이 3336자 중 마지막 15%에 놓였고, 모델은 맨 앞의 '성적평가 비율표'를 읽고
+    "과목당 최소 출석률", "평점 1.75 미만" 같은 규정을 조립해 냈다(원문은 1.50).
+
+    schedule.py의 헤드라인과 같은 처방 — 8B는 앞에 있는 것을 답으로 삼으므로, 고른 것을
+    맨 앞에 둔다. 뒤쪽 원본을 지우지 않아 정보 손실이 없고, 순서도 그대로라 코드가 파싱하는
+    경로(동아리 목록·제증명)는 영향을 받지 않는다. 예산이 모자라면 fit_context가 '뒤에서부터'
+    버리므로 0점 형제가 먼저 밀려나고 이 앞머리는 남는다.
+    """
+    if not top_text or not context:
+        return context
+    if top_text in context and len(context) < len(top_text) * _FOCUS_DILUTION:
+        return context      # 희석이 없으면 같은 내용을 두 번 넣을 이유가 없다
+
+    # 형제가 전부 0점이면 꼬리는 순수 노이즈다 — 앵커만 남긴다. 앞머리로 끌어올리는 것만으론
+    # 부족했다(실측: 학사경고에서 앵커를 맨 앞에 뒀는데도, 뒤따르는 무관한 성적평가 비율·등급표
+    # 2000자에 눌려 앵커 안의 세 조항 중 '15학점 제한' 한 줄만 답했다. 꼬리를 빼자 평점 1.50·
+    # 15학점·연속3회 제적·외국인 예외가 모두 나왔다).
+    # 형제가 조금이라도 점수를 받았으면 그 형제가 정답일 수 있으므로 꼬리를 그대로 둔다
+    # (기숙사 간사 신청: 정답 섹션이 0.064 — 같은 문서 보강을 만든 이유가 이 케이스다).
+    if sibling_best < _SIBLING_NOISE:
+        print(f"[RAG_GENERAL] 형제 전원 무관(최고 {sibling_best:.3f}) → 꼬리 제거, "
+              f"앵커 {len(top_text)}자만 사용 (원래 {len(context)}자)")
+        return f"{_FOCUS_HEAD}\n{top_text}"
+    return f"{_FOCUS_HEAD}\n{top_text}\n\n{_FULL_HEAD}\n{context}"
 
 
 def _search_rag(search_query: str, original_question: str, topic: str | None) -> tuple[str, dict]:
@@ -613,6 +756,18 @@ def _search_rag(search_query: str, original_question: str, topic: str | None) ->
             results,
             topic=topic,
         )
+
+        # 리랭커가 확신한 '앵커 청크'(병합 전 최고점 서브청크) 본문을 챙긴다 — 프롬프트
+        # 조립부에서 컨텍스트 맨 앞에 한 번 더 얹기 위함(_prepend_focus 참조).
+        # results는 이미 병합된 뒤라 top.text는 문서 통짜(형제 포함)다. 그걸 쓰면 컨텍스트와
+        # 같아져 아무 효과가 없으므로, 리트리버가 병합 때 남겨 둔 anchor_text를 쓴다.
+        # 내부 전달용이라 답변 직전에 꺼내 버린다.
+        if results:
+            top = max(results, key=lambda r: r.score)
+            anchor = top.metadata.get("anchor_text")
+            if top.score >= SCORE_THRESHOLD and anchor:
+                metadata["_top_chunk"] = anchor
+                metadata["_sibling_best"] = top.metadata.get("sibling_best", 1.0)
 
         print(f"[RAG] context length = {len(context)} chars")
         print(f"[RAG] retrieved chunks = {len(results)}")
@@ -671,7 +826,8 @@ async def answer_rag_general_question_with_metadata(
     skipped_rewrite = _is_keyword_query(question)
     if not hoisted:
         try:
-            search_query = await _rewrite_query(question, prev_question=prev_question)
+            search_query = await _rewrite_query(question, prev_question=prev_question,
+                                               normalize_on_reject=True)
         except Exception as e:
             print(f"[RAG_GENERAL] rewrite 실패(원본 사용): {e}")
             search_query = question
@@ -710,7 +866,8 @@ async def answer_rag_general_question_with_metadata(
         if skipped_rewrite:
             try:
                 # force=True — 생략 판정을 우회해야 실제로 재작성이 일어난다
-                cand = await _rewrite_query(question, prev_question=prev_question, force=True)
+                cand = await _rewrite_query(question, prev_question=prev_question, force=True,
+                                        normalize_on_reject=True)
                 alt = cand if cand and cand != question else None
                 if alt:
                     print(f"[RAG_GENERAL] 원문 검색 0건 → 지연 재작성으로 재시도: '{alt}'")
@@ -840,6 +997,10 @@ async def answer_rag_general_question_with_metadata(
             metadata,
         )
 
+    # 내부 전달용 키는 여기서 꺼내 버린다(아래 어느 경로로 반환되든 메타데이터에 안 남게).
+    focus_chunk = metadata.pop("_top_chunk", None)
+    focus_sib_best = metadata.pop("_sibling_best", 1.0)
+
     # LLM에는 이전 대화 맥락(이전 주제 힌트)이 포함된 질문 전달
     llm_question = context_question if context_question is not None else question
 
@@ -882,15 +1043,45 @@ async def answer_rag_general_question_with_metadata(
             # 파싱 실패(청크가 검색에 안 잡힘 등)면 빈 문자열 → 아래 기존 LLM 경로로 그대로 이어진다.
             answer = format_certificate_info(context, question) if is_certificate else ""
             if not answer:
+                # ── 근거가 약한데 검수 FAQ가 있으면 LLM을 아예 안 태운다 ──────────────
+                # weak_evidence는 '리랭커가 전부 0점 → 어휘 겹침만으로 살린 컨텍스트'라는 뜻이다.
+                # 이 상태로 LLM에 넘기면 질문의 단어를 빌려 없는 사실을 만든다. 아래 '단정 금지'
+                # 지시로 눌러 봤지만 8B는 지시를 흘렸다(실측: '엠티 언제가?'→2019년 솔숲 일정을
+                # "엠티는 다음과 같습니다"로 단정, '과잠 언제 맞춰?'→공결 사유 목록).
+                # 사람이 검수한 FAQ가 있으면 그게 정답이므로 모델을 거치지 않고 그대로 낸다.
+                # FAQ가 없으면 아무 일도 일어나지 않고 기존 흐름(단정 금지 지시)으로 이어진다
+                # → 리랭커 저점수 정답('도서 대출 몇 권' 0.001)이 죽지 않는다.
+                if metadata.get("weak_evidence"):
+                    # 이 경로는 LLM을 건너뛰므로 오매칭이 곧 확정 오답 → 엄격 임계값(0.75)을 쓴다.
+                    from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
+                    hit = await loop.run_in_executor(
+                        None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
+                    if hit:
+                        print(f"[RAG_GENERAL] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
+                        metadata["source"] = "faq"
+                        # 잡았던 무관 문서의 출처·연락처가 FAQ 답변에 붙지 않도록 비운다.
+                        for k in ("url", "contact_name", "contact_phone", "source_file"):
+                            metadata.pop(k, None)
+                        return hit[0], metadata
                 # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트에서 파일 목록·
                 # <FILES> 태그 지시를 뺐다 — 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로
                 # 무용했고, 목록을 넣지 않으니 프롬프트가 가벼워진다(오버헤드 감소 → 답변 토큰 여유 증가).
                 # 답변 최소 800토큰을 남기도록 컨텍스트를 동적 절단한다. 고정 상수(MAX_TOTAL_CONTEXT)
                 # 로는 RAG 골격을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 학사일정 보강 블록도
                 # 오버헤드에 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
+                # 리랭커 1등 청크를 컨텍스트 맨 앞에 얹는다(코드가 파싱하는 위 두 경로는
+                # 원본 context를 그대로 쓰므로 영향 없음 — LLM 프롬프트에만 적용).
+                llm_context = (_prepend_focus(context, focus_chunk, focus_sib_best)
+                               if focus_chunk else context)
+                if llm_context is not context:
+                    print(f"[RAG_GENERAL] 핵심 청크 앞머리 추가 ({len(focus_chunk)}자 / 전체 {len(context)}자)")
                 overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT
-                context = llm_service.fit_context(context, overhead)
-                prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
+                llm_context = llm_service.fit_context(llm_context, overhead)
+                prompt = RAG_GENERAL_PROMPT.format(context=llm_context, question=llm_question)
+                # 리랭커 0점 → 어휘 매칭으로만 살아난 컨텍스트면 '단정 금지' 지시를 앞에 붙인다.
+                if metadata.get("weak_evidence"):
+                    print("[RAG_GENERAL] ⚠️ 근거 약함(어휘 매칭 구제) → 단정 금지 지시 주입")
+                    prompt = WEAK_EVIDENCE_DIRECTIVE + prompt
                 # 사실 조회 답변은 결정론적으로(temp 0.0) — 같은 질문에 목록·표 완비가 매번 달라지던
                 # 변덕 억제(예: 주차 정기권 3개 요금 중 1개만 뽑힘). 졸업·일정·동아리 핸들러와 동일 원칙.
                 answer = await llm_service.answer(prompt, max_tokens=1536, temperature=0.0)

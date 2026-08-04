@@ -1,4 +1,4 @@
-"""학과생활 FAQ 시맨틱 매칭 (인메모리 인덱스).
+﻿"""학과생활 FAQ 시맨틱 매칭 (인메모리 인덱스).
 
 어느 토픽에도 안 잡히는 질문을, 사람이 검수한 FAQ 답변에 질문↔질문 임베딩 유사도로 매칭한다.
 - 매칭되면 faq.answer를 LLM 없이 그대로(verbatim) 반환 → 환각 0.
@@ -17,6 +17,16 @@ from app.services.rag_service import rag_service
 # 질문↔질문 코사인 게이트. 미만이면 '답 못함'으로 넘긴다(틀린 답보다 '모름'이 안전).
 # bge-m3 기준 패러프레이즈 0.6~0.85 / 무관 0.2~0.4 → 실제 로그로 튜닝할 것.
 FAQ_THRESHOLD = 0.70
+
+# 검색 근거가 약해(weak_evidence) LLM을 건너뛰고 FAQ를 그대로 내보내는 경로 전용 임계값.
+# 그 경로는 오매칭이 곧 '교정 불가능한 확정 오답'이라 일반 조회보다 확실해야 한다.
+# 실측(FAQ 42개 기준): FAQ가 정답인 질문 14건의 최저 점수는 0.771(엠티 언제가?)이고,
+# FAQ가 오답인 질문 10건의 최고 점수는 0.711(내 졸업학점 얼마나 남았어?)로 두 집단이
+# 0.06 간격으로 갈렸다. 0.75는 정상 14/14를 지키면서 오매칭 3건을 모두 막는다.
+#   막힌 오매칭: 내 졸업학점 0.711 → 학점포기 / 수강신청 언제야 0.710 → 학사경고 /
+#              졸업 신청 방법 0.707 → 학사경고
+# (0.78은 엠티 0.771을 죽여 과하다)
+FAQ_STRICT_THRESHOLD = 0.75
 
 # [{"faq_id": int, "answer": str, "vec": list[float](정규화됨)}]
 _index: list[dict] = []
@@ -55,21 +65,26 @@ async def warmup() -> None:
     print(f"[FAQ] {len(_index)}개 질문 임베딩 완료 (임계값 {FAQ_THRESHOLD})")
 
 
-def faq_lookup(question: str) -> tuple[str, float] | None:
+def faq_lookup(question: str, threshold: float | None = None) -> tuple[str, float] | None:
     """질문과 가장 유사한 FAQ를 찾아 (답변, 점수) 반환. 임계값 미만이면 None.
+
+    threshold를 주면 그 값으로 판정한다(기본 FAQ_THRESHOLD). 검색 근거가 약해
+    LLM을 건너뛰고 FAQ를 그대로 내보내는 경로는 오매칭이 곧 확정 오답이므로
+    FAQ_STRICT_THRESHOLD처럼 더 높은 값을 쓴다.
 
     임베딩(블로킹) 호출을 하므로 async 핸들러에서는 run_in_executor로 감싼다(topic_router와 동일).
     """
     if not _index or not question:
         return None
+    th = FAQ_THRESHOLD if threshold is None else threshold
     qv = _normalize(rag_service.embedding.embed_text(question))
     best_ans, best_score = None, -1.0
     for item in _index:
         s = sum(a * b for a, b in zip(qv, item["vec"]))
         if s > best_score:
             best_score, best_ans = s, item["answer"]
-    if best_score >= FAQ_THRESHOLD:
-        print(f"[FAQ] 매칭 (score={best_score:.3f} ≥ {FAQ_THRESHOLD}) → verbatim 답변")
+    if best_score >= th:
+        print(f"[FAQ] 매칭 (score={best_score:.3f} ≥ {th}) → verbatim 답변")
         return best_ans, best_score
-    print(f"[FAQ] 매칭 실패 (top score={best_score:.3f} < {FAQ_THRESHOLD})")
+    print(f"[FAQ] 매칭 실패 (top score={best_score:.3f} < {th})")
     return None

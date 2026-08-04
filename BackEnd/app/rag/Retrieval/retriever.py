@@ -54,7 +54,16 @@ _SRC_MATCH_STOPWORDS = (
     "이용시간", "운영시간", "이용", "운영", "시간", "방법", "이용법", "대여", "대관", "예약",
     "신청", "정보", "안내", "문의", "사용", "위치", "어디", "어딨", "언제", "얼마", "어떻게",
     "알려줘", "알려", "뭐야", "뭔가요", "있나요", "있어", "요금", "가격", "비용",
+    # 규정 문서라면 어디에나 나오는 행정 일반어 — 남겨두면 '내용어' 행세를 하며 무관한 문서를
+    # 살려낸다. 실측: '재수강도 특별학점 처리 가능한가요?'에서 '처리' 하나가 졸업종합시험규정·
+    # 졸업사정세부지침을 끌어와, 리랭커가 전부 0점을 준 상태에서 LLM이 사실과 반대되는 답을
+    # 지어냈다(실제 규정은 '재수강하는 경우에도 학점인정을 적용할 수 있다').
+    "처리", "가능", "여부", "대상", "기준", "사항", "내용", "관련", "규정", "지침", "절차",
+    "제출", "확인", "포함", "적용", "인정",
 )
+# 조사·어미 — 토큰 끝에 붙어 '재수강도'처럼 매칭을 어긋나게 만든다.
+_SRC_PARTICLES = ("으로", "에서", "에게", "까지", "부터", "이나", "라도", "든지",
+                  "은", "는", "이", "가", "을", "를", "도", "만", "의", "에", "과", "와", "랑")
 _SRC_TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 _SRC_NORM_RE = re.compile(r"[\s()（）\[\]·・/,_-]")
 
@@ -73,6 +82,11 @@ def _source_match_terms(*queries: str) -> list[str]:
         for w in _SRC_MATCH_STOPWORDS:
             s = s.replace(w, " ")
         for t in _SRC_TOKEN_RE.findall(s):
+            # 조사 제거 — '재수강도' → '재수강'. 떼고 남은 게 2자 미만이면 원형을 쓴다.
+            for p in _SRC_PARTICLES:
+                if t.endswith(p) and len(t) - len(p) >= 2:
+                    t = t[: -len(p)]
+                    break
             if len(t) >= 2 and t not in terms:
                 terms.append(t)
     return terms
@@ -122,14 +136,18 @@ class Retriever:
 
         # 그룹별 앵커(최고 점수 청크) 사전 식별 — 상한 초과 시 이 청크만은 예외로 붙인다.
         anchor_id: dict[str, int] = {}
+        anchor_text: dict[str, str] = {}
         best_score: dict[str, float] = {}
+        group_scores: dict[str, list[float]] = {}
         for result in results:
             article = result.metadata.get("article")
             source = result.metadata.get("source", "")
             key = f"{source}::{article}" if article else source
+            group_scores.setdefault(key, []).append(result.score)
             if key not in best_score or result.score > best_score[key]:
                 best_score[key] = result.score
                 anchor_id[key] = id(result)
+                anchor_text[key] = result.text
         anchor_done: set[str] = set()
 
         for result in results:
@@ -184,8 +202,23 @@ class Retriever:
                 else:
                     source_merged[key] = result
 
+        # 병합 결과에 '앵커 청크 본문'을 남긴다. 병합 텍스트는 chunk_index 순이라 정답이
+        # 문서 뒤쪽 청크면 맨 끝으로 밀리는데, 병합 후에는 그게 어디였는지 알 방법이 없어진다
+        # (점수도 그룹 최고값 하나로 뭉개진다). 답변 단계가 이 값을 컨텍스트 앞머리로 끌어올려
+        # 쓴다(rag_general._prepend_focus). 여기서는 표시만 하고 순서·내용은 건드리지 않는다.
+        # 함께 남기는 sibling_best는 '앵커를 뺀 나머지 형제의 최고 점수'다. 이게 사실상 0이면
+        # 리랭커가 형제 전부를 무관으로 판정한 것이라 답변 단계가 꼬리를 버릴 수 있다.
+        # 반대로 조금이라도 점수가 있으면(실측: 기숙사 간사 신청의 정답 섹션 0.064) 그 형제가
+        # 정답일 수 있으므로 반드시 남긴다 — 이 보강을 만든 이유가 바로 그 케이스다.
+        for key, merged in list(article_merged.items()) + list(source_merged.items()):
+            txt = anchor_text.get(key)
+            if txt and txt != merged.text:      # 그룹에 청크가 하나뿐이면 남길 이유가 없다
+                merged.metadata["anchor_text"] = txt
+                scores = sorted(group_scores.get(key, []), reverse=True)
+                merged.metadata["sibling_best"] = scores[1] if len(scores) > 1 else 0.0
+
         all_results = list(article_merged.values()) + list(source_merged.values())
-        
+
         # 최종 반환 시 관련도 점수가 가장 높은 순으로 정렬하여 반환
         return sorted(all_results, key=lambda r: r.score, reverse=True)
 
@@ -321,9 +354,15 @@ class Retriever:
                     if len(filtered_results) >= MIN_FALLBACK:
                         break
                     if r.metadata.get("source") in matched_src and _key(r) not in seen:
-                        filtered_results.append(rr_by_key.get(_key(r), r)); seen.add(_key(r))
+                        rescued = rr_by_key.get(_key(r), r)
+                        # 근거 약함 표시 — 리랭커가 전부 0점을 준 상태에서 '어휘가 겹친다'는
+                        # 이유만으로 살린 청크다. 답변 단계가 이 신호를 보고 단정을 피하도록 한다.
+                        # (실측: 이 표시가 없어 '재수강은 특별학점 대상이 아니다'라는, 규정과
+                        #  정반대인 단정이 생성됐다. 실제 규정은 '재수강도 적용할 수 있다')
+                        rescued.metadata["weak_evidence"] = True
+                        filtered_results.append(rescued); seen.add(_key(r))
                 if filtered_results:
-                    print(f"[Retriever] 출처명 매칭 폴백 → {matched_src} ({len(filtered_results)}개 살림)")
+                    print(f"[Retriever] 출처명 매칭 폴백 → {matched_src} ({len(filtered_results)}개 살림, 근거약함 표시)")
 
         # 3-2. 같은 문서 보강 — 1등이 확신 있는 문서면 그 문서의 나머지 청크도 후보에서 끌어온다.
         # 리랭커가 공고의 '개요'만 올리고 '신청 방법' 섹션을 떨어뜨리는 경우를 복원하기 위함.
