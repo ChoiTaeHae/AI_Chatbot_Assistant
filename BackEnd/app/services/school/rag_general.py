@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import math
 import re
 
@@ -88,6 +88,11 @@ _PREDICATE_SUFFIXES = (
     # 의문 종결형은 '가요'처럼 뭉뚱그리면 명사와 부딪히므로 정확형만 넣는다.
     # 여기서 놓쳐도 치명적이지 않다 — 원문으로 검색했다가 0건이면 지연 재작성이 구제한다.
     "뭔가요", "뭐예요", "뭐죠", "뭔데",
+    # 조건 연결어미 — '받으면·놓치면·탈락하면'처럼 조건절 동사가 주제어로 오인되면
+    # 정상적인 맥락 병합이 폐기된다(실측: '학사경고가 뭐야?' 뒤 '두 번 받으면 어떻게 돼?'의
+    # 주제어가 ['받으면']으로 잡혀 재작성 '학사경고 누적 제적 기준'이 이탈로 반려 → 검색 0건).
+    # 긴 것부터 매칭돼야 하므로 순서 주의. 어간이 2자 미만이면 위 로직이 통째로 버린다.
+    "으려면", "하려면", "려면", "으면", "하면", "면",
 )
 _TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 
@@ -100,7 +105,12 @@ _YEAR_QUALIFIER_RE = re.compile(r"^\d{1,4}(학번|학년도|년도|학년)")
 # 걸면 진짜 주제어를 먹는다('자격'→'자격증', '시간'→'시간표'). exact 일치라 자격증/시간표는 안전.
 # ('전과 신청 방법' 뒤 '자격 조건은?'이 '자격'만으로 '검색어 형태'로 오판돼 이전 맥락 병합이
 #  통째로 생략되던 문제 — 실측: graduation으로 오라우팅)
-_GENERIC_EXACT = ("자격", "시간")
+# '벌점·기간·비용…'도 같은 층위다 — 단독으로는 무엇의 벌점인지 정해지지 않아 이전 맥락을
+# 붙여야 한다. 빠져 있으면 '주제어 보유'로 오판돼 정상적인 맥락 병합이 폐기된다.
+# (실측: '기숙사 입사 조건' 뒤 '벌점은 어떻게 되나요?' → 재작성 '기숙사 벌점 기준'이 정확했는데
+#  '기숙사 차용'으로 반려 → 원문이 school_rules로 라우팅돼 검색 0건 '못 찾음')
+_GENERIC_EXACT = ("자격", "시간", "벌점", "기간", "비용", "요금", "금액",
+                  "횟수", "점수", "대상", "서류", "절차", "방법", "조건", "기준")
 # 위 속성어에 붙는 조사 — '신청 자격은?'의 '자격은'도 속성어로 인정해 후속 병합이 되게 한다.
 # (조사만 떼어 exact 확인하므로 '자격증'·'시간표'는 조사가 아니라 그대로 주제어로 유지된다)
 _EXACT_PARTICLES = ("은", "는", "이", "가", "을", "를", "도", "의", "만")
@@ -331,7 +341,11 @@ _ACTION_CONCEPTS: dict[str, tuple[str, ...]] = {
     "방법": ("방법", "어떻게", "어케", "하는법", "는법", "하려면", "려면", "떼고", "떼주", "어디"),
     "신청": ("신청", "접수", "지원", "넣", "내려"),
     "절차": ("절차", "과정", "순서", "어떻게", "하려면", "어디"),
-    "발급": ("발급", "떼", "받"),
+    # '발급'만 방법 씨앗이 빠져 있어, 증명서류 질문에서 '어떻게 해?'가 '발급 방법'으로 정규화되는
+    # 정당한 변환이 날조로 오판됐다(실측: '재증명 어떻게해?' → '제증명 발급 방법' 폐기 → 구어 원본이
+    # 그대로 라우팅돼 '재-'가 재입학과 가까워 readmission으로 새고 검색 0건).
+    # '뭐야/얼마야'는 여전히 넣지 않으므로 '○○이 뭐야?' → '○○ 발급 방법' 같은 성격 변질은 계속 막힌다.
+    "발급": ("발급", "떼", "받", "어떻게", "어케", "하려면", "려면", "방법", "하는법", "는법"),
 }
 
 
@@ -413,7 +427,18 @@ def _keeps_topic(question: str, rewritten: str) -> bool:
     if not terms:
         return True                      # 모호한 후속 질문 → 검사 skip
     rw = (rewritten or "").replace(" ", "")
-    return any(_stem_in(t, rw) for t in terms)
+    if any(_stem_in(t, rw) for t in terms):
+        return True
+
+    # 표기만 바뀐 경우(오타 교정·동의어)는 '이탈'이 아니다. 양쪽을 검색어 딕셔너리의
+    # 공식어로 환산해 겹치면 같은 주제로 본다.
+    # 실측: '재증명 어떻게해?'(오타) → '제증명 발급 방법'(정확한 교정)이 글자가 달라
+    # 폐기됐고, 구어 원본이 그대로 라우팅돼 '재-'가 재입학과 가까워 readmission으로 샜다
+    # (0.663 → 검색 0건). 둘 다 '증명서'로 환산되므로 여기서 살린다.
+    q_off = _official_terms(question)
+    if q_off and (q_off & _official_terms(rewritten)):
+        return True
+    return False
 
 
 # ── 검색어 딕셔너리 ────────────────────────────────────────────────
@@ -444,6 +469,20 @@ def set_search_synonyms(mapping: dict | None) -> None:
             cleaned[term] = officials
     _search_synonyms = cleaned or dict(DEFAULT_SEARCH_SYNONYMS)
     print(f"[RAG_GENERAL] 검색어 딕셔너리 {len(_search_synonyms)}개 로드")
+
+
+def _official_terms(text: str) -> set[str]:
+    """텍스트에 들어 있는 딕셔너리 표제어를 '공식어 집합'으로 환산.
+
+    '재증명'과 '제증명'처럼 표기가 달라도 같은 공식어('증명서')로 모이면 같은 주제로
+    볼 수 있다. _keeps_topic이 오타 교정을 주제 이탈로 오판하지 않도록 쓰는 보조 함수.
+    """
+    t = (text or "").replace(" ", "")
+    out: set[str] = set()
+    for term, officials in _search_synonyms.items():
+        if term.replace(" ", "") in t:
+            out.update(o.replace(" ", "") for o in officials)
+    return out
 
 
 def expand_search_query(query: str) -> str:
@@ -544,11 +583,60 @@ async def _respace_query(q: str) -> str | None:
     return None
 
 
-async def _rewrite_query(question: str, prev_question: str | None = None, force: bool = False) -> str:
+# ── 재작성 실패·반려 시 폴백 정규화 ────────────────────────────────
+# LLM 재작성이 실패(429·장애)하거나 가드에 반려되면 지금까지는 '구어체 원문'을 그대로 검색에
+# 넣었다. 그런데 리랭커는 구어체에 극도로 약해 30개 청크가 전부 0.000이 되는 일이 잦다
+# (실측: '내년에 졸업하려면 뭐 필요해?'). 그래서 LLM 없이 군말·어미만 걷어낸 검색어를 만든다.
+#
+# 원칙: **의미어는 절대 건드리지 않는다.** 요건·기준·조건·학점·방법·절차·신청·기간·자격 등은
+# 검색에 꼭 필요한 말이라 제거 대상에 넣지 않는다(학과명 추출용 _DEPT_KW_STOPWORDS를 재사용하면
+# 이것들까지 날아가므로 별도 목록을 쓴다).
+# 이 결과는 '검색어·라우팅'에만 쓰이고, LLM 답변 프롬프트에는 항상 원문이 들어간다
+# (llm_question) — 그래서 질문 의도가 훼손되지 않는다.
+_FALLBACK_FILLERS = (
+    "알려주세요", "알려줘", "알려", "해주세요", "해줘", "주세요",
+    "뭐에요", "뭔가요", "뭐야", "뭔데", "궁금해요", "궁금해", "궁금",
+    "어떻게해", "어떻게 해", "어떡해", "좀",
+    "인가요", "하나요", "되나요", "있나요", "있어요", "습니까", "까요",
+)
+_FALLBACK_PARTICLES = ("으로", "에서", "까지", "부터", "은", "는", "이", "가",
+                       "을", "를", "도", "의", "에", "과", "와")
+
+
+def _fallback_normalize(question: str) -> str:
+    """군말·어미·조사만 걷어낸 검색용 문자열. 남는 게 없으면 원문을 그대로 돌려준다."""
+    if not question:
+        return question
+    s = question
+    for w in _FALLBACK_FILLERS:
+        s = s.replace(w, " ")
+    s = re.sub(r"[?!.,~·]+", " ", s)
+    toks = []
+    for t in s.split():
+        for p in _FALLBACK_PARTICLES:
+            if t.endswith(p) and len(t) - len(p) >= 2:
+                t = t[: -len(p)]
+                break
+        if t:
+            toks.append(t)
+    out = " ".join(toks).strip()
+    if not out or len(out) < 2:
+        return question
+    if out != question:
+        print(f"[RAG_GENERAL] 폴백 정규화: '{question}' → '{out}'")
+    return out
+
+
+async def _rewrite_query(question: str, prev_question: str | None = None, force: bool = False,
+                         normalize_on_reject: bool = False) -> str:
     """구어체 질문을 검색용 공식 용어로 변환.
 
     prev_question이 있으면(topic 유지된 후속 질문) 이전 질문의 주제어를 보충해
     재작성한다 — "기간은 얼마나 돼?"가 엉뚱한 검색어로 변환되는 것을 방지.
+
+    normalize_on_reject=True면 가드 반려·빈출력 시 원문 대신 '규칙 기반 정규화문'을 돌려준다.
+    검색 전용 호출에서만 켠다 — 라우팅에 쓰면 군말 제거로 임베딩이 미세하게 움직여 근소한
+    차이의 토픽이 뒤집힌다(실측: '국가장학금 소득분위 기준 알려줘' scholarship→work_study).
 
     force=True면 검색어 형태 판정을 건너뛴다 — '지연 재작성'(원문 검색이 0건이라 뒤늦게
     재작성을 시도하는 경로) 전용. 그때도 생략하면 아무 일도 일어나지 않는다."""
@@ -575,34 +663,34 @@ async def _rewrite_query(question: str, prev_question: str | None = None, force:
     # 빈 출력이거나 원본과 동일 → 원본 사용
     if not rewritten or rewritten == question:
         print(f"[RAG_GENERAL] 질문 재작성 실패/빈출력 → 원본 사용: '{question}'")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
     # 주제어 가드: 현재 질문에 뚜렷한 주제어가 있는데 재작성이 그걸 잃었으면(= 이전 주제로
     # 갈아탄 것) 원본 사용. 아래 드리프트 가드는 기준문에 이전 질문이 섞여 있어 이 경우를
     # 못 잡으므로, 그보다 먼저 확정적으로 차단한다.
     if not _keeps_topic(question, rewritten):
         print(f"[RAG_GENERAL] 재작성이 주제어 이탈 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
 
     # 행위 개념 날조 가드: 원문·이전질문에 없던 '신청/방법/절차/발급'을 재작성이 만들어 냈으면
     # 폐기한다. 이 프레임이 붙으면 근거에 없는 절차·기한을 LLM이 발명한다(F스포렉스 사례).
     invented = _invents_action(question, rewritten, prev_question)
     if invented:
         print(f"[RAG_GENERAL] 재작성이 없던 '{invented}' 개념 날조 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
 
     # 이전 주제 차용 가드: 현재 질문이 스스로 주제를 특정하는데(주제어 보유) 이전 질문의
     # 주제어까지 새로 붙었으면 폐기한다. '학칙 알려줘'(이전 '공결') → '공결 학칙' 오염 차단.
     borrowed = _borrows_prev_topic(question, rewritten, prev_question)
     if borrowed:
         print(f"[RAG_GENERAL] 재작성이 이전 주제어 '{borrowed}' 차용 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
 
     # 드리프트 가드: 재작성이 원문과 의미가 너무 멀어지면(예: 공결→전과) 원본 사용
     # 맥락 통합 시엔 주제어가 이전 질문에서 오므로 이전+현재를 합친 텍스트와 비교
     drift_ref = f"{prev_question} {question}" if prev_question else question
     if await _is_semantic_drift(drift_ref, rewritten):
         print(f"[RAG_GENERAL] 재작성 드리프트 감지 → 원본 사용: '{question}' → '{rewritten}' (폐기)")
-        return question
+        return _fallback_normalize(question) if normalize_on_reject else question
     print(f"[RAG_GENERAL] 질문 재작성: '{question}' → '{rewritten}'"
           + (f" (이전 질문 맥락 통합: '{prev_question}')" if prev_question else ""))
     return rewritten
@@ -738,7 +826,8 @@ async def answer_rag_general_question_with_metadata(
     skipped_rewrite = _is_keyword_query(question)
     if not hoisted:
         try:
-            search_query = await _rewrite_query(question, prev_question=prev_question)
+            search_query = await _rewrite_query(question, prev_question=prev_question,
+                                               normalize_on_reject=True)
         except Exception as e:
             print(f"[RAG_GENERAL] rewrite 실패(원본 사용): {e}")
             search_query = question
@@ -777,7 +866,8 @@ async def answer_rag_general_question_with_metadata(
         if skipped_rewrite:
             try:
                 # force=True — 생략 판정을 우회해야 실제로 재작성이 일어난다
-                cand = await _rewrite_query(question, prev_question=prev_question, force=True)
+                cand = await _rewrite_query(question, prev_question=prev_question, force=True,
+                                        normalize_on_reject=True)
                 alt = cand if cand and cand != question else None
                 if alt:
                     print(f"[RAG_GENERAL] 원문 검색 0건 → 지연 재작성으로 재시도: '{alt}'")
@@ -962,8 +1052,10 @@ async def answer_rag_general_question_with_metadata(
                 # FAQ가 없으면 아무 일도 일어나지 않고 기존 흐름(단정 금지 지시)으로 이어진다
                 # → 리랭커 저점수 정답('도서 대출 몇 권' 0.001)이 죽지 않는다.
                 if metadata.get("weak_evidence"):
-                    from app.services.faq_index import faq_lookup
-                    hit = await loop.run_in_executor(None, faq_lookup, question)
+                    # 이 경로는 LLM을 건너뛰므로 오매칭이 곧 확정 오답 → 엄격 임계값(0.75)을 쓴다.
+                    from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
+                    hit = await loop.run_in_executor(
+                        None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
                     if hit:
                         print(f"[RAG_GENERAL] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
                         metadata["source"] = "faq"
