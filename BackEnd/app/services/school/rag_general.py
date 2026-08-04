@@ -4,7 +4,7 @@ import re
 
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
-from app.rag.Retrieval.retriever import MAX_TOTAL_CONTEXT   # 보강 블록도 같은 예산 안에서 다룬다
+from app.rag.Retrieval.retriever import MAX_TOTAL_CONTEXT, SCORE_THRESHOLD   # 보강 블록도 같은 예산 안에서 다룬다
 from app.prompts import RAG_GENERAL_PROMPT, RAG_CLUB_LIST_PROMPT, RAG_CLUB_DETAIL_PROMPT, QUERY_REWRITE_PROMPT, QUERY_REWRITE_WITH_CONTEXT_PROMPT, KEYWORD_EXTRACTION_SYSTEM_PROMPT, SYSTEM_PROMPT, WEAK_EVIDENCE_DIRECTIVE
 
 # 재작성 드리프트 임계값 — 원문과 재작성의 의미 유사도가 이 값 미만이면
@@ -696,6 +696,48 @@ async def _rewrite_query(question: str, prev_question: str | None = None, force:
     return rewritten
 
 
+# 컨텍스트 앞머리에 얹는 '핵심 부분' 블록의 라벨.
+_FOCUS_HEAD = "[질문과 가장 관련 높은 부분]"
+_FULL_HEAD = "[전체 참고 자료]"
+# 1등 청크 대비 컨텍스트가 이 배수 이상으로 부풀었을 때만 앞머리를 만든다.
+_FOCUS_DILUTION = 1.5
+# 형제 최고점이 이 미만이면 '리랭커가 사실상 0점을 줬다'로 보고 꼬리를 버린다.
+# 실측 하한(기숙사 간사 신청의 정답 섹션 0.064)보다 넉넉히 아래로 잡아 그 케이스를 지킨다.
+_SIBLING_NOISE = 0.01
+
+
+def _prepend_focus(context: str, top_text: str, sibling_best: float = 1.0) -> str:
+    """리랭커 1등 청크를 컨텍스트 맨 앞에 한 번 더 얹는다(원본은 제자리에 그대로 둔다).
+
+    같은 문서 보강이 1등 문서의 형제 청크를 최대 6개까지 끌어오는데, 그 형제엔 점수 조건이
+    없어 0점짜리도 들어온다. 병합은 chunk_index 순이라 정답이 문서 뒤쪽 청크면 컨텍스트
+    맨 끝으로 밀린다. 실측: '학사경고 받으면 어떻게 돼?'에서 정답(성적평가 idx=7, 0.921,
+    515자)이 3336자 중 마지막 15%에 놓였고, 모델은 맨 앞의 '성적평가 비율표'를 읽고
+    "과목당 최소 출석률", "평점 1.75 미만" 같은 규정을 조립해 냈다(원문은 1.50).
+
+    schedule.py의 헤드라인과 같은 처방 — 8B는 앞에 있는 것을 답으로 삼으므로, 고른 것을
+    맨 앞에 둔다. 뒤쪽 원본을 지우지 않아 정보 손실이 없고, 순서도 그대로라 코드가 파싱하는
+    경로(동아리 목록·제증명)는 영향을 받지 않는다. 예산이 모자라면 fit_context가 '뒤에서부터'
+    버리므로 0점 형제가 먼저 밀려나고 이 앞머리는 남는다.
+    """
+    if not top_text or not context:
+        return context
+    if top_text in context and len(context) < len(top_text) * _FOCUS_DILUTION:
+        return context      # 희석이 없으면 같은 내용을 두 번 넣을 이유가 없다
+
+    # 형제가 전부 0점이면 꼬리는 순수 노이즈다 — 앵커만 남긴다. 앞머리로 끌어올리는 것만으론
+    # 부족했다(실측: 학사경고에서 앵커를 맨 앞에 뒀는데도, 뒤따르는 무관한 성적평가 비율·등급표
+    # 2000자에 눌려 앵커 안의 세 조항 중 '15학점 제한' 한 줄만 답했다. 꼬리를 빼자 평점 1.50·
+    # 15학점·연속3회 제적·외국인 예외가 모두 나왔다).
+    # 형제가 조금이라도 점수를 받았으면 그 형제가 정답일 수 있으므로 꼬리를 그대로 둔다
+    # (기숙사 간사 신청: 정답 섹션이 0.064 — 같은 문서 보강을 만든 이유가 이 케이스다).
+    if sibling_best < _SIBLING_NOISE:
+        print(f"[RAG_GENERAL] 형제 전원 무관(최고 {sibling_best:.3f}) → 꼬리 제거, "
+              f"앵커 {len(top_text)}자만 사용 (원래 {len(context)}자)")
+        return f"{_FOCUS_HEAD}\n{top_text}"
+    return f"{_FOCUS_HEAD}\n{top_text}\n\n{_FULL_HEAD}\n{context}"
+
+
 def _search_rag(search_query: str, original_question: str, topic: str | None) -> tuple[str, dict]:
     """Qdrant 검색. topic이 None이면 전체 검색."""
     try:
@@ -714,6 +756,18 @@ def _search_rag(search_query: str, original_question: str, topic: str | None) ->
             results,
             topic=topic,
         )
+
+        # 리랭커가 확신한 '앵커 청크'(병합 전 최고점 서브청크) 본문을 챙긴다 — 프롬프트
+        # 조립부에서 컨텍스트 맨 앞에 한 번 더 얹기 위함(_prepend_focus 참조).
+        # results는 이미 병합된 뒤라 top.text는 문서 통짜(형제 포함)다. 그걸 쓰면 컨텍스트와
+        # 같아져 아무 효과가 없으므로, 리트리버가 병합 때 남겨 둔 anchor_text를 쓴다.
+        # 내부 전달용이라 답변 직전에 꺼내 버린다.
+        if results:
+            top = max(results, key=lambda r: r.score)
+            anchor = top.metadata.get("anchor_text")
+            if top.score >= SCORE_THRESHOLD and anchor:
+                metadata["_top_chunk"] = anchor
+                metadata["_sibling_best"] = top.metadata.get("sibling_best", 1.0)
 
         print(f"[RAG] context length = {len(context)} chars")
         print(f"[RAG] retrieved chunks = {len(results)}")
@@ -943,6 +997,10 @@ async def answer_rag_general_question_with_metadata(
             metadata,
         )
 
+    # 내부 전달용 키는 여기서 꺼내 버린다(아래 어느 경로로 반환되든 메타데이터에 안 남게).
+    focus_chunk = metadata.pop("_top_chunk", None)
+    focus_sib_best = metadata.pop("_sibling_best", 1.0)
+
     # LLM에는 이전 대화 맥락(이전 주제 힌트)이 포함된 질문 전달
     llm_question = context_question if context_question is not None else question
 
@@ -985,15 +1043,39 @@ async def answer_rag_general_question_with_metadata(
             # 파싱 실패(청크가 검색에 안 잡힘 등)면 빈 문자열 → 아래 기존 LLM 경로로 그대로 이어진다.
             answer = format_certificate_info(context, question) if is_certificate else ""
             if not answer:
+                # ── 근거가 약한데 검수 FAQ가 있으면 LLM을 아예 안 태운다 ──────────────
+                # weak_evidence는 '리랭커가 전부 0점 → 어휘 겹침만으로 살린 컨텍스트'라는 뜻이다.
+                # 이 상태로 LLM에 넘기면 질문의 단어를 빌려 없는 사실을 만든다. 아래 '단정 금지'
+                # 지시로 눌러 봤지만 8B는 지시를 흘렸다(실측: '엠티 언제가?'→2019년 솔숲 일정을
+                # "엠티는 다음과 같습니다"로 단정, '과잠 언제 맞춰?'→공결 사유 목록).
+                # 사람이 검수한 FAQ가 있으면 그게 정답이므로 모델을 거치지 않고 그대로 낸다.
+                # FAQ가 없으면 아무 일도 일어나지 않고 기존 흐름(단정 금지 지시)으로 이어진다
+                # → 리랭커 저점수 정답('도서 대출 몇 권' 0.001)이 죽지 않는다.
+                if metadata.get("weak_evidence"):
+                    from app.services.faq_index import faq_lookup
+                    hit = await loop.run_in_executor(None, faq_lookup, question)
+                    if hit:
+                        print(f"[RAG_GENERAL] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
+                        metadata["source"] = "faq"
+                        # 잡았던 무관 문서의 출처·연락처가 FAQ 답변에 붙지 않도록 비운다.
+                        for k in ("url", "contact_name", "contact_phone", "source_file"):
+                            metadata.pop(k, None)
+                        return hit[0], metadata
                 # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트에서 파일 목록·
                 # <FILES> 태그 지시를 뺐다 — 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로
                 # 무용했고, 목록을 넣지 않으니 프롬프트가 가벼워진다(오버헤드 감소 → 답변 토큰 여유 증가).
                 # 답변 최소 800토큰을 남기도록 컨텍스트를 동적 절단한다. 고정 상수(MAX_TOTAL_CONTEXT)
                 # 로는 RAG 골격을 반영 못 해 답변이 61토큰까지 쪼그라들었다(실측). 학사일정 보강 블록도
                 # 오버헤드에 포함되므로, 컨텍스트를 뺀 최종 프롬프트로 잰다.
+                # 리랭커 1등 청크를 컨텍스트 맨 앞에 얹는다(코드가 파싱하는 위 두 경로는
+                # 원본 context를 그대로 쓰므로 영향 없음 — LLM 프롬프트에만 적용).
+                llm_context = (_prepend_focus(context, focus_chunk, focus_sib_best)
+                               if focus_chunk else context)
+                if llm_context is not context:
+                    print(f"[RAG_GENERAL] 핵심 청크 앞머리 추가 ({len(focus_chunk)}자 / 전체 {len(context)}자)")
                 overhead = RAG_GENERAL_PROMPT.format(context="", question=llm_question) + SYSTEM_PROMPT
-                context = llm_service.fit_context(context, overhead)
-                prompt = RAG_GENERAL_PROMPT.format(context=context, question=llm_question)
+                llm_context = llm_service.fit_context(llm_context, overhead)
+                prompt = RAG_GENERAL_PROMPT.format(context=llm_context, question=llm_question)
                 # 리랭커 0점 → 어휘 매칭으로만 살아난 컨텍스트면 '단정 금지' 지시를 앞에 붙인다.
                 if metadata.get("weak_evidence"):
                     print("[RAG_GENERAL] ⚠️ 근거 약함(어휘 매칭 구제) → 단정 금지 지시 주입")

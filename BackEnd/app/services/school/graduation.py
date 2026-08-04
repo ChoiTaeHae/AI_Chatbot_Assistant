@@ -746,6 +746,20 @@ class GraduationService:
                 metadata,
             )
 
+        # 근거가 약한데 검수 FAQ가 있으면 LLM을 아예 안 태운다(rag_general과 같은 처방).
+        # 위 '0건' FAQ 폴백은 검색이 통째로 실패했을 때만 걸려서, 어휘 매칭으로 무관 문서가
+        # 살아난 경우는 빠져나간다. 실측: '재수강 최대 학점 몇이야?'가 졸업규정을 잡고
+        # "재수강 최대 학점은 없습니다"로 단정했다(FAQ엔 6학점·2회·A+가 있는데도).
+        if metadata.get("weak_evidence"):
+            from app.services.faq_index import faq_lookup
+            hit = await loop.run_in_executor(None, faq_lookup, question)
+            if hit:
+                print(f"[Graduation] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
+                metadata["source"] = "faq"
+                for k in ("url", "contact_name", "contact_phone", "source_file"):
+                    metadata.pop(k, None)
+                return hit[0], metadata
+
         prompt = self._build_rag_prompt(question, rag_context)
         # 입학연도별로 값이 갈리는 규정은 '누구 기준인지'를 고정해준다(수료기준·편입생 학점 등).
         if cohort_year:

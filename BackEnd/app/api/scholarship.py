@@ -26,12 +26,13 @@ class MatchRequest(BaseModel):
     income: str | None = None            # '기초'|'차상위'|'중위100'|'중위200'|None
     interests: list[str] = []            # 관심 유형(카테고리) — 우선 정렬용
     age: int | None = None
+    gpa: float | None = None             # 학점(4.5) — 설문에서 직접 입력(자동 연동 안 함). None=무관
+    grade_year: int | None = None        # 학년(1~4) — 설문에서 직접 선택(자동 연동 안 함). None=무관
     multichild: bool = False             # 다자녀 가정
     foreigner: bool = False              # 외국인/유학생
     disabled: bool = False               # 장애
     independent: bool = False            # 자취/독립 거주
     veteran: bool = False                # 보훈·국가유공자(후손)
-    excellent: bool = False              # '성적 우수 장학금만' 필터 (태그된 것만)
 
 
 @router.get("/scholarships", summary="장학금 카탈로그 (둘러보기 모달)")
@@ -88,16 +89,16 @@ async def match(
         result = await match_scholarships(
             db,
             body.model_dump(),
-            gpa=getattr(current_user, "gpa", None),
-            grade_year=getattr(current_user, "grade_year", None),
+            gpa=body.gpa,               # 학점: 설문 입력값 (자동연동 제거)
+            grade_year=body.grade_year, # 학년: 설문 선택값 (자동연동 제거)
             major_field=getattr(current_user, "major_field", None),
             dept_name=dept_name,
         )
-        # 설문 모달의 '연동됨' 표시용 — 자동으로 가져온 학생 프로필
+        # 전공은 내 정보 연동, 학년·학점은 설문에서 입력한 값을 그대로 표시
         result["profile"] = {
             "name": current_user.name,
-            "gpa": getattr(current_user, "gpa", None),
-            "grade_year": getattr(current_user, "grade_year", None),
+            "gpa": body.gpa,
+            "grade_year": body.grade_year,
             "major_field": getattr(current_user, "major_field", None),
             "dept_name": dept_name,
         }
