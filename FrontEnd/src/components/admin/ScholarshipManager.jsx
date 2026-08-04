@@ -13,7 +13,7 @@ const EMPTY = {
 }
 
 const BASIS_OPTS = [['', '무관'], ['본인', '본인 거주'], ['부모', '부모 거주']]
-const GRADE_OPTS = [['신입', '신입생'], ['재학', '재학생'], ['3학년이상', '3학년 이상'], ['대학원', '대학원']]   // 다중선택
+const GRADE_OPTS = [['신입', '신입생 (1학년)'], ['재학', '재학생 (1·2·3·4학년)'], ['2학년이상', '2학년 이상'], ['3학년이상', '3학년 이상'], ['대학원', '대학원']]   // 다중선택
 // 소득 요건 = 국가장학금 학자금 지원구간. '복지'(복지자격) 또는 'N구간 이하'
 const INCOME_OPTS = [
   ['', '무관'],
@@ -30,6 +30,9 @@ const REQ_FLAGS = [
   ['req_multichild', '다자녀'], ['req_foreigner', '외국인·유학생'], ['req_independent', '자취·독립'],
   ['req_disabled', '장애'], ['req_veteran', '보훈·유공자'],
 ]
+// 필수/우대(req_flags_preferential)의 적용 대상 = 성적우수를 뺀 사회배려형 플래그들.
+// (성적우수는 별도 양방향 필터라 필수/우대와 무관)
+const COND_FLAG_KEYS = ['req_multichild', 'req_foreigner', 'req_independent', 'req_disabled', 'req_veteran']
 
 /** 서버 ISO(초 포함) → datetime-local 입력값(YYYY-MM-DDTHH:mm) */
 function toLocalInput(iso) {
@@ -99,6 +102,8 @@ export default function ScholarshipManager() {
   const [uploading, setUploading] = useState(false)
   const [pendingFile, setPendingFile] = useState(null)   // 저장(생성) 시 함께 첨부할 파일
   const [departments, setDepartments] = useState([])     // 대상 학과 다중선택용 학과명 목록
+  const [openCats, setOpenCats] = useState({})           // 목록 뷰: 카테고리별 드롭다운 펼침 상태
+  const [query, setQuery] = useState('')                 // 목록 뷰: 장학금 검색어
   const fileInputRef = useRef(null)
   const newFileInputRef = useRef(null)
 
@@ -119,6 +124,33 @@ export default function ScholarshipManager() {
 
   // 근로 롤백 — 장학금만 관리
   const scholarships = useMemo(() => list.filter((s) => s.kind !== '근로'), [list])
+  // 검색 — 이름·카테고리·금액·지원조건으로 필터 (비우면 전체)
+  const searching = query.trim() !== ''
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return scholarships
+    return scholarships.filter((s) =>
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.category || '').toLowerCase().includes(q) ||
+      (s.amount || '').toLowerCase().includes(q) ||
+      (s.eligibility || '').toLowerCase().includes(q)
+    )
+  }, [scholarships, query])
+  // 카테고리별 그룹 (드롭다운). 카테고리 없으면 '미분류'로 묶고 맨 뒤에.
+  const groupedByCat = useMemo(() => {
+    const map = {}
+    for (const s of filtered) {
+      const cat = s.category || '미분류'
+      ;(map[cat] ||= []).push(s)
+    }
+    return Object.entries(map).sort((a, b) => {
+      if (a[0] === '미분류') return 1
+      if (b[0] === '미분류') return -1
+      return a[0].localeCompare(b[0], 'ko')
+    })
+  }, [filtered])
+  const allCatsOpen = groupedByCat.length > 0 && groupedByCat.every(([c]) => openCats[c])
+  const toggleAllCats = () => setOpenCats(allCatsOpen ? {} : Object.fromEntries(groupedByCat.map(([c]) => [c, true])))
 
   const shownFiles = useMemo(() => {
     const q = fileSearch.trim().toLowerCase()
@@ -220,6 +252,8 @@ export default function ScholarshipManager() {
 
   const inputCls = 'w-full text-sm text-(--text) border border-(--border) rounded-lg bg-(--surface-card) outline-none focus:border-(--brand)'
   const labelCls = 'text-xs font-bold text-(--text-muted)'
+  // 사회배려형 대상 조건이 하나라도 켜져야 필수/우대가 의미 있음 (안 켜면 토글 비활성 + ✓ 숨김)
+  const hasCondFlags = COND_FLAG_KEYS.some((k) => form[k])
 
   // ─────────────────────────────── 목록 뷰 ───────────────────────────────
   if (mode === 'list') {
@@ -246,30 +280,73 @@ export default function ScholarshipManager() {
             <p className="text-xs">오른쪽 상단 '장학금 정보 추가'로 시작하세요</p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto border border-(--border) rounded-xl">
-            {scholarships.map((s) => (
-              <div key={s.id} className="flex items-center gap-3 border-b border-(--border) last:border-b-0 hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-semibold text-white rounded-full shrink-0" style={{ padding: '1px 8px', background: s.scope === '교외' ? '#0ea5a0' : 'var(--text-faint)' }}>{s.scope}</span>
-                    <span className="font-semibold text-(--text) text-sm">{s.name}</span>
-                    {s.category && <span className="text-[11px] text-(--text-muted) bg-(--surface-2) rounded-full" style={{ padding: '1px 8px' }}>{s.category}</span>}
-                    {s.amount && <span className="text-[11px] font-semibold" style={{ color: TEAL }}>{s.amount}</span>}
-                    {s.expired && <span className="text-[11px] font-semibold text-red-600 bg-red-50 rounded-full" style={{ padding: '1px 8px' }}>기간마감</span>}
-                  </div>
-                  <div className="flex items-center gap-2 text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
-                    {s.period && <span><span className="emoji">🗓</span> {s.period}</span>}
-                    <span><span className="emoji">📎</span> 파일 {s.files?.length || 0}</span>
-                    {(s.req_region || s.req_min_gpa != null || s.req_income || s.req_multichild || s.req_foreigner || s.req_disabled || s.req_independent || s.req_veteran || s.req_excellent) && (
-                      <span style={{ color: TEAL }}><span className="emoji">🎯</span> 요건 설정됨</span>
+          <>
+            {/* 검색 */}
+            <div className="flex items-center gap-2 rounded-xl border border-(--border) bg-(--surface-card)" style={{ padding: '8px 12px' }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" strokeLinecap="round" /></svg>
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="장학금 검색 (이름·카테고리·금액·지원조건)" className="flex-1 outline-none bg-transparent text-sm text-(--text)" />
+              {searching && <button onClick={() => setQuery('')} className="text-(--text-faint) hover:text-(--text-body) shrink-0" aria-label="검색 지우기">✕</button>}
+            </div>
+
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-(--text-faint)">
+                {searching ? `검색 결과 ${filtered.length}건 · 카테고리 ${groupedByCat.length}` : `카테고리 ${groupedByCat.length} · 장학금 ${scholarships.length}`}
+              </p>
+              {!searching && <button onClick={toggleAllCats} className="text-xs font-semibold text-(--brand) hover:underline">{allCatsOpen ? '모두 접기' : '모두 펼치기'}</button>}
+            </div>
+            {groupedByCat.length === 0 ? (
+              <div className="flex flex-col items-center justify-center text-(--text-faint)" style={{ padding: '40px 0', gap: '6px' }}>
+                <p className="text-sm font-medium">'{query.trim()}' 검색 결과가 없어요</p>
+                <p className="text-xs">이름·카테고리·금액·지원조건에서 찾습니다</p>
+              </div>
+            ) : (
+            <div className="flex-1 overflow-y-auto flex flex-col" style={{ gap: '10px' }}>
+              {groupedByCat.map(([cat, items]) => {
+                const open = searching || !!openCats[cat]
+                return (
+                  <div key={cat} className="border border-(--border) rounded-xl overflow-hidden">
+                    {/* 카테고리 헤더 (드롭다운) */}
+                    <button
+                      onClick={() => setOpenCats((p) => ({ ...p, [cat]: !p[cat] }))}
+                      className="flex items-center gap-2 w-full bg-(--surface-2) hover:brightness-95 transition text-left"
+                      style={{ padding: '11px 14px' }}
+                    >
+                      <svg className={`h-4 w-4 text-(--text-faint) transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                      <span className="font-bold text-(--text) text-sm">{cat}</span>
+                      <span className="rounded-full font-semibold text-white text-[11px] shrink-0" style={{ padding: '1px 8px', background: TEAL }}>{items.length}</span>
+                    </button>
+
+                    {open && (
+                      <div>
+                        {items.map((s) => (
+                          <div key={s.id} className="flex items-center gap-3 border-t border-(--border) hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] font-semibold text-white rounded-full shrink-0" style={{ padding: '1px 8px', background: s.scope === '교외' ? '#0ea5a0' : 'var(--text-faint)' }}>{s.scope}</span>
+                                <span className="font-semibold text-(--text) text-sm">{s.name}</span>
+                                {s.amount && <span className="text-[11px] font-semibold" style={{ color: TEAL }}>{s.amount}</span>}
+                                {s.expired && <span className="text-[11px] font-semibold text-red-600 bg-red-50 rounded-full" style={{ padding: '1px 8px' }}>기간마감</span>}
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
+                                {s.period && <span><span className="emoji">🗓</span> {s.period}</span>}
+                                <span><span className="emoji">📎</span> 파일 {s.files?.length || 0}</span>
+                                {(s.req_region || s.req_min_gpa != null || s.req_income || s.req_multichild || s.req_foreigner || s.req_disabled || s.req_independent || s.req_veteran || s.req_excellent) && (
+                                  <span style={{ color: TEAL }}><span className="emoji">🎯</span> 요건 설정됨</span>
+                                )}
+                              </div>
+                            </div>
+                            <button onClick={() => openEdit(s)} className="text-xs font-semibold text-(--brand) hover:underline shrink-0">수정</button>
+                            <button onClick={() => remove(s)} className="text-xs font-semibold text-red-500 hover:underline shrink-0">삭제</button>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
-                </div>
-                <button onClick={() => openEdit(s)} className="text-xs font-semibold text-(--brand) hover:underline shrink-0">수정</button>
-                <button onClick={() => remove(s)} className="text-xs font-semibold text-red-500 hover:underline shrink-0">삭제</button>
-              </div>
-            ))}
-          </div>
+                )
+              })}
+            </div>
+            )}
+          </>
         )}
       </div>
     )
@@ -410,13 +487,13 @@ export default function ScholarshipManager() {
             )
           })}
         </div>
-        {/* 대상 조건 성격: 필수(거름) vs 우대(안 거름·일반 학생 포함) */}
-        <div className="flex items-center flex-wrap gap-2" style={{ marginTop: '10px' }}>
+        {/* 대상 조건 성격: 필수(거름) vs 우대(안 거름·일반 학생 포함). 위 사회배려형 플래그를 켜야 활성화 */}
+        <div className="flex items-center flex-wrap gap-2" style={{ marginTop: '10px', opacity: hasCondFlags ? 1 : 0.5 }}>
           <span className="text-[11px] font-bold text-(--text-muted)">대상 조건 성격</span>
           {[[false, '필수 — 이 대상만 (하나라도 해당해야)'], [true, '우대 — 일반 학생도 포함 (안내용)']].map(([val, lbl]) => {
-            const on = form.req_flags_preferential === val
+            const on = hasCondFlags && form.req_flags_preferential === val
             return (
-              <button key={String(val)} type="button" onClick={() => setField('req_flags_preferential', val)} className="rounded-full border transition" style={{
+              <button key={String(val)} type="button" disabled={!hasCondFlags} onClick={() => setField('req_flags_preferential', val)} className="rounded-full border transition disabled:cursor-not-allowed" style={{
                 fontSize: '11px', padding: '4px 11px', fontWeight: on ? 700 : 500,
                 borderColor: on ? 'var(--brand)' : 'var(--border)',
                 background: on ? 'var(--brand)' : 'transparent',
@@ -426,6 +503,7 @@ export default function ScholarshipManager() {
               </button>
             )
           })}
+          {!hasCondFlags && <span className="text-[10px] text-(--text-faint)">— 다자녀·외국인·자취·장애·보훈 중 하나를 켜면 지정할 수 있어요</span>}
         </div>
       </div>
 

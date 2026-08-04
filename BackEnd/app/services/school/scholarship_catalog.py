@@ -266,9 +266,14 @@ def _region_ok(req_region, basis, self_region, parent_region) -> bool:
         cn = _norm_region(c)
         if not cn or not r:
             continue
-        if cn in r or r in cn:          # 직접 부분매칭 (시/도 동일 · '전북 / 서울' 복합표기 등)
+        if cn in r or r in cn:          # 직접 부분매칭 (같은 시/군·시/도 · '전북 / 서울' 복합표기 등)
             return True
-        if r_sido and cn == r_sido:     # 시/군 장학금 ↔ 학생 시/도 (경기 학생 ↔ 안산 장학금)
+        c_sido = _region_to_sido(cn)    # 학생 지역의 시/도 (안산→경기)
+        # 광역(시/도) 단위 매칭은 '한쪽이 시/도일 때만'. 둘 다 시/군이면 위 정확매칭만 인정
+        # (예: 학생 안산 ↔ 장학금 화성은 매칭 안 됨).
+        if r in _SIDO and c_sido == r:      # 시/도 장학금 ↔ 학생 시/군 (경기 장학금 ↔ 안산 학생)
+            return True
+        if cn in _SIDO and r_sido == cn:    # 시/군 장학금 ↔ 학생 '○○ 전체'(시/도) (안산 장학금 ↔ 경기 전체 학생)
             return True
     return False
 
@@ -276,11 +281,13 @@ def _region_ok(req_region, basis, self_region, parent_region) -> bool:
 def _grade_ok(g: str, grade_year: int | None) -> bool:
     """학생 학년(grade_year)이 요건 그룹 g에 해당하는지."""
     if g == "신입":
-        return grade_year == 1
+        return grade_year == 1                  # 신입생 = 1학년
     if g == "재학":
-        return grade_year is not None          # 재학생 전반
+        return grade_year is not None           # 재학생 = 1·2·3·4학년 전체
+    if g == "2학년이상":
+        return grade_year is not None and grade_year >= 2   # 2·3·4학년
     if g == "3학년이상":
-        return grade_year is not None and grade_year >= 3
+        return grade_year is not None and grade_year >= 3   # 3·4학년
     if g == "대학원":
         return False                            # 학부 더미라 대학원 전용은 제외
     return True
@@ -342,8 +349,8 @@ async def match_scholarships(
         _required = [k for on, k in _req_flags if on]
         if _required and not r.req_flags_preferential and not any(answers.get(k) for k in _required):
             continue
-        # '성적 우수' 관심을 켜면 → req_excellent로 태그된 장학금만 남긴다(필터).
-        if want_excellent and not r.req_excellent:
+        # '성적 우수'는 태그 필터(양방향): 체크하면 성적우수 태그만, 체크 안 하면 성적우수 태그는 제외.
+        if bool(r.req_excellent) != want_excellent:
             continue
         matched.append(r)
 
