@@ -4,9 +4,22 @@ import { WD, toISO, fmtDate, catStyle, buildMonthWeeks, segsForWeek } from './sc
 
 // 카드 정적 라벨 다국어 (일정명 등 동적 데이터는 백엔드 값 그대로).
 const SC = {
-  ko: { title: '학사일정', ended: '종료', prev: '이전 일정', next: '다음 일정' },
-  en: { title: 'Academic Calendar', ended: 'Ended', prev: 'Previous', next: 'Next' },
-  zh: { title: '学事日程', ended: '已结束', prev: '上一个', next: '下一个' },
+  ko: { title: '학사일정', ended: '종료', prev: '이전 일정', next: '다음 일정',
+        cal: '달력', list: '목록', today: '오늘', count: '건' },
+  en: { title: 'Academic Calendar', ended: 'Ended', prev: 'Previous', next: 'Next',
+        cal: 'Calendar', list: 'List', today: 'Today', count: '' },
+  zh: { title: '学事日程', ended: '已结束', prev: '上一个', next: '下一个',
+        cal: '日历', list: '列表', today: '今天', count: '项' },
+}
+
+// 목록 뷰용 날짜 축약 — 같은 달이면 '12~14일', 달을 넘기면 '11/30~12/4'.
+// 달력 뷰의 fmtDate와 달리 한 줄에 여러 건이 쌓이므로 짧게 쓴다.
+function shortRange(s, e) {
+  const [sy, sm, sd] = s.split('-').map(Number)
+  const [ey, em, ed] = (e || s).split('-').map(Number)
+  if (s === (e || s)) return `${sd}일`
+  if (sy === ey && sm === em) return `${sd}~${ed}일`
+  return `${sm}/${sd}~${em}/${ed}`
 }
 
 export default function ScheduleCard({ card, lang = 'ko' }) {
@@ -25,6 +38,23 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
   }, [events, todayISO])
 
   const [idx, setIdx] = useState(initialIdx)
+  // 달력은 한 달씩만 보여 전체를 훑기 어렵다. 같은 데이터를 월별 목록으로도 볼 수 있게 한다.
+  // ('학사일정 전체 알려줘'는 카드에 현재 학년도 전부가 실려 온다)
+  const [view, setView] = useState('calendar')
+
+  // 목록 뷰용 월별 묶음 — [{ key, label, items: [...] }]
+  const months = useMemo(() => {
+    const out = []
+    for (const e of events) {
+      const y = e.start_date.slice(0, 4), m = Number(e.start_date.slice(5, 7))
+      const key = `${y}-${m}`
+      const last = out[out.length - 1]
+      if (last && last.key === key) last.items.push(e)
+      else out.push({ key, label: `${y}년 ${m}월`, items: [e] })
+    }
+    return out
+  }, [events])
+
   if (!events.length) return null
 
   const i = Math.min(idx, events.length - 1)
@@ -106,10 +136,52 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
     </div>
   )
 
+  // 월별 목록 뷰 — 달력이 한 달씩만 보여주는 한계를 보완(전체 일정을 한 번에 훑기).
+  const list = (
+    <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
+      {months.map(mo => (
+        <div key={mo.key}>
+          <div className="sticky top-0 flex items-baseline gap-2 bg-(--surface-2) border-b border-(--border)"
+               style={{ padding: '5px 12px' }}>
+            <span className="text-xs font-black text-(--text)">{mo.label}</span>
+            <span className="text-[10px] text-(--text-faint)">{mo.items.length}{sc.count}</span>
+          </div>
+          {mo.items.map((e, k) => {
+            const past = !!todayISO && e.end_date < todayISO
+            const now = !!todayISO && e.start_date <= todayISO && e.end_date >= todayISO
+            return (
+              <div key={`${e.start_date}|${e.event}|${k}`}
+                   className="flex items-baseline border-b border-(--border)"
+                   style={{ padding: '6px 12px', gap: '10px' }}>
+                <span className={`shrink-0 text-[11px] font-bold tabular-nums ${past ? 'text-(--text-faint)' : 'text-(--brand)'}`}
+                      style={{ width: '62px' }}>{shortRange(e.start_date, e.end_date)}</span>
+                <span className={`flex-1 min-w-0 text-xs ${past ? 'text-(--text-faint) line-through' : 'text-(--text-body)'}`}>{e.event}</span>
+                {now && <span className="shrink-0 text-[10px] font-bold text-(--brand) bg-(--brand-tint) rounded"
+                              style={{ padding: '1px 6px' }}>{sc.today}</span>}
+              </div>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+
+  const toggle = (
+    <div className="flex rounded-md overflow-hidden border border-(--brand-a20)">
+      {[['calendar', sc.cal], ['list', sc.list]].map(([v, label]) => (
+        <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
+          className={`text-[11px] font-bold transition ${view === v
+            ? 'bg-(--brand) text-white'
+            : 'text-(--text-muted) hover:text-(--text-body)'}`}
+          style={{ padding: '3px 9px' }}>{label}</button>
+      ))}
+    </div>
+  )
+
   return (
     <div className="flex items-center" style={{ marginTop: '14px', gap: '2px' }}>
-      {/* 왼쪽 화살표 — 카드 바깥, 흰 배경 + 회색 테두리 원형 버튼 */}
-      {multi && (
+      {/* 왼쪽 화살표 — 달력 뷰에서만(목록은 스크롤로 이동) */}
+      {multi && view === 'calendar' && (
         <button onClick={() => setIdx(v => Math.max(0, v - 1))} disabled={i === 0}
           className="shrink-0 flex items-center justify-center rounded-full bg-(--surface-card) border border-(--border) text-(--text-muted) shadow-sm hover:bg-(--surface-2) hover:text-(--text-body) disabled:opacity-30 disabled:hover:bg-(--surface-card) transition"
           style={{ width: '28px', height: '28px' }} aria-label={sc.prev}>
@@ -129,21 +201,29 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
             </svg>
             <span className="text-sm font-bold text-(--brand)">{sc.title}</span>
           </div>
-          <span className="text-sm font-black text-(--text)">{fy}년 {fm + 1}월{multi && <span className="text-[11px] font-medium text-(--text-faint)" style={{ marginLeft: '6px' }}>{i + 1}/{events.length}</span>}</span>
+          <div className="flex items-center" style={{ gap: '8px' }}>
+            {view === 'calendar'
+              ? <span className="text-sm font-black text-(--text)">{fy}년 {fm + 1}월{multi && <span className="text-[11px] font-medium text-(--text-faint)" style={{ marginLeft: '6px' }}>{i + 1}/{events.length}</span>}</span>
+              : <span className="text-[11px] font-medium text-(--text-faint)">{events.length}{sc.count}</span>}
+            {multi && toggle}
+          </div>
         </div>
 
-        {/* 포커스 일정 — 이름 + 기간 강조, 지난 일정이면 '종료' 표시 */}
-      <div className="border-b border-(--border) flex items-baseline flex-wrap" style={{ padding: '7px 12px', gap: '6px' }}>
-          <span className={`text-sm font-black ${focalPast ? 'text-(--text-faint) line-through' : 'text-(--text)'}`}>{focal.event}</span>
-          <span className={`text-xs font-bold ${focalPast ? 'text-(--text-faint)' : 'text-(--brand)'}`}>{focalRange}</span>
-          {focalPast && <span className="text-[10px] font-bold text-(--text-muted) bg-(--surface-2) rounded" style={{ padding: '1px 6px' }}>{sc.ended}</span>}
-        </div>
-
-        {grid}
+        {view === 'calendar' ? (
+          <>
+            {/* 포커스 일정 — 이름 + 기간 강조, 지난 일정이면 '종료' 표시 */}
+            <div className="border-b border-(--border) flex items-baseline flex-wrap" style={{ padding: '7px 12px', gap: '6px' }}>
+              <span className={`text-sm font-black ${focalPast ? 'text-(--text-faint) line-through' : 'text-(--text)'}`}>{focal.event}</span>
+              <span className={`text-xs font-bold ${focalPast ? 'text-(--text-faint)' : 'text-(--brand)'}`}>{focalRange}</span>
+              {focalPast && <span className="text-[10px] font-bold text-(--text-muted) bg-(--surface-2) rounded" style={{ padding: '1px 6px' }}>{sc.ended}</span>}
+            </div>
+            {grid}
+          </>
+        ) : list}
       </div>
 
-      {/* 오른쪽 화살표 — 카드 바깥, 흰 배경 + 회색 테두리 원형 버튼 */}
-      {multi && (
+      {/* 오른쪽 화살표 — 달력 뷰에서만 */}
+      {multi && view === 'calendar' && (
         <button onClick={() => setIdx(v => Math.min(events.length - 1, v + 1))} disabled={i === events.length - 1}
           className="shrink-0 flex items-center justify-center rounded-full bg-(--surface-card) border border-(--border) text-(--text-muted) shadow-sm hover:bg-(--surface-2) hover:text-(--text-body) disabled:opacity-30 disabled:hover:bg-(--surface-card) transition"
           style={{ width: '28px', height: '28px' }} aria-label={sc.next}>

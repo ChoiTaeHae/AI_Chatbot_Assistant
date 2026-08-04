@@ -120,6 +120,10 @@ _NO_DEPT_GUIDE = (
 # 졸업 경로의 '못 찾음' 응답 판별용
 _GRAD_NOT_FOUND_MARKERS = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없")
 
+# 1인칭으로 '자기 현황'을 묻는 표현 — '내 학점', '제가 졸업 가능한가요' 등.
+# '내년'·'안내'·'내용'처럼 다른 낱말 속의 '내'는 걸리지 않도록 앞뒤를 좁게 제한한다.
+_OWN_STATUS_RE = re.compile(r"(?:^|\s)(?:내|제|저|나)(?:\s|가|는|의|를)|본인|내가|제가|나의")
+
 
 def _ensure_fallback_notice(answer: str, requested_year: int, actual_year: int,
                             is_fallback: bool) -> str:
@@ -356,6 +360,16 @@ class GraduationService:
                 year = detect_admission_year(question) or await self._latest_year(db, mentioned[0])
                 if year:
                     return await self._answer_dept_requirement(question, mentioned[0], mentioned[1], year, db)
+            # 1인칭 개인 현황 질문은 이 계정으로 답이 나올 수 없다 — 학과·학번이 없어 기준이
+            # 정해지지 않는다. RAG로 내려보내면 검수 FAQ가 유사도만으로 가로채 엉뚱한 답을 낸다
+            # (실측: admin '내 졸업학점 얼마나 남았어?' → 근거약함 게이트가 학점포기 FAQ를
+            # 0.711로 물어와 "학점 포기는 최대 9학점…"을 verbatim으로 냈다).
+            # 학생 계정은 이 분기 자체를 지나지 않으므로 일반 사용자 답변에는 영향이 없다.
+            if _OWN_STATUS_RE.search(question) and await self._classify_question(question) == "personal":
+                print("[Graduation] 학과 없는 계정 + 개인 현황 질문 → 계정 안내")
+                return _NO_DEPT_GUIDE, {"source": "database", "source_file": None,
+                                        "topic": "graduation", "url": None}
+
             # 학과 미언급 → 생 RAG. 절차·규정 질문('졸업 신청 방법')은 여기서 정상 처리된다.
             # 다만 '내 졸업요건'류는 이 계정으로 답이 나올 수 없다. RAG까지 0건이면 '자료가 없다'가
             # 아니라 '이 계정에 학과 정보가 없다'고 정확히 알려 원인을 찾을 수 있게 한다.
@@ -751,8 +765,12 @@ class GraduationService:
         # 살아난 경우는 빠져나간다. 실측: '재수강 최대 학점 몇이야?'가 졸업규정을 잡고
         # "재수강 최대 학점은 없습니다"로 단정했다(FAQ엔 6학점·2회·A+가 있는데도).
         if metadata.get("weak_evidence"):
-            from app.services.faq_index import faq_lookup
-            hit = await loop.run_in_executor(None, faq_lookup, question)
+            # 이 경로는 LLM을 건너뛰므로 오매칭이 곧 확정 오답 → 엄격 임계값(0.75)을 쓴다.
+            # 실측: '내 졸업학점 얼마나 남았어?'가 0.711로 학점포기 FAQ를, '졸업 신청 방법'이
+            # 0.707로 학사경고 FAQ를 물어와 그대로 나갔다.
+            from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
+            hit = await loop.run_in_executor(
+                None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
             if hit:
                 print(f"[Graduation] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
                 metadata["source"] = "faq"

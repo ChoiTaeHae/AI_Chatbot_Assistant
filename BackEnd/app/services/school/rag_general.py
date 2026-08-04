@@ -1052,8 +1052,10 @@ async def answer_rag_general_question_with_metadata(
                 # FAQ가 없으면 아무 일도 일어나지 않고 기존 흐름(단정 금지 지시)으로 이어진다
                 # → 리랭커 저점수 정답('도서 대출 몇 권' 0.001)이 죽지 않는다.
                 if metadata.get("weak_evidence"):
-                    from app.services.faq_index import faq_lookup
-                    hit = await loop.run_in_executor(None, faq_lookup, question)
+                    # 이 경로는 LLM을 건너뛰므로 오매칭이 곧 확정 오답 → 엄격 임계값(0.75)을 쓴다.
+                    from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
+                    hit = await loop.run_in_executor(
+                        None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
                     if hit:
                         print(f"[RAG_GENERAL] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
                         metadata["source"] = "faq"
