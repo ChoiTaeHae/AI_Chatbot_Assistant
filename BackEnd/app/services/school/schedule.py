@@ -367,18 +367,38 @@ class ScheduleService:
         if head_row is not None:
             rows = [head_row] + [r for r in rows if r is not head_row]
 
-        # 프론트 미니 달력 카드용 — 선별된 일정을 구조화해서 함께 반환(일정이 걸친 '주'만 렌더)
-        metadata["schedule_card"] = self.build_card(rows)
+        # '전체'를 물었으면 텍스트 목록 상한을 올린다(기본 8 → 20).
+        wants_all = any(h in question.replace(" ", "") for h in self._ALL_HINTS)
+        if wants_all and len(rows) < self._MAX_ITEMS_ALL:
+            # generic 경로는 upcoming을 6건으로 끊어 왔으므로, 전체 요청이면 현재 학년도에서 다시 채운다.
+            full = await self._current_year_rows(track, today, db)
+            if len(full) > len(rows):
+                keep_head = rows[0] if rows else None
+                rows = ([keep_head] + [r for r in full if r is not keep_head]) if keep_head else list(full)
+        text_rows = rows[: (self._MAX_ITEMS_ALL if wants_all else self._MAX_ITEMS)]
 
-        head = _headline(rows, today, kws)
-        context = f"{head}\n\n전체 목록:\n{_schedule_lines(rows, today)}"
+        # 프론트 미니 달력 카드.
+        # '전체'를 물었을 때만 현재 학년도 전부를 넘긴다. 특정 일정을 물은 질문에까지 전부를
+        # 넣으면 카드가 엉뚱한 일정에서 시작한다 — ScheduleCard의 초기 포커스는 '오늘 이후 첫
+        # 일정'이라 질문과 무관한 항목이 잡히기 때문이다(실측: '복학 신청 기간 언제야?'인데
+        # 카드가 '2학기 수강신청 변경 기간' 1/50로 열렸다).
+        card_rows = await self._current_year_rows(track, today, db) if wants_all else rows
+        metadata["schedule_card"] = self.build_card(card_rows or text_rows)
+
+        head = _headline(text_rows, today, kws)
+        context = f"{head}\n\n전체 목록:\n{_schedule_lines(text_rows, today)}"
+        if wants_all and card_rows and len(card_rows) > len(text_rows):
+            context += (f"\n\n(현재 학년도 일정은 총 {len(card_rows)}건이며, 위 목록은 그중 "
+                        f"가까운 {len(text_rows)}건이다. 나머지는 화면의 달력에서 볼 수 있다.)")
         prompt = SCHEDULE_PROMPT.format(
             today=f"{today.year}년 {today.month}월 {today.day}일",
             context=context,
             question=question,
         )
         # 날짜가 흔들리면 안 되므로 결정론적으로(temp 0.0) 문장화만 시킨다.
-        answer = await llm_service.answer(prompt, max_tokens=512, temperature=0.0)
+        # 전체 요청은 항목이 많아 512로는 중간에 잘린다.
+        answer = await llm_service.answer(
+            prompt, max_tokens=1536 if wants_all else 512, temperature=0.0)
         answer = _strip_context_labels(answer)
 
         # 첫 줄(요약)은 코드가 만든 문장으로 덮어쓴다. 모델이 일정 이름을 자기 식으로 바꿔 써서
@@ -512,6 +532,25 @@ class ScheduleService:
         ]
         return {"today": _today().isoformat(), "events": events} if events else None
 
+    async def _current_year_rows(self, track: str, today: date, db: AsyncSession) -> list:
+        """현재 학년도의 진행 중 + 이후 일정 전부 — 프론트 달력 카드에 넘길 목록.
+
+        답변 텍스트와 카드를 분리하는 이유: 텍스트는 길어지면 읽기 나쁘지만, 달력은 넘겨보는
+        UI라 많을수록 좋다. ScheduleCard는 이벤트 수 제한 없이 월 단위로 렌더하고 이전/다음
+        네비게이션이 있어(events.length > 1이면 활성) 전부 넘겨도 그대로 동작한다.
+        지난 학년도는 제외한다 — 넘겨볼 일이 없고 응답만 무거워진다.
+        """
+        current_ay = today.year if today.month >= 3 else today.year - 1
+        rows = (await db.execute(
+            select(AcademicSchedule)
+                .where(AcademicSchedule.track == track)
+                .where(AcademicSchedule.academic_year >= current_ay)
+                .where(or_(AcademicSchedule.end_date >= today,
+                           AcademicSchedule.start_date >= today))
+                .order_by(AcademicSchedule.start_date)
+        )).scalars().all()
+        return _dedup(list(rows))
+
     async def _active_and_upcoming(self, base, today: date, db: AsyncSession) -> list:
         active = (await db.execute(
             base.where(and_(AcademicSchedule.start_date <= today,
@@ -546,7 +585,13 @@ class ScheduleService:
     # 다가오는 학사일정(수강신청 등)을 뿌려버린다(실측). 일정 자체를 가리키는 질문에만 덤프하고,
     # 그 외는 빈 결과 → no_match → 상위에서 RAG/FAQ로 폴백시킨다. (공백 제거 후 비교)
     _GENERIC_SCHEDULE_HINTS = ("학사일정", "학사달력", "무슨기간", "스케줄", "캘린더", "달력",
-                              "일정표", "주요일정", "학기일정")
+                              "일정표", "주요일정", "학기일정", "전체일정", "전체학사")
+
+    # '전체를 달라'는 신호 — 텍스트 목록 상한을 _MAX_ITEMS(8)에서 _MAX_ITEMS_ALL로 올린다.
+    # 8건 상한은 로컬 모델 n_ctx(4096) 여유 때문이었는데(주석 참조) 지금은 Vertex라 그 제약이
+    # 없다. 실측: 학부 트랙에 오늘 이후 일정이 50건인데 6건만 나가 '일부만 나온다'는 지적을 받았다.
+    _ALL_HINTS = ("전체", "전부", "모두", "다알려", "다보여", "싹")
+    _MAX_ITEMS_ALL = 20
 
     # 학생어 → DB 실제 이벤트명 매핑. 학부 중간/기말은 DB에 '수시(중간)평가'·'정기평가'로
     # 저장돼 있어 '시험'·'중간고사' 글자로는 안 잡힌다. '평가' 통짜로 매칭하면
