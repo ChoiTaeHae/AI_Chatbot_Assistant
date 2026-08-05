@@ -12,14 +12,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, cast, Date
+from sqlalchemy import select, func, cast, Date, delete
 
 from app.core.config import settings
-from app.models.DB_Table import Student, Department, Course, ChatLog, ChatSession, ChatMessage, ChatFeedback, Topic
+from app.models.DB_Table import (Student, Department, Course, ChatLog, ChatSession, ChatMessage,
+                                 ChatFeedback, Topic, Faq, FaqQuestion)
 from app.rag.ingest import ingest_file
 from app.services.rag_service import rag_service
 from app.services.llm_service import llm_service
 from app.schemas.admins import (
+    FaqCreateRequest,
+    FaqUpdateRequest,
     ChatStatsResponse,
     DailyCount,
     DashboardResponse,
@@ -757,6 +760,100 @@ class AdminService:
         refresh_topic_cache(labels)
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, topic_router.reload, topic_data)
+
+    # ── FAQ CRUD ───────────────────────────────────────────────────
+    # 모든 변경 뒤에 _reload_faq_index()를 호출한다. FAQ 매칭은 메모리 인덱스(질문 임베딩)로만
+    # 이뤄지므로, 재적재하지 않으면 표를 고쳐도 옛 답변이 계속 나간다. topic이 저장 시점에
+    # 라우터를 다시 올리는 것과 같은 이유·같은 방식이다.
+
+    async def list_faqs(self, db: AsyncSession) -> list[dict]:
+        faqs = (await db.execute(select(Faq).order_by(Faq.id))).scalars().all()
+        qrows = (await db.execute(
+            select(FaqQuestion).order_by(FaqQuestion.faq_id, FaqQuestion.id))).scalars().all()
+        by_faq: dict[int, list] = {}
+        for q in qrows:
+            by_faq.setdefault(q.faq_id, []).append(
+                {"id": q.id, "text": q.text, "enabled": q.enabled})
+        return [{"id": f.id, "answer": f.answer, "category": f.category, "enabled": f.enabled,
+                 "created_at": f.created_at, "questions": by_faq.get(f.id, [])} for f in faqs]
+
+    async def create_faq(self, db: AsyncSession, body: FaqCreateRequest) -> dict:
+        answer = (body.answer or "").strip()
+        if not answer:
+            raise ValueError("답변을 입력하세요.")
+        faq = Faq(answer=answer, category=(body.category or None), enabled=True)
+        db.add(faq)
+        await db.flush()                      # id 확보 후 질문 변형 연결
+        for text in self._clean_questions(body.questions):
+            db.add(FaqQuestion(faq_id=faq.id, text=text, enabled=True))
+        await db.commit()
+        await self._reload_faq_index()
+        return await self._get_faq(db, faq.id)
+
+    async def update_faq(self, db: AsyncSession, faq_id: int, body: FaqUpdateRequest) -> dict:
+        faq = await self._get_faq_row(db, faq_id)
+        if body.answer is not None:
+            answer = body.answer.strip()
+            if not answer:
+                raise ValueError("답변은 비울 수 없습니다.")
+            faq.answer = answer
+        if body.category is not None:
+            faq.category = body.category.strip() or None
+        if body.enabled is not None:
+            faq.enabled = body.enabled
+        if body.questions is not None:
+            # 목록 통째 교체 — 기존 행을 지우고 다시 넣는다(부분 대조보다 단순하고 안전)
+            await db.execute(delete(FaqQuestion).where(FaqQuestion.faq_id == faq_id))
+            for text in self._clean_questions(body.questions):
+                db.add(FaqQuestion(faq_id=faq_id, text=text, enabled=True))
+        await db.commit()
+        await self._reload_faq_index()
+        return await self._get_faq(db, faq_id)
+
+    async def delete_faq(self, db: AsyncSession, faq_id: int) -> None:
+        faq = await self._get_faq_row(db, faq_id)
+        await db.delete(faq)               # faq_question은 ondelete=CASCADE로 함께 삭제
+        await db.commit()
+        await self._reload_faq_index()
+
+    async def _get_faq_row(self, db: AsyncSession, faq_id: int) -> Faq:
+        faq = (await db.execute(select(Faq).where(Faq.id == faq_id))).scalar_one_or_none()
+        if not faq:
+            raise LookupError("FAQ를 찾을 수 없습니다.")
+        return faq
+
+    async def _get_faq(self, db: AsyncSession, faq_id: int) -> dict:
+        faq = await self._get_faq_row(db, faq_id)
+        qrows = (await db.execute(
+            select(FaqQuestion).where(FaqQuestion.faq_id == faq_id)
+            .order_by(FaqQuestion.id))).scalars().all()
+        return {"id": faq.id, "answer": faq.answer, "category": faq.category,
+                "enabled": faq.enabled, "created_at": faq.created_at,
+                "questions": [{"id": q.id, "text": q.text, "enabled": q.enabled} for q in qrows]}
+
+    @staticmethod
+    def _clean_questions(items: list[str] | None) -> list[str]:
+        """공백 제거 + 빈 줄 제거 + 중복 제거(입력 순서 유지)."""
+        seen: set[str] = set()
+        out: list[str] = []
+        for raw in items or []:
+            text = (raw or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                out.append(text)
+        return out
+
+    @staticmethod
+    async def _reload_faq_index() -> int:
+        """FAQ 메모리 인덱스 재적재. 실패해도 저장 자체는 되돌리지 않는다
+        (DB는 이미 갱신됐고, 최악의 경우 재시작으로 반영되므로 저장을 막을 이유가 없다)."""
+        from app.services import faq_index
+        try:
+            await faq_index.warmup()
+        except Exception as e:
+            print(f"[Admin] FAQ 인덱스 재적재 실패(저장은 완료됨): {e}")
+            return -1
+        return len(faq_index._index)
 
 
 # 싱글톤 인스턴스

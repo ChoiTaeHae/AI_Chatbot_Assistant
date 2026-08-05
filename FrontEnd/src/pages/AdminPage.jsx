@@ -12,6 +12,7 @@ import { fetchChatSessions, fetchSessionMessages, upsertMessageFeedback } from '
 import ScheduleManager from '../components/admin/ScheduleManager'
 import ScholarshipManager from '../components/admin/ScholarshipManager'
 import DepartmentManager from '../components/admin/DepartmentManager'
+import FaqManager from '../components/admin/FaqManager'
 import ThemeToggle from '../components/common/ThemeToggle'
 
 // 파일 관리 탭에서 숨길 topic — 장학금 파일은 '장학금 관리' 화면에서 전용 관리
@@ -68,6 +69,11 @@ const NAV_ITEMS = [
   { id: 'departments', label: '학과 관리', icon: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
+    </svg>
+  )},
+  { id: 'faqs', label: 'FAQ 관리', icon: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
     </svg>
   )},
 ]
@@ -699,6 +705,13 @@ export default function AdminPage() {
           {activeNav === 'departments' && (
             <div className="flex-1 flex flex-col overflow-y-auto" style={{ gap: '20px' }}>
               <DepartmentManager />
+            </div>
+          )}
+
+          {/* FAQ 관리 — 저장 시 서버가 메모리 인덱스를 자동 재적재한다 */}
+          {activeNav === 'faqs' && (
+            <div className="flex-1 flex flex-col min-h-0" style={{ gap: '20px' }}>
+              <FaqManager />
             </div>
           )}
 

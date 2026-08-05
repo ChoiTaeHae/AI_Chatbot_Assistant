@@ -274,3 +274,45 @@ class ScheduleGateConfig(BaseModel):
     # 학사일정 날짜-게이트 키워드 (어드민 편집)
     date_intent: list[str] = []       # "언제", "며칠", "언제까지" 등
     event_keywords: list[str] = []    # "수강신청", "성적", "휴학" 등
+
+
+# ── FAQ 관리 관련 ──────────────────────────────────────────
+# FAQ는 '검수된 답변 1개 + 매칭용 질문 변형 N개' 구조다(faq / faq_question).
+# 질문 변형은 개별 CRUD 대신 목록 전체를 교체한다 — 한 FAQ의 변형이 많아야 십수 개라
+# 부분 갱신의 이점이 없고, 화면에서도 텍스트 여러 줄을 한 번에 저장하는 편이 자연스럽다.
+class FaqQuestionItem(BaseModel):
+    id: int
+    text: str
+    enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class FaqItem(BaseModel):
+    id: int
+    answer: str
+    category: Optional[str] = None
+    enabled: bool
+    questions: list[FaqQuestionItem] = []
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FaqCreateRequest(BaseModel):
+    answer: str
+    category: Optional[str] = None
+    questions: list[str] = []
+
+
+class FaqUpdateRequest(BaseModel):
+    answer: Optional[str] = None
+    category: Optional[str] = None
+    enabled: Optional[bool] = None
+    questions: Optional[list[str]] = None   # 주면 기존 변형을 전부 이 목록으로 교체
+
+
+class FaqReloadResponse(BaseModel):
+    count: int
