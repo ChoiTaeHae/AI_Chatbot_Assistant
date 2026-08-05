@@ -617,6 +617,35 @@ async def _handle_department(state: AgentState) -> dict:
     }
 
 
+# 답을 지어내느니 모른다고 하는 쪽이 낫다고 판단했을 때의 문구.
+# rag_general이 검색 0건일 때 쓰는 안내와 같은 말로 맞춰 사용자 눈에 일관되게 보이게 한다.
+_NOT_FOUND_REPLY = (
+    "죄송해요, 해당 내용에 대한 자료를 찾지 못했어요. "
+    "조금 더 구체적으로 질문해 주시거나, "
+    "학교 공식 홈페이지(wsu.ac.kr) 또는 담당 부서에 문의해 주세요."
+)
+
+
+async def _faq_for_non_dining(question: str) -> dict | None:
+    """학식 질문이 아니라고 걸러진 질문을 검수 FAQ로 먼저 받아본다. 없으면 None.
+
+    라우터가 dining으로 보낸 질문 중에는 검수된 답이 이미 있는 것들이 섞여 있는데,
+    그동안 학식 담당이 가로채서 FAQ까지 닿지 못했다 — 실측: '맛집 추천해줘'는 FAQ에
+    교외 맛집 10곳이 등록돼 있는데도 학식 메뉴가 나갔다(FAQ 유사도 1.000).
+    '과사 점심시간 언제야?'도 마찬가지(1.000).
+
+    LLM을 건너뛰고 그대로 내보내는 경로라 오매칭이 곧 확정 오답이다. 그래서 일반 조회
+    (0.70)가 아니라 엄격 임계값을 쓴다 — rag_general·graduation의 verbatim 경로와 같은 기준.
+    """
+    loop = asyncio.get_event_loop()
+    from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
+    hit = await loop.run_in_executor(None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
+    if not hit:
+        return None
+    print(f"[Graph] 학식 아님 + FAQ 매칭({hit[1]:.3f}) → verbatim 답변")
+    return {"answer": hit[0], "source": "faq", "source_file": None, "topic": "general"}
+
+
 async def _handle_dining(state: AgentState) -> dict:
     """학식 안내(메뉴·위치·운영시간·전화·가격) — RAG도 LLM도 타지 않는다.
 
@@ -639,8 +668,31 @@ async def _handle_dining(state: AgentState) -> dict:
     # 여기서 끝내면 막다른 길이 되므로 RAG로 넘긴다(_handle_schedule의 0건 폴백과 동일 패턴).
     # topic은 비워 전체 검색으로 돌린다 — dining 토픽엔 Qdrant 문서가 없다.
     if not found:
-        print("[Graph] 학식 안내표에 값 없음 → RAG 폴백")
-        return await _handle_rag_general({**state, "topic": None})
+        # 빈 답변 = _looks_like_dining이 '학식 질문이 아니다'라고 막은 경우.
+        # 안내표 칸이 비어서 온 경우는 안내 문구가 들어 있어 구분된다.
+        gate_blocked = not answer
+        if gate_blocked:
+            # 검수된 답이 이미 있는 질문이면 RAG보다 그게 정확하다(맛집·과사 운영시간 등).
+            hit = await _faq_for_non_dining(state["question"])
+            if hit is not None:
+                return hit
+        print("[Graph] " + ("학식 질문 아님" if gate_blocked else "학식 안내표에 값 없음")
+              + " → RAG 폴백")
+        result = await _handle_rag_general({**state, "topic": None})
+        # 라우터가 dining으로 잘못 보낸 질문은 제 주제의 문서가 애초에 없다. 전체 검색이
+        # 어휘 매칭으로 아무 문서나 건져 오면 LLM이 그걸로 그럴듯한 거짓을 만든다 —
+        # 실측: '오늘 수업 뭐 있어?'가 SW사업단 신입생 프로그램 표를 시간표로 답했고,
+        # '오늘 뭐 해?'는 학군단 선발 일정을 답했다(둘 다 rerank 최고점 0.000).
+        # 근거가 확실한 폴백(기숙사 출입시간 0.815)과 FAQ 매칭은 그대로 내보낸다.
+        if gate_blocked and result.get("weak_evidence") and result.get("source") != "faq":
+            print("[Graph] 학식 질문도 아니고 검색 근거도 약함 → 답변 생성 대신 '못 찾음'")
+            return {
+                "answer": _NOT_FOUND_REPLY,
+                "source": None,
+                "source_file": None,
+                "topic": None,
+            }
+        return result
     return {
         "answer": answer,
         "source": "dining",
@@ -781,6 +833,9 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "rewritten_query": metadata.get("rewritten_query"),
         "files_to_offer": metadata.get("files_to_offer", []),
         "schedule_card": metadata.get("schedule_card"),   # 보강으로 붙은 미니 달력
+        # 리랭커가 다 떨어뜨린 걸 어휘 매칭으로 겨우 건진 상태. 폴백으로 여기 들어온
+        # 호출부가 '이 답을 내보내도 되는지' 판단할 수 있게 그대로 실어 보낸다.
+        "weak_evidence": bool(metadata.get("weak_evidence")),
     }, topic, state["question"])
 
 

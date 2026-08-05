@@ -272,7 +272,16 @@ _DEFAULT_RESTAURANT = "학생식당(서캠)"
 
 # 끼니 키워드 → 컬럼명. 기숙사(조식/중식/석식)에만 매칭되고, 학생식당 코너명
 # (소담상/한식 등)엔 자연히 안 걸려 전체 표시가 유지된다.
+#
+# '천원의아침밥'은 식당이 아니라 학생식당 표의 코너(컬럼)다 — 서캠·동캠 둘 다 갖고 있다.
+# 별칭 사전(_RESTAURANT_ALIASES)에 없어서 '천원의 아침밥 뭐 나와'가 식당명 없음으로 판정되고,
+# '아침'이 조식으로 매핑되는데 학생식당엔 조식 컬럼이 없어 그냥 전체 표시가 됐다(실측:
+# 교직원 코너만 나옴). 컬럼명을 직접 가리키도록 맨 앞에 둔다 — '아침'보다 먼저 매칭돼야
+# 하고, 사용자가 띄어쓰기를 어떻게 하든 걸리도록 표기를 나눠 적는다.
 _MEAL_ALIASES: dict[str, str] = {
+    "천원의아침밥": "천원의아침밥", "천원의 아침밥": "천원의아침밥",
+    "천원아침밥": "천원의아침밥", "천원 아침밥": "천원의아침밥",
+    "천원의아침": "천원의아침밥", "천원의 아침": "천원의아침밥",
     "아침": "조식", "조식": "조식", "모닝": "조식",
     "점심": "중식", "중식": "중식", "런치": "중식",
     "저녁": "석식", "석식": "석식", "디너": "석식",
@@ -549,6 +558,73 @@ async def _answer_guide(
     return _format_guide_answer(guide_name, guide, intent, explicit)
 
 
+# ── 학식 질문 확인 게이트 ──────────────────────────────────────────────
+# 라우터(임베딩)는 "X 몇시까지 해" 같은 문장 구조에 강하게 반응해서, 주어가 식당이 아닌
+# 질문까지 dining으로 보낸다 — 실측: '과사 점심시간 언제야?'가 서캠 학식 메뉴를 받았다.
+# 임베딩 점수로는 못 가른다(실측: 학식 질문 0.629~0.848 vs 아닌 질문 0.541~0.744로 구간이
+# 겹쳐, 20건 중 11건이 겹치는 구간에 들어간다. '조식 되나요' 0.741 < '도서관 몇 시까지 해'
+# 0.744). 판별 신호가 '무엇을 묻는가'(운영시간)가 아니라 '누구에 대해 묻는가'(식당이냐)라
+# 문장 임베딩이 약하게 보는 쪽이어서, 주체를 직접 보는 규칙으로 확인한다.
+#
+# 이 게이트는 라우팅 '뒤'에 놓인 거르개라 dining 답변을 줄이기만 하고 늘리지 않는다.
+# 통과 못 하면 호출부가 RAG로 넘겨 큐레이션 FAQ(과사 운영시간 등)까지 닿는다.
+_DINING_DOMAIN = ("학식", "식단", "급식", "식당", "메뉴", "푸드코트",
+                  "조식", "중식", "석식", "천원의아침밥")
+_MENU_REQUEST = ("뭐", "메뉴", "나와", "나옴", "먹")
+# 날짜어와 짝지을 때는 '뭐'를 뺀다 — '오늘 뭐 해?'까지 학식으로 끌려온다.
+# 끼니어·별칭처럼 학식 쪽을 가리키는 단어가 함께 있을 땐 '뭐'로 충분하다('동캠기숙사 뭐야').
+_MENU_REQUEST_STRONG = ("메뉴", "나와", "나옴", "먹")
+_MEAL_WORDS = ("점심", "저녁", "아침", "밥")
+# '점심시간'은 끼니가 아니라 시간대를 가리킨다. 이 구분이 없으면 '과사 점심시간 뭐야?'가
+# 끼니어('점심')+요청어('뭐')로 잡혀 학식 메뉴를 답한다(실측. 행정실·교무처도 같은 형태).
+_MEALTIME_PHRASES = ("점심시간", "저녁시간", "아침시간", "점심때", "저녁때", "아침때")
+# 주체어가 아예 없는 '오늘 뭐 나와?'류를 위한 날짜어. 라우터가 dining으로 보냈는데 반박할
+# 주체어조차 없으면 학식으로 본다 — 이게 없으면 새 대화의 첫 질문이 막힌다(실측).
+_DATE_WORDS = ("오늘", "내일", "모레", "이번주",
+               "월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")
+# 식당 별칭 중 캠퍼스·기숙사 이름과 겹치는 것들(서캠·동캠·기숙사·청운숙·어학센터). 단독으로는
+# 학식 신호로 인정하지 않는다 — '청운숙 통금 몇시야'가 '[기숙사 식당] 미운영'을, '동캠 어디야?'가
+# 동캠 학생식당 위치를 답하던 문제(실측). 이름에 '식당'이 든 별칭(학생식당·서캠퍼스학생식당·
+# 어학센터식당)은 _DINING_DOMAIN의 '식당'이 잡으므로 여기서 빠져도 그대로 통과한다.
+_AMBIGUOUS_ALIASES = tuple(
+    a for a in (*_ALIAS_ORDER, *_GUIDE_ONLY_ALIASES) if "식당" not in a
+)
+
+
+def _dining_domain_hit(compact: str) -> bool:
+    """식당 별칭과 무관한 '학식 도메인 신호'가 있는가 (공백 제거된 문자열 기준)."""
+    if any(w in compact for w in _DINING_DOMAIN):
+        return True
+    # 아래 두 신호는 요청어가 함께 있을 때만 인정한다('오늘 점심 뭐 나와' / '오늘 뭐 나와?').
+    if not any(r in compact for r in _MENU_REQUEST):
+        return False
+    without_time = compact
+    for phrase in _MEALTIME_PHRASES:
+        without_time = without_time.replace(phrase, "")
+    if any(m in without_time for m in _MEAL_WORDS):
+        return True
+    return (any(d in compact for d in _DATE_WORDS)
+            and any(r in compact for r in _MENU_REQUEST_STRONG))
+
+
+def _looks_like_dining(question: str, prev_question: str | None = None) -> bool:
+    """이 질문을 학식 데이터로 답하는 게 맞는지 확인한다."""
+    compact = (question or "").replace(" ", "")
+    if _dining_domain_hit(compact):     # 도메인어 / 끼니어+요청어 / 날짜어+요청어
+        return True
+    if (any(a in compact for a in _AMBIGUOUS_ALIASES)
+            and any(r in compact for r in _MENU_REQUEST)):
+        return True         # '동캠기숙사 뭐야' — 겹치는 별칭은 요청어와 함께일 때만
+    if any(m in compact for m in _MEAL_WORDS):
+        return False        # 끼니어는 있는데 요청어가 없다 → 학식 질문 아님
+    # 신호가 아예 없는 후속 질문('가격은?')만 직전 질문에서 물려받는다. 직전은 도메인어만
+    # 인정한다 — '청운숙'·'동캠' 같은 별칭은 기숙사·캠퍼스 이름이기도 해서, 그것까지 인정하면
+    # '청운숙 통금 몇시야' → '가격은?'이 학식 가격으로 샌다.
+    if prev_question:
+        return _dining_domain_hit(prev_question.replace(" ", ""))
+    return False
+
+
 async def answer_dining_question_with_meta(
     question: str, prev_question: str | None = None
 ) -> tuple[str, bool]:
@@ -559,10 +635,16 @@ async def answer_dining_question_with_meta(
       이어 붙이면 "동캠 학식 뭐야" → "서캠은?"에서 두 식당명이 모두 잡혀 먼저 매칭된 쪽이
       이겨 버리기 때문이다(날짜·끼니도 같은 이유로 현재 질문 기준을 유지한다).
 
-    두 번째 값이 False면 학교 식당안내 표의 해당 칸이 비어 있다는 뜻이다. 그렇다고 학교에
-    정보가 없는 건 아니라서(기숙사 식당 가격 → 기숙사비 안내 문서의 식비 내역) 호출부가
-    RAG로 한 번 더 찾아보게 한다. 메뉴 질문은 RAG에 식단이 없으므로 항상 True다.
+    두 번째 값이 False면 학식 데이터로 답할 수 없다는 뜻이고, 두 경우가 있다.
+      (1) 애초에 학식 질문이 아니다 — 라우터가 잘못 보낸 것(_looks_like_dining이 거른다).
+      (2) 학식 질문은 맞는데 학교 식당안내 표의 해당 칸이 비어 있다.
+    (2)여도 학교에 정보가 없는 건 아니라서(기숙사 식당 가격 → 기숙사비 안내 문서의 식비
+    내역) 호출부가 RAG로 한 번 더 찾아보게 한다.
     """
+    if not _looks_like_dining(question, prev_question):
+        print(f"[Dining] 학식 질문이 아님 → RAG 폴백 ('{question}')")
+        return "", False
+
     intent = _resolve_intent(question)
     if intent == "menu":
         return await _answer_menu(question, prev_question), True
