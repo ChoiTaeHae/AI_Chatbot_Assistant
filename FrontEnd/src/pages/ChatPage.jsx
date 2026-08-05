@@ -19,9 +19,9 @@ const LANGUAGES = [
 ]
 
 const T = {
-  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기' },
-  en: { title: 'AI Assistant',   admin: 'Admin Page',    logout: 'Logout',   grad: '🎓 My Graduation Status', menu: 'Open menu' },
-  zh: { title: 'AI助手',          admin: '管理员页面',      logout: '退出登录',  grad: '🎓 我的毕业进度', menu: '打开菜单' },
+  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', mypage: '마이페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기' },
+  en: { title: 'AI Assistant',   admin: 'Admin Page',    mypage: 'My Page',  logout: 'Logout',   grad: '🎓 My Graduation Status', menu: 'Open menu' },
+  zh: { title: 'AI助手',          admin: '管理员页面',      mypage: '我的页面', logout: '退出登录',  grad: '🎓 我的毕业进度', menu: '打开菜单' },
 }
 
 export default function ChatPage() {
@@ -201,6 +201,18 @@ export default function ChatPage() {
 
               {dropdownOpen && (
                 <div className="absolute right-0 top-full mt-2 w-52 bg-(--surface-card) rounded-2xl shadow-lg border border-(--border) overflow-hidden z-50">
+
+                  {/* 마이페이지 */}
+                  <button
+                    onClick={() => { setDropdownOpen(false); navigate('/mypage') }}
+                    className="w-full flex items-center text-sm text-(--text-muted) hover:bg-(--brand-a5) hover:text-(--brand) transition"
+                    style={{ gap: '10px', padding: '12px 16px' }}
+                  >
+                    <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                    {T[lang].mypage}
+                  </button>
 
                   {/* 관리자 페이지 (admin만) */}
                   {user?.role === 'admin' && (
