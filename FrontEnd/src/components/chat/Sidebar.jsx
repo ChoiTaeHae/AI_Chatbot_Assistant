@@ -113,6 +113,14 @@ function fmtMMDD(dt) {
 }
 const mmddToday = () => fmtMMDD(new Date())
 
+// '최근 대화' 한 줄 높이(px) — 버튼 padding 7+7 + 13px 글자의 줄높이(≈20) + 항목 간격 2
+const RECENT_ROW_H = 36
+// 목록이 확보할 최소 줄 수(하한). 상한은 두지 않는다 — 남는 공간에 정확히 맞춰
+// 늘어나므로(화면이 크면 그만큼 많이 보인다) 잘리거나 빈 공간이 생기지 않는다.
+// 자리가 이 하한보다 모자랄 때만 사이드바 전체가 스크롤된다.
+// 소수(.6)로 잡아 마지막 줄이 반쯤 잘려 보이게 → '아래 더 있다'는 신호가 된다.
+const RECENT_MIN_ROWS = 5.6
+
 export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession, activeSessionId, onSessionDeleted, refreshTrigger = 0, onOpenScholarship }) {
   const t = T[lang] || T.ko
   const [credit, setCredit] = useState(null)
@@ -227,7 +235,10 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
   return (
     <>
     <aside className="flex flex-col w-[264px] h-full bg-(--surface-card) rounded-2xl border border-(--border) shadow-lg overflow-hidden">
-      <div className="flex flex-col h-full" style={{ padding: '14px 12px' }}>
+      {/* 사이드바 전체가 스크롤된다(바깥 스크롤). 예전엔 h-full + 위젯 전부 shrink-0 이라
+          남는 높이를 '최근 대화'(flex-1) 혼자 떠안아, 위젯이 길면 목록이 1줄로 찌그러졌다.
+          이제 목록은 아래에서 고정 높이 + 자체 스크롤(안쪽 스크롤)을 갖는다. */}
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto" style={{ padding: '14px 12px' }}>
 
         {/* 새 대화 */}
         <button
@@ -390,7 +401,10 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
         <ScheduleWidget lang={lang} refreshKey={autoRefresh} />
 
         {/* 최근 대화 + topic 필터 */}
-        <div className="flex flex-col min-h-0 flex-1" style={{ marginTop: '16px' }}>
+        {/* min-h-0 필수 — flex 아이템의 기본 min-height:auto가 '내용 전체 높이'로 잡혀,
+            이게 없으면 아래 목록이 남는 공간에 맞춰지지 않고 대화 개수만큼 늘어난다.
+            그러면 사이드바가 대화 전체를 스크롤하게 돼 끝이 없는 것처럼 느껴진다. */}
+        <div className="flex flex-col flex-1 min-h-0" style={{ marginTop: '16px' }}>
           <div className="flex items-center justify-between shrink-0" style={{ marginBottom: '8px', padding: '0 2px' }}>
             <span className="text-(--text-faint) font-semibold uppercase tracking-wide" style={{ fontSize: '11px' }}>
               {t.recent}
@@ -408,7 +422,14 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
             )}
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* 안쪽 스크롤 — 남는 높이에 정확히 맞고(flex-1), 최소 RECENT_MIN_ROWS 줄은 보장한다. */}
+          <div
+            className="flex-1 overflow-y-auto"
+            style={{
+              minHeight: `${RECENT_ROW_H * RECENT_MIN_ROWS}px`,
+              overscrollBehavior: 'contain',
+            }}
+          >
             {filtered.length === 0 ? (
               <p className="text-xs text-(--text-faint)" style={{ padding: '8px' }}>{t.empty}</p>
             ) : filtered.map((s) => {

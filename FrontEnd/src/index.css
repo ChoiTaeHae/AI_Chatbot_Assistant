@@ -154,3 +154,20 @@ button:disabled { cursor: not-allowed; }
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* 모바일 자동 확대 방지 — 입력 요소 글자가 16px 미만이면 모바일 브라우저(iOS Safari,
+   iOS Chrome 모두 WebKit)가 탭할 때 화면을 확대하고, 그 배율이 그대로 남아 레이아웃이
+   어긋난 것처럼 보인다.
+   viewport에 user-scalable=no를 주면 간단히 막히지만 손가락 확대까지 막혀 접근성을
+   해치므로, 확대 '조건' 자체를 없앤다(모바일에서만 16px, sm 이상은 원래 크기 유지).
+
+   !important가 필요한 이유: 이 규칙은 요소 선택자(특이도 0-0-1)라서 Tailwind의
+   .text-xs / .text-sm(0-1-0)이나 인라인 style에 그대로 밀린다. 실제로 프로젝트 안에
+   text-xs·text-sm이 붙은 입력이 30곳 넘게 있어 !important 없이는 안전망이 무력하다. */
+@media (max-width: 639px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import useIsMobile from '../../hooks/useIsMobile'
 // 달력 공통 로직은 scheduleUtils에 모아 ScheduleWidget(사이드바)과 공유한다.
 import { WD, toISO, fmtDate, catStyle, buildMonthWeeks, segsForWeek } from './scheduleUtils'
 
@@ -23,6 +24,7 @@ function shortRange(s, e) {
 }
 
 export default function ScheduleCard({ card, lang = 'ko' }) {
+  const isMobile = useIsMobile()
   const sc = SC[lang] || SC.ko
   const todayISO = card?.today
   const events = useMemo(() => (card?.events || [])
@@ -73,7 +75,7 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
       {/* 요일 헤더 */}
       <div className="grid grid-cols-7 border-b border-(--border)">
         {WD.map((w, k) => (
-          <div key={w} className={`text-center ${k === 0 ? 'text-red-400' : k === 6 ? 'text-blue-400' : 'text-(--text-faint)'}`} style={{ fontSize: '11px', fontWeight: 700, padding: '5px 0' }}>{w}</div>
+          <div key={w} className={`text-center ${k === 0 ? 'text-red-400' : k === 6 ? 'text-blue-400' : 'text-(--text-faint)'}`} style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: 700, padding: isMobile ? '4px 0' : '5px 0' }}>{w}</div>
         ))}
       </div>
       {/* 월 달력 그리드 */}
@@ -89,10 +91,10 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
                   const inMonth = day.getMonth() === fm
                   const isToday = toISO(day) === todayISO
                   return (
-                    <div key={ci} className={`${ci !== 6 ? 'border-r border-(--border)' : ''} ${inMonth ? '' : 'bg-(--surface-2)/40'}`} style={{ minHeight: `${cellH}px`, padding: '4px 5px' }}>
+                    <div key={ci} className={`${ci !== 6 ? 'border-r border-(--border)' : ''} ${inMonth ? '' : 'bg-(--surface-2)/40'}`} style={{ minHeight: `${cellH}px`, padding: isMobile ? '3px 2px' : '4px 5px' }}>
                       <span className={`${!inMonth ? 'text-(--text-faint)' : isToday ? '' : day.getDay() === 0 ? 'text-red-400' : day.getDay() === 6 ? 'text-blue-400' : 'text-(--text-muted)'}`} style={{ fontSize: '11px', fontWeight: 700, position: 'relative', zIndex: 1 }}>
                         {isToday
-                          ? <span className="inline-flex items-center justify-center rounded-full bg-(--brand) text-white" style={{ width: '18px', height: '18px', fontSize: '10px' }}>{day.getDate()}</span>
+                          ? <span className="inline-flex items-center justify-center rounded-full bg-(--brand) text-white" style={{ width: isMobile ? '16px' : '18px', height: isMobile ? '16px' : '18px', fontSize: '10px' }}>{day.getDate()}</span>
                           : day.getDate()}
                       </span>
                     </div>
@@ -113,7 +115,7 @@ export default function ScheduleCard({ card, lang = 'ko' }) {
                         gridColumn: `${seg.startCol + 1} / ${seg.endCol + 2}`,
                         gridRow: seg.lane + 1,
                         height: '16px',
-                        padding: '0 5px',
+                        padding: isMobile ? '0 3px' : '0 5px',
                         overflow: 'hidden',
                         opacity: isFocal ? 1 : 0.45,
                         marginLeft: seg.roundedLeft ? '2px' : '0',

@@ -553,7 +553,10 @@ export default function AdminPage() {
   })
 
   return (
-    <div className="flex h-screen bg-(--page) overflow-hidden" style={{ minWidth: '900px' }}>
+    /* minWidth를 루트에 걸면 태블릿(≈820px)에서 페이지 전체가 가로로 밀려 왼쪽 내비가
+       화면 밖으로 잘려 나간다. 최소 폭은 아래 본문 래퍼로 옮기고, 가로 스크롤도 본문
+       안에서만 일어나게 한다 → 내비·헤더는 항상 제자리. */
+    <div className="flex h-screen bg-(--page) overflow-hidden">
 
       {/* 사이드바 */}
       <aside className="w-56 shrink-0 bg-(--surface-card) border-r border-(--border) flex flex-col shadow-sm">
@@ -673,7 +676,10 @@ export default function AdminPage() {
         </header>
 
         {/* 본문 */}
-        <main className="flex-1 overflow-y-auto flex gap-6" style={{ padding: '32px' }}>
+        <main className="flex-1 overflow-auto" style={{ padding: '32px' }}>
+          {/* 관리자 표·폼은 좁히면 되레 못 쓰게 되므로 최소 폭을 유지하고, 좁은 화면에서는
+              이 안에서 가로로 밀어 본다(모바일 전면 대응은 하지 않음 — 데스크톱 전용 화면). */}
+          <div className="flex gap-6" style={{ minWidth: '860px', height: '100%' }}>
 
           {/* 학사일정 */}
           {activeNav === 'schedule' && (
@@ -1005,7 +1011,7 @@ export default function AdminPage() {
               {uploadMode === 'document' && (
               <div className="flex flex-col" style={{ gap: '8px' }}>
               {/* 1단: 파일 + 문서명 + 주제 + 기준날짜 */}
-              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
+              <div className="flex items-end flex-wrap" style={{ gap: '12px' }}>
 
                 {/* 파일 드롭 영역 */}
                 {/* .hwp는 파서가 없어 업로드하면 백엔드가 400으로 거부한다(.hwpx만 처리 가능).
@@ -1034,20 +1040,20 @@ export default function AdminPage() {
                 </div>
 
                 {/* 문서명 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 5, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">문서명 (source)</label>
                   <input
                     type="text"
                     placeholder="문서명을 입력하세요"
                     value={docTitle}
                     onChange={(e) => setDocTitle(e.target.value)}
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 주제 분류 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 4 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 4, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
                   <select
                     value={topic}
@@ -1063,53 +1069,53 @@ export default function AdminPage() {
                 </div>
 
                 {/* 기준 날짜 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">기준 날짜</label>
                   <input
                     type="date"
                     value={docDate}
                     onChange={(e) => setDocDate(e.target.value)}
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
               </div>
 
               {/* 2단: 출처URL + 담당부서 + 전화번호 + 버튼 */}
-              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
+              <div className="flex items-end flex-wrap" style={{ gap: '12px' }}>
 
                 {/* 출처 URL */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 5, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">출처 URL</label>
                   <input
                     value={docUrl}
                     onChange={(e) => setDocUrl(e.target.value)}
                     placeholder="https://wsu.ac.kr/..."
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 담당 부서 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">담당 부서</label>
                   <input
                     value={docContactName}
                     onChange={(e) => setDocContactName(e.target.value)}
                     placeholder="예: 학사팀"
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 전화번호 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">전화번호</label>
                   <input
                     value={docContactPhone}
                     onChange={(e) => setDocContactPhone(e.target.value)}
                     placeholder="예: 042-630-9114"
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
@@ -1167,36 +1173,36 @@ export default function AdminPage() {
               {uploadMode === 'crawl' && (
               <div className="flex flex-col" style={{ gap: '8px' }}>
               {/* 1단: URL + 문서명 + 주제 + 기준날짜 */}
-              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
+              <div className="flex items-end flex-wrap" style={{ gap: '12px' }}>
 
                 {/* URL 입력 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 5 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 5, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">크롤링 URL</label>
                   <input
                     type="url"
                     placeholder="https://..."
                     value={crawlUrl}
                     onChange={(e) => setCrawlUrl(e.target.value)}
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 문서명 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">문서명 (source)</label>
                   <input
                     type="text"
                     placeholder="문서명을 입력하세요"
                     value={crawlSource}
                     onChange={(e) => setCrawlSource(e.target.value)}
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 주제 분류 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">주제 분류 (RAG 검색 필터)</label>
                   <select
                     value={crawlTopic}
@@ -1212,41 +1218,41 @@ export default function AdminPage() {
                 </div>
 
                 {/* 기준 날짜 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 2 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 2, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted) whitespace-nowrap">기준 날짜</label>
                   <input
                     type="date"
                     value={crawlDocDate}
                     onChange={(e) => setCrawlDocDate(e.target.value)}
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
               </div>
 
               {/* 2단: 담당부서 + 전화번호 + 버튼 */}
-              <div className="flex items-end flex-nowrap" style={{ gap: '12px' }}>
+              <div className="flex items-end flex-wrap" style={{ gap: '12px' }}>
 
                 {/* 담당 부서 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">담당 부서</label>
                   <input
                     value={crawlContactName}
                     onChange={(e) => setCrawlContactName(e.target.value)}
                     placeholder="예: 학사팀"
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
 
                 {/* 전화번호 */}
-                <div className="flex flex-col" style={{ gap: '4px', flex: 3 }}>
+                <div className="flex flex-col" style={{ gap: '4px', flex: 3, minWidth: 0 }}>
                   <label className="text-xs font-bold text-(--text-muted)">전화번호</label>
                   <input
                     value={crawlContactPhone}
                     onChange={(e) => setCrawlContactPhone(e.target.value)}
                     placeholder="예: 042-630-9114"
-                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition"
+                    className="border border-(--border) text-sm outline-none focus:border-(--brand) transition w-full"
                     style={{ borderRadius: '8px', padding: '8px 10px' }}
                   />
                 </div>
@@ -2216,6 +2222,7 @@ export default function AdminPage() {
             </div>
           )}
 
+          </div>
         </main>
       </div>
     </div>

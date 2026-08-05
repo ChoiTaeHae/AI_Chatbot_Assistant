@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import useIsMobile from '../../hooks/useIsMobile'
 
 const MAX_LENGTH = 1000
 
@@ -11,11 +12,14 @@ const T = {
 export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
   const [text, setText] = useState('')
   const textareaRef = useRef(null)
+  const isMobile = useIsMobile()
 
+  // 자동 포커스는 데스크톱에서만. 모바일에서 자동 포커스가 걸리면 사용자가 탭하지도 않았는데
+  // 키보드가 올라오고 브라우저가 입력창으로 화면을 확대해, 답변이 올 때마다 화면이 튄다.
   useEffect(() => {
-    if (!disabled) {
-      textareaRef.current?.focus()
-    }
+    if (disabled) return
+    if (window.matchMedia('(max-width: 639px)').matches) return
+    textareaRef.current?.focus()
   }, [disabled])
 
   function handleSubmit(e) {
@@ -35,7 +39,7 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
   }
 
   return (
-    <div style={{ flexShrink: 0, background: 'var(--surface-card)', padding: '10px 16px 16px' }}>
+    <div style={{ flexShrink: 0, background: 'var(--surface-card)', padding: isMobile ? '8px 12px 12px' : '10px 16px 16px' }}>
       <form onSubmit={handleSubmit} style={{ maxWidth: '1024px', margin: '0 auto' }}>
         <div style={{ position: 'relative', borderRadius: '16px', border: '1px solid var(--border)', background: 'var(--surface-2)', padding: '10px 14px', boxShadow: '0 2px 8px -4px rgba(0,0,0,0.06)' }}>
           <textarea
@@ -45,12 +49,12 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
             onKeyDown={handleKeyDown}
             placeholder={T[lang].placeholder}
             disabled={disabled}
-            rows={2}
+            rows={1}
+            className="text-[16px] sm:text-[14px]"
             style={{
               width: '100%',
               resize: 'none',
               background: 'transparent',
-              fontSize: '14px',
               fontWeight: 500,
               lineHeight: '1.5',
               color: 'var(--text)',
@@ -96,7 +100,7 @@ export default function ChatInput({ onSend, disabled, lang = 'ko' }) {
             </button>
           </div>
         </div>
-        <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '11px', color: 'var(--text-faint)' }}>
+        <p className="text-[10px] sm:text-[11px]" style={{ marginTop: '6px', textAlign: 'center', color: 'var(--text-faint)' }}>
           {T[lang].disclaimer}
         </p>
       </form>
