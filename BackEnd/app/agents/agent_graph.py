@@ -646,6 +646,35 @@ async def _faq_for_non_dining(question: str) -> dict | None:
     return {"answer": hit[0], "source": "faq", "source_file": None, "topic": "general"}
 
 
+async def _rag_fallback_guarded(state: AgentState, why: str) -> dict:
+    """오라우팅된 질문의 전체 검색 폴백 — 근거가 약하면 답을 만들지 않는다.
+
+    dining·schedule 토픽엔 Qdrant 문서가 0개라, 이 폴백은 항상 topic 없이 전 문서를 뒤진다.
+    그런데 라우터가 잘못 보낸 질문은 제 주제의 문서가 애초에 코퍼스에 없다. 리트리버는
+    '못 찾음'을 피하려고 어휘가 겹치는 문서를 살려 주는데(retriever.py 3-1b), 그 구제는
+    청크가 아니라 '문서' 단위라 정작 넘어가는 청크엔 그 단어가 없을 수도 있다.
+    실측 — '오늘 수업 뭐 있어?': 내용어는 '오늘'(0건)·'수업'(7건)뿐인데, '수업'이 든 다른
+    청크 때문에 솔숲 문서가 열려 신입생 OT 시간표가 넘어갔고 LLM이 오늘 시간표로 답했다.
+    같은 원인으로 '축제언제야?'는 그 OT 일정을 축제로, '오늘 공지 뭐 올라왔어?'는 5월
+    근로장학 공고를 오늘 공지로 답했다(셋 다 리랭크 최고점 0.000).
+
+    rag_general은 이 상태에서 먼저 검수 FAQ를 조회하므로(0.75), 검수된 답이 있으면
+    source='faq'로 돌아온다 — 그건 그대로 내보낸다. 근거가 확실한 폴백도 마찬가지다
+    (실측: '기숙사 통금' 0.815, '도서 대출 몇 권' 등 리랭커 저점수 정답은 죽지 않는다).
+    """
+    print(f"[Graph] {why} → RAG 폴백")
+    result = await _handle_rag_general({**state, "topic": None})
+    if result.get("weak_evidence") and result.get("source") != "faq":
+        print(f"[Graph] {why} + 검색 근거도 약함 → 답변 생성 대신 '못 찾음'")
+        return {
+            "answer": _NOT_FOUND_REPLY,
+            "source": None,
+            "source_file": None,
+            "topic": None,
+        }
+    return result
+
+
 async def _handle_dining(state: AgentState) -> dict:
     """학식 안내(메뉴·위치·운영시간·전화·가격) — RAG도 LLM도 타지 않는다.
 
@@ -676,23 +705,11 @@ async def _handle_dining(state: AgentState) -> dict:
             hit = await _faq_for_non_dining(state["question"])
             if hit is not None:
                 return hit
-        print("[Graph] " + ("학식 질문 아님" if gate_blocked else "학식 안내표에 값 없음")
-              + " → RAG 폴백")
-        result = await _handle_rag_general({**state, "topic": None})
-        # 라우터가 dining으로 잘못 보낸 질문은 제 주제의 문서가 애초에 없다. 전체 검색이
-        # 어휘 매칭으로 아무 문서나 건져 오면 LLM이 그걸로 그럴듯한 거짓을 만든다 —
-        # 실측: '오늘 수업 뭐 있어?'가 SW사업단 신입생 프로그램 표를 시간표로 답했고,
-        # '오늘 뭐 해?'는 학군단 선발 일정을 답했다(둘 다 rerank 최고점 0.000).
-        # 근거가 확실한 폴백(기숙사 출입시간 0.815)과 FAQ 매칭은 그대로 내보낸다.
-        if gate_blocked and result.get("weak_evidence") and result.get("source") != "faq":
-            print("[Graph] 학식 질문도 아니고 검색 근거도 약함 → 답변 생성 대신 '못 찾음'")
-            return {
-                "answer": _NOT_FOUND_REPLY,
-                "source": None,
-                "source_file": None,
-                "topic": None,
-            }
-        return result
+            return await _rag_fallback_guarded(state, "학식 질문 아님")
+        # 안내표 칸만 비어 있는 경우는 진짜 학식 질문이라 근거 확인을 걸지 않는다 —
+        # '기숙사 식당 가격'처럼 다른 문서(기숙사비_안내)에 답이 흩어져 있을 수 있다.
+        print("[Graph] 학식 안내표에 값 없음 → RAG 폴백")
+        return await _handle_rag_general({**state, "topic": None})
     return {
         "answer": answer,
         "source": "dining",
@@ -728,8 +745,7 @@ async def _handle_schedule(state: AgentState) -> dict:
     # 매칭 0건 = 라우팅이 잘못 왔거나 학사일정에 없는 내용. 여기서 끝내면 막다른 길이 되므로
     # RAG로 넘긴다. topic은 비워서(schedule 토픽엔 문서가 없다) 전체 검색으로 돌린다.
     if metadata.get("no_match"):
-        print("[Graph] 학사일정 매칭 0건 → RAG 폴백")
-        return await _handle_rag_general({**state, "topic": None})
+        return await _rag_fallback_guarded(state, "학사일정 매칭 0건")
 
     answer = _append_contact_info(answer, metadata)
     return {
