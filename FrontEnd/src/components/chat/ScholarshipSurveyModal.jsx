@@ -82,7 +82,7 @@ const INTERESTS = [
 const FLAGS = [
   ['multichild', '다자녀 가정'],
   ['foreigner', '외국인 · 유학생'],
-  ['independent', '자취 · 독립 거주'],
+  ['independent', '자취 · 독립 · 기숙사'],
   ['disabled', '장애'],
   ['veteran', '보훈 · 국가유공자(후손)'],
 ]
