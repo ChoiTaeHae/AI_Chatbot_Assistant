@@ -275,3 +275,29 @@ async def delete_document(source: str):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"문서 삭제 중 오류: {e}")
+
+
+# ── FAQ 인덱스 ─────────────────────────────────────────────────────
+
+@router.post("/faq/reload", summary="FAQ 인덱스 재적재")
+async def reload_faq_index():
+    """faq / faq_question 테이블을 다시 읽어 메모리 인덱스를 새로 만든다.
+
+    왜 필요한가
+        FAQ 매칭은 기동 시 한 번 만든 메모리 인덱스(질문 임베딩)로만 이뤄진다. 그래서 표를
+        고쳐도 서버를 다시 띄우기 전에는 옛 답변이 그대로 나갔다. topic은 create/update/delete
+        API가 있어 저장 시점에 재적재되지만(admin_service._reload_topic_router), FAQ는 CRUD
+        API가 없어 걸 자리가 없다 → 편집 후 이 엔드포인트를 호출해 반영한다.
+
+    증분이 아니라 전량 재구축인 이유
+        warmup()이 enabled 행을 전부 다시 읽어 _index를 통째로 교체한다. 추가·수정·삭제·
+        enabled 토글이 한 번에 반영되고, 현재 FAQ 규모(수십 건)에서는 재임베딩 비용도 미미하다.
+    """
+    from app.services import faq_index
+
+    try:
+        await faq_index.warmup()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"FAQ 인덱스 재적재 실패: {e}")
+    # 모듈 속성으로 읽는다 — from ... import _index 로 받으면 재적재 전 리스트가 박힌다
+    return {"count": len(faq_index._index)}
