@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import MessageBubble from './MessageBubble'
 import LoadingDots from '../common/LoadingDots'
 import MascotAvatar from '../common/MascotAvatar'
+import useIsMobile from '../../hooks/useIsMobile'
 
 const T = {
   ko: { greeting: '안녕하세요! 무엇을 도와드릴까요? 👋', subtitle: '학사 관련 질문을 입력하면 AI가 답변해드립니다.', grad: '내 졸업 현황',
@@ -13,6 +14,7 @@ const T = {
 }
 
 export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, onCheckGraduation, onSendQuestion, onStartSurvey }) {
+  const isMobile = useIsMobile()
   const bottomRef = useRef(null)
   const firstScroll = useRef(true)   // 마운트 직후 첫 스크롤은 즉시(대화 전환 시 스무스 스크롤 튐 방지)
 
@@ -52,7 +54,7 @@ export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPe
         </div>
       ) : (
         /* 대화 화면 */
-        <div className="w-full max-w-5xl" style={{ padding: '32px 20px' }}>
+        <div className="w-full max-w-5xl" style={{ padding: isMobile ? '18px 12px' : '32px 20px' }}>
           {/* 대화 중에도 상단 인사 말풍선 유지 — 첫 메시지 후 휑해 보이지 않도록 */}
           <div className="flex items-start gap-4" style={{ marginBottom: '20px', paddingLeft: '8px' }}>
             <MascotAvatar className="h-12 w-12 shrink-0 object-contain mt-1" />

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { matchScholarships, fetchMyScholarshipProfile } from '../../api/scholarship'
+import useIsMobile from '../../hooks/useIsMobile'
 
 const TEAL = 'var(--brand)'
 
@@ -127,16 +128,19 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
 
   const selectCls = 'w-full text-sm text-(--text) border border-(--modal-edge) rounded-lg bg-(--surface-2) outline-none focus:border-(--brand)'
   const p = result?.profile
+  const isMobile = useIsMobile()
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'var(--scrim)', padding: '16px' }} onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'var(--scrim)', padding: isMobile ? '0' : '16px' }} onClick={onClose}>
+      {/* 폰에서는 전체화면. 84vh를 그대로 쓰면 모바일 주소창 때문에 실제 높이가 들쭉날쭉해
+          입력 폼이 잘리므로, 폰에서는 100%(=fixed 컨테이너 높이)로 채운다. */}
       <div
-        className="bg-(--surface-modal) rounded-2xl shadow-2xl border border-(--modal-edge) overflow-hidden flex flex-col"
-        style={{ width: '100%', maxWidth: '560px', height: '84vh', maxHeight: '720px' }}
+        className={`bg-(--surface-modal) shadow-2xl overflow-hidden flex flex-col ${isMobile ? '' : 'rounded-2xl border border-(--modal-edge)'}`}
+        style={{ width: '100%', maxWidth: isMobile ? 'none' : '560px', height: isMobile ? '100%' : '84vh', maxHeight: isMobile ? '100%' : '720px' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
-        <div className="flex items-center gap-3 border-b border-(--border) shrink-0" style={{ padding: '16px 18px' }}>
+        <div className="flex items-center gap-3 border-b border-(--border) shrink-0" style={{ padding: isMobile ? '11px 12px' : '16px 18px' }}>
           <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: '34px', height: '34px', background: TEAL }}>
             <span className="emoji" style={{ fontSize: '18px' }}>🎯</span>
           </div>
@@ -151,7 +155,7 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
 
         {step === 'form' ? (
           <>
-            <div style={{ padding: '16px 18px', overflowY: 'auto' }} className="flex-1">
+            <div style={{ padding: isMobile ? '14px 12px' : '16px 18px', overflowY: 'auto' }} className="flex-1">
               {/* 자동 연동 안내 — 전공만 내 정보 연동, 학년·학점은 직접 입력 */}
               <div className="rounded-lg" style={{ background: 'var(--brand-tint)', padding: '9px 12px', marginBottom: '16px' }}>
                 <p className="text-(--text-muted)" style={{ fontSize: '12px' }}>
@@ -164,7 +168,8 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
                 )}
               </div>
 
-              <div className="grid grid-cols-2" style={{ gap: '14px' }}>
+              {/* 폰에서 2열이면 한 칸이 ~150px라 '복지자격(기초·차상위)' 같은 옵션이 잘린다 → 1열 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: isMobile ? '11px' : '14px' }}>
                 <RegionPicker label="본인 거주 지역" value={a.self_region} onChange={(v) => set('self_region', v)} selectCls={selectCls} />
                 <RegionPicker label="부모님 거주 지역" value={a.parent_region} onChange={(v) => set('parent_region', v)} selectCls={selectCls} />
                 <label className="flex flex-col gap-1">
@@ -228,7 +233,7 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
               {error && <p className="text-red-400" style={{ fontSize: '12px', marginTop: '14px' }}>{error}</p>}
             </div>
 
-            <div className="border-t border-(--border) shrink-0" style={{ padding: '12px 18px' }}>
+            <div className="border-t border-(--border) shrink-0" style={{ padding: isMobile ? '10px 12px' : '12px 18px' }}>
               <button onClick={submit} disabled={loading}
                 className="w-full font-bold text-white rounded-xl transition disabled:opacity-50"
                 style={{ padding: '12px', background: TEAL, fontSize: '14px' }}>
@@ -238,7 +243,7 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
           </>
         ) : (
           <>
-            <div style={{ padding: '14px 18px', overflowY: 'auto' }} className="flex-1">
+            <div style={{ padding: isMobile ? '12px 12px' : '14px 18px', overflowY: 'auto' }} className="flex-1">
               {/* 연동된 프로필 */}
               {p && (
                 <div className="rounded-lg flex flex-wrap items-center gap-x-3 gap-y-1" style={{ background: 'var(--surface-2)', padding: '9px 12px', marginBottom: '14px' }}>
@@ -270,7 +275,7 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
               ))}
             </div>
 
-            <div className="border-t border-(--border) shrink-0 flex gap-2" style={{ padding: '12px 18px' }}>
+            <div className="border-t border-(--border) shrink-0 flex gap-2" style={{ padding: isMobile ? '10px 12px' : '12px 18px' }}>
               <button onClick={() => setStep('form')}
                 className="font-semibold text-(--text-muted) rounded-xl border border-(--modal-edge) hover:bg-(--surface-2) transition"
                 style={{ padding: '11px 16px', fontSize: '13px' }}>

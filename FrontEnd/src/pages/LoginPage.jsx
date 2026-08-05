@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useAuth } from '../store/AuthContext'
 import MascotAvatar from '../components/common/MascotAvatar'
+import useIsMobile from '../hooks/useIsMobile'
 
 export default function LoginPage() {
   const [studentNo, setStudentNo] = useState('')
@@ -12,6 +13,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const { saveUser } = useAuth()
   const navigate = useNavigate()
+  // 세로가 아주 낮은 화면(폰 가로 등) — 마스코트를 접어 폼이 먼저 보이게 한다.
+  // 그래도 다 안 들어가면 main의 overflowY:auto가 받아준다(잘리지 않음).
+  const isShort = useIsMobile('(max-height: 500px)')
 
   async function handleSubmit(e) {
     e.preventDefault()  //새로고침 방지
@@ -34,33 +38,46 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-(--page)">
-      <div className="flex items-center justify-center w-full max-w-[500px] min-h-[900px] bg-(--surface-card) p-12 shadow-2xl  rounded-3xl">
-      <section className="w-full max-w-[400px] bg-(--surface-card) px-10 py-12">
+    /* 화면 높이에 맞춰 들어가도록 — 예전엔 카드에 min-h-[900px]가 박혀 있어 뷰포트가
+       900px보다 낮은 노트북·태블릿 가로에서 무조건 스크롤이 생겼다. 이제 세로 여백·글자·
+       마스코트를 vh 기반 clamp로 줄여 한 화면에 담고, 그래도 모자라면(아주 낮은 창) 그때만
+       스크롤한다. 여백을 인라인으로 준 이유는 전역 `* { padding: 0 }` 리셋이 Tailwind의
+       p-* 유틸을 덮어써 클래스로는 여백이 먹지 않기 때문. */
+    <main
+      className="flex items-center justify-center bg-(--page)"
+      style={{ minHeight: '100dvh', maxHeight: '100dvh', overflowY: 'auto', padding: 'clamp(12px, 3vh, 32px) 16px' }}
+    >
+      <section
+        className="w-full bg-(--surface-card) shadow-2xl rounded-3xl flex flex-col"
+        style={{
+          maxWidth: '440px',
+          padding: 'clamp(22px, 4vh, 44px) clamp(20px, 6vw, 40px)',
+          gap: 'clamp(12px, 2.2vh, 22px)',
+        }}
+      >
 
-        {/* 마스코트 */}
-        <div className="flex justify-center pt-4">
-          <MascotAvatar className="h-44 w-44 object-contain" />
-        </div>
+        {/* 마스코트 — 세로가 좁을수록 작아지고, 아주 낮으면 아예 숨긴다 */}
+        {!isShort && (
+          <div className="flex justify-center">
+            <MascotAvatar className="object-contain" style={{ height: 'clamp(72px, 15vh, 168px)', width: 'auto' }} />
+          </div>
+        )}
 
         {/* 타이틀 */}
-        <div className="mt-14 text-center">
-          <h1 className="break-keep text-[1.6rem] font-black leading-snug text-(--text)">
+        <div className="text-center">
+          <h1 className="break-keep font-black leading-snug text-(--text)" style={{ fontSize: 'clamp(1.15rem, 3.2vh, 1.6rem)' }}>
             우송대학교 학사 지원<br />AI 어시스턴트 시스템
           </h1>
-          <div className="h-5" />
-          <p className="text-sm font-medium leading-6 text-(--text-faint)">
+          <p className="font-medium text-(--text-faint)" style={{ fontSize: 'clamp(11.5px, 1.7vh, 14px)', lineHeight: 1.5, marginTop: 'clamp(8px, 1.6vh, 16px)' }}>
             RAG 기반 LLM 엔진·정보 검색 및 맞춤형 학사 지원 서비스
           </p>
         </div>
 
-        <div className="h-5" />
-
         {/* 폼 */}
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+        <form onSubmit={handleSubmit} className="flex flex-col" style={{ gap: 'clamp(10px, 1.8vh, 20px)' }}>
 
           {/* 아이디 */}
-          <label className="flex h-14 items-center gap-3 rounded-xl border border-(--border) bg-(--surface-card) px-4 focus-within:border-(--brand) focus-within:ring-2 focus-within:ring-(--brand-a15) transition">
+          <label className="flex items-center gap-3 rounded-xl border border-(--border) bg-(--surface-card) focus-within:border-(--brand) focus-within:ring-2 focus-within:ring-(--brand-a15) transition" style={{ height: 'clamp(46px, 6.4vh, 56px)', padding: '0 16px' }}>
             <svg className="h-5 w-5 shrink-0 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.5 7.5 0 0 1 15 0" />
             </svg>
@@ -75,7 +92,7 @@ export default function LoginPage() {
           </label>
 
           {/* 비밀번호 */}
-          <label className="flex h-14 items-center gap-3 rounded-xl border border-(--border) bg-(--surface-card) px-4 focus-within:border-(--brand) focus-within:ring-2 focus-within:ring-(--brand-a15) transition">
+          <label className="flex items-center gap-3 rounded-xl border border-(--border) bg-(--surface-card) focus-within:border-(--brand) focus-within:ring-2 focus-within:ring-(--brand-a15) transition" style={{ height: 'clamp(46px, 6.4vh, 56px)', padding: '0 16px' }}>
             <svg className="h-5 w-5 shrink-0 text-(--text-faint)" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
             </svg>
@@ -108,7 +125,7 @@ export default function LoginPage() {
 
           {/* 에러 */}
           {error && (
-            <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">
+            <p className="rounded-xl bg-rose-50 text-sm font-medium text-rose-600" style={{ padding: '12px 16px' }}>
               {error}
             </p>
           )}
@@ -117,7 +134,8 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="flex h-14 w-full items-center justify-center rounded-xl bg-(--brand) text-base font-black text-white shadow-sm transition hover:bg-(--brand-hover) disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-center rounded-xl bg-(--brand) text-base font-black text-white shadow-sm transition hover:bg-(--brand-hover) disabled:cursor-not-allowed disabled:opacity-60"
+            style={{ height: 'clamp(46px, 6.4vh, 56px)' }}
           >
             {loading ? (
               <span className="flex items-center gap-2">
@@ -131,8 +149,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="h-5" />
-
         {/* 구분선 */}
         <div className="flex items-center gap-4">
           <div className="h-px flex-1 bg-(--border)" />
@@ -140,20 +156,17 @@ export default function LoginPage() {
           <div className="h-px flex-1 bg-(--border)" />
         </div>
 
-        <div className="h-5" />
-
         {/* SSO 버튼 */}
         <button
           type="button"
-          className="flex h-14 w-full items-center justify-center gap-2.5 rounded-xl border border-(--border) bg-(--surface-card) text-base font-black text-(--text) transition hover:bg-(--surface-2)"
+          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-(--border) bg-(--surface-card) text-base font-black text-(--text) transition hover:bg-(--surface-2)"
+          style={{ height: 'clamp(46px, 6.4vh, 56px)' }}
         >
           <svg className="h-5 w-5 shrink-0 text-(--brand)" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 2.25 5 5.1v5.92c0 4.45 2.85 8.45 7 9.88 4.15-1.43 7-5.43 7-9.88V5.1l-7-2.85Zm2.9 7.85-3.45 4.35a1 1 0 0 1-1.52.05l-1.8-1.9 1.45-1.38 1 1.05 2.75-3.47 1.57 1.3Z" />
           </svg>
           통합인증(SSO) 로그인
         </button>
-
-        <div className="h-5" />
 
         {/* 하단 링크 */}
         <div className="flex items-center justify-center gap-5 text-sm font-medium text-(--text-faint)">
@@ -163,7 +176,6 @@ export default function LoginPage() {
         </div>
 
       </section>
-      </div>
     </main>
   )
 }
