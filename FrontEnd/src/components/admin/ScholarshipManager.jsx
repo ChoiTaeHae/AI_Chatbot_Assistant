@@ -27,7 +27,7 @@ const normIncome = (v) => (!v ? '' : (_INCOME_LEGACY[v] || (/^(복지|10|[1-9])$
 const MAJOR_OPTS = [['인문사회', '인문·사회'], ['예술체육', '예술·체육'], ['이공', '이공'], ['의학계열', '의학계열']]   // 다중선택
 const REQ_FLAGS = [
   ['req_excellent', '성적 우수'],
-  ['req_multichild', '다자녀'], ['req_foreigner', '외국인·유학생'], ['req_independent', '자취·독립'],
+  ['req_multichild', '다자녀'], ['req_foreigner', '외국인·유학생'], ['req_independent', '자취·독립·기숙사'],
   ['req_disabled', '장애'], ['req_veteran', '보훈·유공자'],
 ]
 // 필수/우대(req_flags_preferential)의 적용 대상 = 성적우수를 뺀 사회배려형 플래그들.
