@@ -14,6 +14,7 @@ from app.api.graduation import router as graduation_router
 from app.api.dining import router as dining_router
 from app.api.schedule import router as schedule_router
 from app.api.scholarship import router as scholarship_router
+from app.api.me import router as me_router
 import asyncio
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
@@ -171,6 +172,80 @@ async def lifespan(app: FastAPI):
                 "major_field = (ARRAY['인문사회','예술체육','이공'])[1 + (id % 3)] "
                 "WHERE gpa IS NULL"
             ))
+
+            # 학과별 전공계열 — 마이페이지에서 학과를 고르면 계열을 자동으로 채우기 위한 값.
+            # 학생의 major_field는 원래 id % 3 더미라 장학금 매칭이 실제 전공과 무관했다.
+            # 학과명 키워드로 1차 분류하고(멱등, NULL인 행만), 예외는 학생이 마이페이지에서
+            # 직접 고칠 수 있게 둔다. 계열 값은 scholarship_catalog.req_major_field와 같은
+            # 어휘를 쓴다(인문사회 / 예술체육 / 이공 / 의학계열).
+            await conn.execute(text(
+                "ALTER TABLE department ADD COLUMN IF NOT EXISTS major_field VARCHAR(20)"))
+            # 순서가 중요하다 — 앞 규칙이 이긴다.
+            #   '보건의료경영'·'AI경영'·'철도경영'은 경영(인문사회)이 주전공이므로 경영을 먼저 본다.
+            _DEPT_FIELD_RULES = [
+                ("인문사회", ["경영", "경제", "복지", "교육", "관광", "호텔", "무역", "국제"]),
+                ("의학계열", ["간호", "물리치료", "작업치료", "응급구조", "언어치료", "청각재활", "의료"]),
+                ("예술체육", ["뷰티", "스포츠", "그래픽", "디자인", "영상", "미디어",
+                              "조리", "제과", "제빵", "음악", "체육"]),
+                ("이공", ["AI", "컴퓨터", "소프트웨어", "공학", "철도", "건축", "전기",
+                          "시스템", "빅데이터", "안전", "동물", "펫", "과학"]),
+            ]
+            # 자유전공학부는 규칙에서 제외한다 — 아직 전공을 정하지 않은 학생이라 계열을 단정할
+            # 수 없고, 학과명에 '공학'이 부분 문자열로 들어 있어('자유전공학부') 이공으로 잘못
+            # 걸리기까지 한다. NULL로 두면 마이페이지에서 학생이 직접 고른다.
+            _EXCLUDE = "name NOT LIKE '%자유전공%'"
+            for _field, _kws in _DEPT_FIELD_RULES:
+                _cond = " OR ".join(f"name LIKE '%{k}%'" for k in _kws)
+                await conn.execute(text(
+                    f"UPDATE department SET major_field = '{_field}' "
+                    f"WHERE major_field IS NULL AND {_EXCLUDE} AND ({_cond})"))
+            # 어느 규칙에도 안 걸린 학과는 인문사회로 둔다(자유전공은 계속 NULL)
+            await conn.execute(text(
+                f"UPDATE department SET major_field = '인문사회' "
+                f"WHERE major_field IS NULL AND {_EXCLUDE}"))
+
+            # 수강 이력 컬럼 — '전체 기이수성적' 엑셀 업로드로 채운다(전부 nullable).
+            # 기존 6행짜리 더미 데이터는 year/semester가 NULL로 남고, 중복 판정은
+            # (student_id, course_code, year, semester)로 하므로 새 업로드와 충돌하지 않는다.
+            for _col, _ddl in [("year", "INTEGER"), ("semester", "VARCHAR(20)"),
+                               ("grade", "VARCHAR(10)"), ("grade_point", "DOUBLE PRECISION"),
+                               ("retake_of", "VARCHAR(50)")]:
+                await conn.execute(text(
+                    f"ALTER TABLE student_course ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
+
+            # ── 외래키 인덱스 ────────────────────────────────────────
+            # PostgreSQL은 FK를 걸어도 인덱스를 자동 생성하지 않는다. 조인·부모 행 삭제 때마다
+            # 자식 테이블 풀스캔이 일어나므로 직접 만든다(멱등).
+            # student_course.student_id는 졸업 현황·평점 계산이 매번 타는 경로라 특히 중요하고,
+            # chat_message.student_id는 이미 만 행 가까이 쌓여 있다.
+            for _idx, _tbl, _cols in [
+                ("ix_student_course_student_id",     "student_course",     "student_id"),
+                ("ix_student_course_course_code",    "student_course",     "course_code"),
+                ("ix_student_dept_id",               "student",            "dept_id"),
+                ("ix_requirement_set_dept_id",       "requirement_set",    "dept_id"),
+                ("ix_requirement_rule_set_id",       "requirement_rule",   "set_id"),
+                ("ix_department_college_id",         "department",         "college_id"),
+                ("ix_department_division_id",        "department",         "division_id"),
+                ("ix_division_college_id",           "division",           "college_id"),
+                ("ix_student_achievement_student",   "student_achievement", "student_id"),
+                ("ix_room_building_id",              "room",               "building_id"),
+                ("ix_building_contact_building_id",  "building_contact",   "building_id"),
+                ("ix_building_contact_office_id",    "building_contact",   "office_id"),
+                ("ix_chat_message_student_id",       "chat_message",       "student_id"),
+            ]:
+                await conn.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS {_idx} ON {_tbl} ({_cols})"))
+
+            # 같은 수강(학생·과목·년도·학기)이 두 번 들어가면 졸업 학점이 부풀어 오른다.
+            # 응용 계층(student_course_service)에서도 막지만, 다른 경로로 들어올 때를 대비해
+            # DB에서도 막는다.
+            #   · year IS NOT NULL 부분 인덱스 — 옛 더미 행은 year가 NULL이라 제외해야 충돌이 없다
+            #   · semester는 COALESCE로 감싼다 — PostgreSQL은 NULL끼리 서로 다르다고 보아
+            #     그냥 넣으면 학기가 NULL인 중복을 못 막는다
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_student_course_enrollment "
+                "ON student_course (student_id, course_code, year, COALESCE(semester, '')) "
+                "WHERE year IS NOT NULL"))
         print("DB 연결 성공")
     except Exception as e:
         print(f"DB 연결 실패 (나중에 연결): {e}")
@@ -275,6 +350,7 @@ def create_app() -> FastAPI:
     app.include_router(dining_router, prefix="/api",     tags=["학식"])
     app.include_router(schedule_router, prefix="/api",   tags=["학사일정"])
     app.include_router(scholarship_router, prefix="/api", tags=["장학금"])
+    app.include_router(me_router,     prefix="/api",        tags=["마이페이지"])
     app.include_router(admins_router, prefix="/api/admins", tags=["관리자"])
 
     @app.get("/health", tags=["상태확인"])

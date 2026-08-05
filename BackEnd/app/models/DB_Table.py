@@ -37,6 +37,7 @@ class Department(Base):
     division_id = Column(Integer, ForeignKey("division.id"))    # 학부(모집단위), 직속이면 NULL
     homepage_url = Column(String, nullable=True)                # 학과 홈페이지 — 상세 소개는 원본(학교 사이트)으로 넘긴다
     phone = Column(String, nullable=True)                       # 학과 대표 전화 (팩스 제외, 여러 개면 쉼표)
+    major_field = Column(String(20), nullable=True)             # 전공계열: 인문사회/예술체육/이공/의학계열 — 마이페이지에서 학생 계열 자동 채움용
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -47,7 +48,7 @@ class Student(Base):
     __tablename__ = "student"
 
     id = Column(Integer, primary_key=True)
-    dept_id = Column(Integer, ForeignKey("department.id"))
+    dept_id = Column(Integer, ForeignKey("department.id"), index=True)
     student_no = Column(String, unique=True, nullable=False)  # 학번
     password_hash = Column(String, nullable=False)            # hashed login
     name = Column(String, nullable=False)                     # 이름
@@ -113,7 +114,7 @@ class RequirementSet(Base):
     __tablename__ = "requirement_set"
 
     id = Column(Integer, primary_key=True)
-    dept_id = Column(Integer, ForeignKey("department.id"), nullable=False) # 학과별 요건 (dept_id)
+    dept_id = Column(Integer, ForeignKey("department.id"), nullable=False, index=True) # 학과별 요건 (dept_id)
     admission_year = Column(Integer, nullable=False)                       # 입학년도
     valid_from = Column(Date, nullable=False)
     valid_to = Column(Date)                                                # NULL = 현재유효
@@ -125,42 +126,12 @@ class RequirementRule(Base):
     __tablename__ = "requirement_rule"
 
     id = Column(Integer, primary_key=True)
-    set_id = Column(Integer, ForeignKey("requirement_set.id"), nullable=False) # 세부 규칙 포함 (set_id)
+    set_id = Column(Integer, ForeignKey("requirement_set.id"), nullable=False, index=True) # 세부 규칙 포함 (set_id)
     min_credits_major = Column(Float, nullable=False)                          # 전공 최소 이수 학점 (REAL)
     min_credits_liberal = Column(Float, nullable=False)                        # 교양 최소 이수 학점 (REAL)
     min_credits_general = Column(Float, nullable=False)                        # 일반 최소 이수 학점 (REAL)
     min_credits_total = Column(Float, nullable=False)                          # 총 최소 이수 학점 (REAL)
     min_credits_track = Column(Float, nullable=True)                           # 트랙(중점전공) 최소 이수 학점 (REAL, 없는 학과는 NULL)
-
-# ==========================================
-# 9. 장학금 마스터 테이블 (scholarship)
-# ==========================================
-class Scholarship(Base):
-    __tablename__ = "scholarship"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)          # 장학금 이름
-    type = Column(String, nullable=False)          # 장학금 종류
-    min_gpa = Column(Float, nullable=False)        # 최소 평점 (REAL)
-    min_grade = Column(Integer, nullable=False)    # 최소 학년
-    income_level = Column(Integer, nullable=False) # 소득분위 기준
-    criteria = Column(JSON)                        # 특수 조건 (JSONB 대응)
-    created_at = Column(Integer)                   # ERD상 INTEGER 타입으로 표기됨
-    updated_at = Column(Integer)
-
-# ==========================================
-# 10. 장학금 신청 내역 테이블 (scholarship_app)
-# ==========================================
-class ScholarshipApp(Base):
-    __tablename__ = "scholarship_app"
-
-    id = Column(Integer, primary_key=True)
-    student_id = Column(Integer, ForeignKey("student.id"), nullable=False)       # 장학금 신청 (student_id)
-    scholarship_id = Column(Integer, ForeignKey("scholarship.id"), nullable=False) # 신청 장학금 (scholarship_id)
-    term = Column(String, nullable=False)                                        # 학기
-    result = Column(String, nullable=False)                                      # 신청/선정/탈락 등 상태
-    created_at = Column(String)                                                  # ERD상 VARCHAR 타입으로 표기됨
-    updated_at = Column(String)
 
 # ==========================================
 # 11.  수강 이수 테이블 (student_course)
@@ -170,9 +141,18 @@ class StudentCourse(Base):
     __tablename__ = "student_course"
 
     id = Column(Integer, primary_key=True)
-    student_id = Column(Integer, ForeignKey("student.id"))
-    course_code = Column(String, ForeignKey("course.code"))
+    student_id = Column(Integer, ForeignKey("student.id"), index=True)
+    course_code = Column(String, ForeignKey("course.code"), index=True)
     is_passed = Column(Boolean, default=True)
+    # 아래는 '전체 기이수성적' 엑셀 업로드로 채워지는 수강 이력 정보.
+    # (student_id, course_code, year, semester)를 같은 수강으로 본다 — 재수강은 학기가
+    # 달라 별도 행으로 남고, 같은 엑셀을 다시 올려도 중복 행이 생기지 않는다.
+    # DB에도 같은 조합으로 부분 유니크 인덱스를 건다(server.py 마이그레이션).
+    year = Column(Integer, nullable=True)             # 이수 년도 (예: 2025)
+    semester = Column(String(20), nullable=True)      # 1학기 / 2학기 / 여름학기 / 겨울학기
+    grade = Column(String(10), nullable=True)         # 등급 (A+, B0, P …)
+    grade_point = Column(Float, nullable=True)        # 평점 (P/NP 과목은 없음 → 평균 계산 제외)
+    retake_of = Column(String, nullable=True)         # 재수강(대체) 원과목 코드
 
 # ==========================================
 # 12. 채팅 로그 (chat_log)
@@ -278,30 +258,6 @@ class RewriteLabel(Base):
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
 
 # ==========================================
-# 17. 등록금 납부 테이블 (tuition)
-# ==========================================
-class Tuition(Base):
-    __tablename__ = "tuition"
-
-    id             = Column(Integer, primary_key=True, autoincrement=True)
-    student_id     = Column(Integer, ForeignKey("student.id"), nullable=False)
-    year           = Column(Integer, nullable=False)           # 연도 (예: 2025)
-    semester       = Column(Integer, nullable=False)           # 학기 (1 or 2)
-    amount         = Column(Integer, nullable=False)           # 등록금 총액 (원)
-    due_date       = Column(Date, nullable=False)              # 납부 기한
-    paid_at        = Column(DateTime(timezone=True))           # 납부일 (NULL = 미납)
-    status         = Column(String(20), nullable=False, server_default="pending")
-                                                               # pending / paid / overdue
-    payment_method = Column(String(50))                        # 납부 방법 (계좌이체 등, NULL = 미납)
-    receipt_no     = Column(String(50), unique=True)           # 영수증 번호 (NULL = 미납)
-    created_at     = Column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (
-        Index("ix_tuition_student_id", "student_id"),
-        Index("ix_tuition_year_semester", "year", "semester"),
-    )
-
-
 # ==========================================
 # 17-2. 학사일정 테이블 (academic_schedule)
 # ==========================================
@@ -438,23 +394,6 @@ class BuildingContact(Base):
     office_id   = Column(Integer, ForeignKey("office.id"),   nullable=False)
 
 # ==========================================
-# 21. RAG 검색 로그 (retrieval_log)
-# ==========================================
-class RetrievalLog(Base):
-    __tablename__ = "retrieval_log"
-
-    id           = Column(Integer, primary_key=True, autoincrement=True)
-    message_id   = Column(Integer, ForeignKey("chat_message.id", ondelete="CASCADE"), nullable=False)
-    chunk_source = Column(String(255), nullable=True)
-    chunk_score  = Column(Float, nullable=True)
-    chunk_rank   = Column(Integer, nullable=True)
-    topic        = Column(String(50), nullable=True)
-    created_at   = Column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (
-        Index("ix_retrieval_log_message_id", "message_id"),
-    )
-
 # ==========================================
 # 22. 다운로드 파일 테이블 (document_file)
 # ==========================================
