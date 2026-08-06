@@ -819,6 +819,13 @@ async def _handle_schedule(state: AgentState) -> dict:
     # RAG로 넘긴다. topic은 비워서(schedule 토픽엔 문서가 없다) 전체 검색으로 돌린다.
     if metadata.get("no_match"):
         return await _rag_fallback_guarded(state, "학사일정 매칭 0건")
+    # '시간표'는 날짜가 아니라 문서 이름이라 달력에 있을 수 없다. 언제 공고되는지는 성적평가
+    # 및 처리규정 제3조("학기말시험의 시험시간표는 시험개시 일주일전에 공고한다")에 적혀 있어
+    # 검색으로 답이 나온다 — 실측: '시험시간표 어디서 봐?'가 그 조문을 그대로 답한다.
+    # 달력을 두면 '시험시간표 언제 나와?'에 시험 기간이 나가 묻지 않은 걸 답한다(실측).
+    # ('시간표'가 든 실제 질문은 3종뿐이고 달력이 답을 내던 건 이 1종이다.)
+    if "시간표" in state["question"].replace(" ", ""):
+        return await _rag_fallback_guarded(state, "시간표는 달력에 없는 문서")
     # 달력에 맞는 행이 있어도, 질문이 시점을 묻는 게 아니면 그건 답이 아니다(위 주석 참조).
     if not _asks_about_timing(state["question"]):
         return await _rag_fallback_guarded(state, "일정의 시점을 묻는 질문이 아님")
