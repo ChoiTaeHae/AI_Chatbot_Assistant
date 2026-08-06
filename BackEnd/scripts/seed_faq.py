@@ -53,8 +53,12 @@ NEW_FAQ: list[dict] = [
         # 학교 문서끼리도 최소 수강학점 조항이 어긋나 있다(수강신청_규정 제15조 ②4호는
         # '1학년 겨울학기 이후'부터 미적용, 수강신청 안내표는 2019년 이후 전부 '해당 없음').
         # 학번·학과별 분기를 챗봇이 떠안지 않고 학과 사무실로 넘긴다.
+        # 첫 줄(정의)은 변형에 '계절학기가 뭐야?'가 있는데 답변이 '들어야 하나'만 말하고
+        # 정작 계절학기가 뭔지는 안 알려줘서 넣었다. 같은 블로그 글의 도입 문단이 출처다.
         "answer": (
-            "계절학기 수강 여부는 학과마다 다릅니다.\n"
+            "계절학기는 정규 학기인 1·2학기 외에, 방학 기간 중 단기간 집중 수업을 통해 "
+            "학점을 이수할 수 있는 학기입니다.\n"
+            "수강 여부는 학과마다 다릅니다.\n"
             "다만 1학년의 경우 대부분의 학과에서 여름 계절학기 수강이 필수인 경우가 많습니다.\n"
             "정확한 내용은 본인의 소속 학과 사무실에 문의해 주세요."
         ),
@@ -159,7 +163,22 @@ async def _create_new(db) -> None:
         )).scalars().first()
         print(f"\n[새 FAQ] {entry['note']}")
         if exists:
-            print(f"  · 이미 있음 (faq_id={exists}) — 건너뜀")
+            # 만든 뒤에 답변·변형을 고칠 수 있다. 스크립트가 원본이므로 DB를 여기에 맞춘다
+            # (지우고 다시 만들면 faq_id가 바뀌어 운영 중 참조가 끊긴다).
+            faq = await db.get(Faq, exists)
+            if faq is not None and faq.answer != entry["answer"]:
+                faq.answer = entry["answer"]
+                print(f"  ~ 답변 갱신 (faq_id={exists})")
+                print(f"    answer: {' / '.join(entry['answer'].splitlines())[:70]}")
+            else:
+                print(f"  · 답변 동일 (faq_id={exists})")
+            have = set((await db.execute(
+                select(FaqQuestion.text).where(FaqQuestion.faq_id == exists)
+            )).scalars().all())
+            for q in entry["questions"]:
+                if q not in have:
+                    db.add(FaqQuestion(faq_id=exists, text=q, enabled=True))
+                    print(f"    + 변형 추가: {q}")
             continue
         await _fix_sequences(db)
         faq = Faq(answer=entry["answer"], category=entry.get("category"), enabled=True)
