@@ -789,6 +789,25 @@ async def _handle_graduation(state: AgentState) -> dict:
     }, "graduation", state["question"])
 
 
+# 달력은 '언제'를 묻는 질문에만 답이 된다. 이벤트어(계절학기·공휴일 등)가 들어 있다는 이유로
+# 달력을 내보내면, 그 일정의 '성격'을 묻는 질문에 날짜표가 나간다 — 실측: '계절학기 들어야 해?'에
+# 겨울학기 수강신청 기간 7행이 나갔다. 학사일정 핸들러는 검색을 안 타므로 FAQ에도 닿지 못한다.
+# 실제 질문 2,157종 전수: 핸들러 도달 189종 / 달력이 답을 내던 130종 중 여기 걸리는 건 8종뿐이고
+# (계절학기 6 + '과사 공휴일에 해?' 2), 8종 모두 검수된 FAQ 답이 0.88 이상으로 이미 있다.
+_TIMING_WORDS = (
+    "언제", "며칠", "몇월", "몇일", "몇시", "날짜", "요일",
+    "기간", "일정", "스케줄", "달력", "마감", "데드라인",
+    "시작", "끝", "종료", "개강", "종강", "개학", "남았", "남은",
+    "오늘", "내일", "모레", "이번주", "다음주", "이번달", "다음달",
+    "부터", "까지", "전에", "이후",
+)
+
+
+def _asks_about_timing(question: str) -> bool:
+    """일정의 '시점'을 묻는 질문인가 — 아니면 달력을 답으로 쓰지 않는다."""
+    return any(w in (question or "").replace(" ", "") for w in _TIMING_WORDS)
+
+
 async def _handle_schedule(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "schedule")
     # 학사일정 분기(날짜·이벤트 파싱)는 '현재 질문' 기준으로만 해야 한다. 이전 주제 프리픽스를
@@ -800,6 +819,9 @@ async def _handle_schedule(state: AgentState) -> dict:
     # RAG로 넘긴다. topic은 비워서(schedule 토픽엔 문서가 없다) 전체 검색으로 돌린다.
     if metadata.get("no_match"):
         return await _rag_fallback_guarded(state, "학사일정 매칭 0건")
+    # 달력에 맞는 행이 있어도, 질문이 시점을 묻는 게 아니면 그건 답이 아니다(위 주석 참조).
+    if not _asks_about_timing(state["question"]):
+        return await _rag_fallback_guarded(state, "일정의 시점을 묻는 질문이 아님")
 
     answer = _append_contact_info(answer, metadata)
     return {
