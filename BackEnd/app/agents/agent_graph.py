@@ -572,8 +572,33 @@ async def _embedding_classify(state: AgentState) -> dict:
 
 
 
+# ── 개인 시간표: 검색으로 답이 나올 수 없는 질문 ────────────────────────
+# 시간표는 학생마다 달라 코퍼스에 있을 수 없다(실측: '시간표'가 든 청크는 기숙사 간사
+# 근무표와 시험시간표 공고 규정 둘뿐, 개인 강의시간표는 없음). 그런데 검색을 태우면
+# 리라이트가 '오늘 수업 뭐 있어?'를 '수업 일정'으로 바꾸면서 '오늘'을 버리고, 그러면
+# 솔숲 신입생 OT 표가 리랭커 0.585로 잡혀(임계 0.4 통과) 근거 확인을 빠져나간다.
+# 결과: "오늘 수업은 오전 09:00~12:00 프로그램 안내…"라는 완전한 거짓말(실측).
+# 근거 약함이 아니라 '확신에 찬 오답'이라 점수 기반 가드로는 못 막는다 → 검색 자체를 생략한다.
+_TIMETABLE_WORDS = ("시간표", "수업", "강의")
+# 날짜어를 반드시 함께 요구한다. 안 그러면 '어학센터 수업 있어?'(프로그램 문의)와
+# 'S3 강의실 찾고 있어요'(위치)까지 막힌다 — 실제 대화기록에서 확인한 오탐이다.
+_TIMETABLE_DATE = ("오늘", "내일", "모레", "이번주", "다음주",
+                   "월요일", "화요일", "수요일", "목요일", "금요일")
+# '강의실'은 위치, '셔틀'은 운행표, '시험시간표'·'강의계획서'는 공지 대상이다.
+_TIMETABLE_EXCLUDE = ("강의실", "셔틀", "버스", "시험시간표", "강의계획서")
+
+
+def _is_personal_timetable(question: str) -> bool:
+    """개인 시간표를 묻는가 — 실제 질문 2,142건 기준 3건만 잡히고 오탐 0건."""
+    compact = (question or "").replace(" ", "")
+    if any(x in compact for x in _TIMETABLE_EXCLUDE):
+        return False
+    return (any(w in compact for w in _TIMETABLE_WORDS)
+            and any(d in compact for d in _TIMETABLE_DATE))
+
+
 async def _keyword_classify(state: AgentState) -> dict:
-    """규칙 기반 fast-path 분류 (0ms) — campus 건물코드 / 학사일정 날짜질문"""
+    """규칙 기반 fast-path 분류 (0ms) — campus 건물코드 / 학사일정 날짜질문 / 개인 시간표"""
     if _is_campus_question(state["question"]):
         print("[Graph] 키워드 분류 → campus")
         return {"intent": "campus"}
@@ -584,10 +609,39 @@ async def _keyword_classify(state: AgentState) -> dict:
     if not _PROCEDURE_RE.search(q) and await _campus_gate(q):
         print("[Graph] 키워드 분류 → campus (건물명 매칭)")
         return {"intent": "campus"}
+    # 학사일정 날짜 질문보다 먼저 본다 — '오늘 수업 뭐 있어?'는 날짜어가 있어 그쪽에
+    # 먼저 걸리고, 학사일정에 없으니 결국 전체 검색 폴백으로 새기 때문이다.
+    # campus 판정 뒤에 두어 'S3 강의실 찾고 있어요' 같은 위치 질문은 campus가 먼저 가져간다.
+    if _is_personal_timetable(state["question"]):
+        print("[Graph] 키워드 분류 → 개인 시간표(시스템에 없는 데이터)")
+        return {"intent": "no_data"}
     if _is_schedule_date_question(state["question"]):
         print("[Graph] 키워드 분류 → schedule (날짜 질문 fast-path)")
         return {"intent": "schedule", "topic": "schedule"}
     return {"intent": None}
+
+
+# 주소는 '수강신청_매뉴얼(한국어)' 문서에 적힌 실제 경로다("대학정보시스템 로그인
+# (https://wsinfo.wsu.ac.kr)"). 학교가 주소를 바꾸면 이 줄도 같이 고쳐야 한다.
+_NO_TIMETABLE_REPLY = (
+    "개인 시간표는 챗봇에서 확인할 수 없어요. "
+    "대학정보시스템(https://wsinfo.wsu.ac.kr)에서 확인해 주세요."
+)
+
+
+async def _handle_no_data(state: AgentState) -> dict:
+    """코퍼스에 있을 수 없는 개인 데이터 질문 — 검색도 LLM도 타지 않는다.
+
+    검색을 태우면 리랭커가 '수업 일정'처럼 생긴 아무 표나 자신 있게 집어 오고, 그걸로
+    LLM이 오늘 시간표를 지어낸다(실측 0.585). 답이 있을 수 없는 질문이므로 아예 묻지 않는다.
+    """
+    print("[Graph] 개인 데이터 질문 → 검색 생략, 안내 응답")
+    return {
+        "answer": _NO_TIMETABLE_REPLY,
+        "source": None,
+        "source_file": None,
+        "topic": None,
+    }
 
 
 async def _handle_campus(state: AgentState) -> dict:
@@ -952,6 +1006,8 @@ def _route_keyword(state: AgentState) -> str:
         return "campus"
     if it == "schedule":
         return "schedule"
+    if it == "no_data":
+        return "no_data"
     return "embed"
 
 
@@ -1009,6 +1065,7 @@ def _build_graph():
     g.add_node("handle_dining",     _handle_dining)
     g.add_node("handle_rag_general",_handle_rag_general)
     g.add_node("handle_general",    _handle_general)
+    g.add_node("handle_no_data",    _handle_no_data)
 
     g.set_entry_point("pre_check")
 
@@ -1016,6 +1073,7 @@ def _build_graph():
     g.add_conditional_edges("keyword_classify", _route_keyword, {
         "campus":   "handle_campus",
         "schedule": "handle_schedule",
+        "no_data":  "handle_no_data",
         "embed":    "chitchat_gate",
     })
     g.add_conditional_edges("chitchat_gate", _route_chitchat_gate, {
@@ -1037,6 +1095,7 @@ def _build_graph():
     for handler in [
         "handle_campus", "handle_graduation", "handle_schedule", "handle_scholarship",
         "handle_department", "handle_dining", "handle_rag_general", "handle_general",
+        "handle_no_data",
     ]:
         g.add_edge(handler, END)
 
