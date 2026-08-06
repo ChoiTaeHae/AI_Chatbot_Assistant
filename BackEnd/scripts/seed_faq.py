@@ -31,10 +31,47 @@ import sys
 
 sys.path.insert(0, ".")
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 from app.core.Database import AsyncSessionLocal
 from app.models.DB_Table import Faq, FaqQuestion
+
+# 새로 만드는 FAQ — 답변이 아직 없으니 앵커를 못 쓴다. 대신 'marker'(대표 질문 변형)가
+# 이미 등록돼 있으면 만든 것으로 보고 건너뛴다(여러 번 돌려도 안전).
+NEW_FAQ: list[dict] = [
+    {
+        "marker": "계절학기 들어야 해?",
+        "category": "학사",
+        "note": "계절학기 수강 필수 여부 — 물으면 기숙사 FAQ가 나가던 문제",
+        # 왜 필요한가: 계절학기를 묻는 질문이 FAQ 8(기숙사 계절학기 추가 이용)에 0.774~0.812로
+        # 걸려 기숙사 답변이 그대로 나갔다. FAQ는 변형들 중 '최댓값'을 쓰므로 FAQ 8에 변형을
+        # 더 넣어 점수를 낮출 수는 없고, 더 잘 맞는 FAQ를 새로 만들어 이기는 방법뿐이다.
+        # 실측: 새 FAQ 추가 후 수강 질문 6/6이 이쪽으로 오고, 기숙사 질문 3/3은 FAQ 8 유지.
+        #
+        # 답변 출처: 우송대 공식 블로그 'Q1. 계절학기, 꼭 들어야 하나요?' (표현만 정리, 사실 무변경).
+        # 숫자·날짜를 넣지 않은 이유: 이 경로는 LLM을 안 거치고 그대로 나가서 교정이 안 되는데,
+        # 학교 문서끼리도 최소 수강학점 조항이 어긋나 있다(수강신청_규정 제15조 ②4호는
+        # '1학년 겨울학기 이후'부터 미적용, 수강신청 안내표는 2019년 이후 전부 '해당 없음').
+        # 학번·학과별 분기를 챗봇이 떠안지 않고 학과 사무실로 넘긴다.
+        "answer": (
+            "계절학기 수강 여부는 학과마다 다릅니다.\n"
+            "다만 1학년의 경우 대부분의 학과에서 여름 계절학기 수강이 필수인 경우가 많습니다.\n"
+            "정확한 내용은 본인의 소속 학과 사무실에 문의해 주세요."
+        ),
+        # 변형 선정 근거(실측): 아래 5개면 '계절학기'(0.890) '계절학기가뭐야'(0.981)
+        # '계절학기 들어야 됨?'(1.000)까지 잡히고, 기숙사 질문은 FAQ 8이 그대로 이긴다.
+        # '계절학기 신청해야 돼?'는 뺐다 — '신청'이 흔해 수강신청(0.698)·휴학(0.678)을
+        # 임계값 0.70 코앞까지 끌어왔다. 한 단어 '계절학기'도 변형으로 넣지 않는다 —
+        # FAQ 8의 '계절학기 때 기숙사...'와 경계가 무너진다.
+        "questions": [
+            "계절학기 들어야 해?",
+            "계절학기 들어야 됨?",
+            "계절학기 꼭 들어야 돼?",
+            "계절학기가 뭐야?",
+            "계절학기 안 들으면 어떻게 돼?",
+        ],
+    },
+]
 
 # [{"anchor": 이미 등록된 질문 변형, "note": 설명, "add": [추가할 변형들]}]
 SEED: list[dict] = [
@@ -99,8 +136,44 @@ async def _resolve(db, anchor: str) -> int:
     return rows[0]
 
 
+async def _fix_sequences(db) -> None:
+    """id 시퀀스가 max(id)보다 뒤처져 있으면 맞춘다.
+
+    팀원이 관리자 화면·SQL로 id를 명시해 넣으면 시퀀스가 안 따라가고, 그 뒤로는 누가
+    INSERT를 해도 'id 키가 이미 있습니다'로 실패한다(실측: faq_question 시퀀스 65 / max 66).
+    다음에 발급할 번호만 바꾸는 작업이라 기존 행은 건드리지 않는다.
+    """
+    for table in ("faq", "faq_question"):
+        cur, mx = (await db.execute(text(
+            f"SELECT last_value, COALESCE((SELECT max(id) FROM {table}), 0) "
+            f"FROM {table}_id_seq"))).first()
+        if cur < mx:
+            await db.execute(text(f"SELECT setval('{table}_id_seq', {mx})"))
+            print(f"  [시퀀스] {table}: {cur} → {mx} (다음 발급 번호만 조정)")
+
+
+async def _create_new(db) -> None:
+    for entry in NEW_FAQ:
+        exists = (await db.execute(
+            select(FaqQuestion.faq_id).where(FaqQuestion.text == entry["marker"])
+        )).scalars().first()
+        print(f"\n[새 FAQ] {entry['note']}")
+        if exists:
+            print(f"  · 이미 있음 (faq_id={exists}) — 건너뜀")
+            continue
+        await _fix_sequences(db)
+        faq = Faq(answer=entry["answer"], category=entry.get("category"), enabled=True)
+        db.add(faq)
+        await db.flush()                      # id 확보
+        for q in entry["questions"]:
+            db.add(FaqQuestion(faq_id=faq.id, text=q, enabled=True))
+        print(f"  + 생성 faq_id={faq.id}, 변형 {len(entry['questions'])}개")
+        print(f"    answer: {' / '.join(entry['answer'].splitlines())[:70]}")
+
+
 async def apply() -> None:
     async with AsyncSessionLocal() as db:
+        await _create_new(db)
         for entry in SEED:
             faq_id = await _resolve(db, entry["anchor"])
             answer = (await db.execute(
@@ -136,6 +209,16 @@ async def rollback() -> None:
                 )
             )
             print(f"[FAQ {faq_id}] {res.rowcount}개 삭제")
+        # 새로 만든 FAQ는 통째로 지운다 (faq_question은 ondelete=CASCADE로 함께 삭제)
+        for entry in NEW_FAQ:
+            fid = (await db.execute(
+                select(FaqQuestion.faq_id).where(FaqQuestion.text == entry["marker"])
+            )).scalars().first()
+            if fid is None:
+                print(f"[새 FAQ] 이미 없음 — {entry['marker']}")
+                continue
+            await db.execute(delete(Faq).where(Faq.id == fid))
+            print(f"[새 FAQ {fid}] 답변·변형 통째로 삭제 — {entry['note']}")
         await db.commit()
     print("\n되돌리기 완료. 서버를 재시작하세요.")
 
