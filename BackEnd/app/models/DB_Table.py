@@ -446,6 +446,7 @@ class ScholarshipCatalog(Base):
     req_income       = Column(String(20), nullable=True)   # 소득 상한: '기초'|'차상위'|'중위100'|'중위200'|None
     req_age_max      = Column(Integer, nullable=True)       # 나이 상한(이하). NULL=무관
     req_age_min      = Column(Integer, nullable=True)       # 나이 하한(이상). NULL=무관
+    display_order    = Column(Integer, nullable=True)       # 카테고리 안 표시 순서(관리자 지정). NULL=미지정(마감임박순)
     req_major_field  = Column(String(120), nullable=True)  # 전공계열(다중, 콤마): '인문사회,예술체육,이공' 중. 비면 무관
     req_departments  = Column(String(500), nullable=True)  # 대상 학과(다중, 콤마: '간호학과,물리치료학과'). 비면 무관
     req_multichild   = Column(Boolean, nullable=False, server_default="false")  # 다자녀 가정 대상

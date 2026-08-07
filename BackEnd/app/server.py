@@ -159,6 +159,7 @@ async def lifespan(app: FastAPI):
                 ("req_multicultural", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_defector", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_age_min", "INTEGER"),
+                ("display_order", "INTEGER"),
             ]:
                 await conn.execute(text(f"ALTER TABLE scholarship_catalog ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
             # 학년·전공계열은 다중선택(콤마 저장)으로 바뀌어 폭을 넓힌다 (기존 VARCHAR(20) → 120, 멱등)

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { fetchScholarships, createScholarship, updateScholarship, deleteScholarship, fetchDepartments } from '../../api/admins/scholarships'
+import { fetchScholarships, createScholarship, updateScholarship, deleteScholarship, fetchDepartments,
+  fetchCategoryOrder, saveCategoryOrder, saveScholarshipOrder } from '../../api/admins/scholarships'
 import { fetchFiles, linkScholarshipFile, unlinkScholarshipFile, uploadFile, deleteFile } from '../../api/admins/files'
 
 const TEAL = 'var(--brand)'
@@ -20,7 +21,7 @@ const EMPTY = {
 }
 
 const BASIS_OPTS = [['', '무관'], ['본인', '본인 거주'], ['부모', '부모 거주']]
-const GRADE_OPTS = [['신입', '신입생 (1학년)'], ['재학', '재학생 (1·2·3·4학년)'], ['2학년이상', '2학년 이상'], ['3학년이상', '3학년 이상'], ['대학원', '대학원']]   // 다중선택
+const GRADE_OPTS = [['신입', '신입생 (1학년)'], ['재학', '재학생 (1·2·3·4학년)'], ['2학년이상', '2학년 이상'], ['3학년이상', '3학년 이상'], ['편입', '편입생'], ['대학원', '대학원']]   // 다중선택
 // 소득 요건 = 국가장학금 학자금 지원구간. '복지'(복지자격) 또는 'N구간 이하'
 const INCOME_OPTS = [
   ['', '무관'],
@@ -47,6 +48,21 @@ const COND_FLAG_KEYS = ['req_multichild', 'req_foreigner', 'req_independent', 'r
 function toLocalInput(iso) {
   if (!iso) return ''
   return iso.slice(0, 16)
+}
+
+/** 표시 순서 이동 버튼 (▲/▼) — 카테고리 헤더·장학금 행 공용 */
+function OrderBtn({ dir, onClick, disabled, title }) {
+  return (
+    <button
+      type="button" onClick={onClick} disabled={disabled} title={title} aria-label={title}
+      className="inline-flex items-center justify-center rounded border border-(--border-strong) text-(--text-faint) hover:text-(--brand) hover:border-(--brand) transition disabled:opacity-25 disabled:cursor-not-allowed"
+      style={{ width: '22px', height: '18px' }}
+    >
+      <svg className={`h-3 w-3 ${dir === 'down' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+      </svg>
+    </button>
+  )
 }
 
 /** 대상 학과 다중선택 — 검색 콤보박스. 선택은 칩으로, 검색해서 목록에서 추가. */
@@ -113,6 +129,8 @@ export default function ScholarshipManager() {
   const [departments, setDepartments] = useState([])     // 대상 학과 다중선택용 학과명 목록
   const [openCats, setOpenCats] = useState({})           // 목록 뷰: 카테고리별 드롭다운 펼침 상태
   const [query, setQuery] = useState('')                 // 목록 뷰: 장학금 검색어
+  const [catOrder, setCatOrder] = useState([])           // 관리자가 지정한 카테고리 표시 순서
+  const [reordering, setReordering] = useState(false)    // 순서 저장 중 (버튼 연타 방지)
   const fileInputRef = useRef(null)
   const newFileInputRef = useRef(null)
 
@@ -128,6 +146,7 @@ export default function ScholarshipManager() {
     setLoading(true)
     await Promise.all([loadList(), loadFiles()])
     fetchDepartments().then(setDepartments).catch(() => {})
+    fetchCategoryOrder().then((d) => setCatOrder(d.categories || [])).catch(() => {})
     setLoading(false)
   })() }, [])
 
@@ -152,12 +171,41 @@ export default function ScholarshipManager() {
       const cat = s.category || '미분류'
       ;(map[cat] ||= []).push(s)
     }
+    // 관리자가 지정한 순서 우선 → 미지정은 이름순, '미분류'는 항상 맨 뒤
+    const pos = new Map(catOrder.map((c, i) => [c, i]))
     return Object.entries(map).sort((a, b) => {
       if (a[0] === '미분류') return 1
       if (b[0] === '미분류') return -1
+      const pa = pos.has(a[0]) ? pos.get(a[0]) : Infinity
+      const pb = pos.has(b[0]) ? pos.get(b[0]) : Infinity
+      if (pa !== pb) return pa - pb
       return a[0].localeCompare(b[0], 'ko')
     })
-  }, [filtered])
+  }, [filtered, catOrder])
+  // ── 표시 순서 조정 (검색 중에는 목록이 일부만 보여 순서가 어긋나므로 비활성) ──
+  async function moveCat(idx, dir) {
+    const to = idx + dir
+    if (reordering || to < 0 || to >= groupedByCat.length) return
+    const names = groupedByCat.map(([c]) => c)
+    ;[names[idx], names[to]] = [names[to], names[idx]]
+    setCatOrder(names)                    // 낙관적 반영 — 화면이 바로 움직인다
+    setReordering(true)
+    try { await saveCategoryOrder(names) }
+    catch (e) { setMsg({ type: 'error', text: e.message }) }
+    finally { setReordering(false) }
+  }
+
+  async function moveItem(items, idx, dir) {
+    const to = idx + dir
+    if (reordering || to < 0 || to >= items.length) return
+    const ids = items.map((s) => s.id)
+    ;[ids[idx], ids[to]] = [ids[to], ids[idx]]
+    setReordering(true)
+    try { await saveScholarshipOrder(ids); await loadList() }
+    catch (e) { setMsg({ type: 'error', text: e.message }) }
+    finally { setReordering(false) }
+  }
+
   const allCatsOpen = groupedByCat.length > 0 && groupedByCat.every(([c]) => openCats[c])
   const toggleAllCats = () => setOpenCats(allCatsOpen ? {} : Object.fromEntries(groupedByCat.map(([c]) => [c, true])))
 
@@ -310,7 +358,9 @@ export default function ScholarshipManager() {
 
             <div className="flex items-center justify-between">
               <p className="text-[11px] text-(--text-faint)">
-                {searching ? `검색 결과 ${filtered.length}건 · 카테고리 ${groupedByCat.length}` : `카테고리 ${groupedByCat.length} · 장학금 ${scholarships.length}`}
+                {searching
+                  ? `검색 결과 ${filtered.length}건 · 카테고리 ${groupedByCat.length}`
+                  : `카테고리 ${groupedByCat.length} · 장학금 ${scholarships.length} · ▲▼로 순서를 바꾸면 둘러보기에도 반영돼요`}
               </p>
               {!searching && <button onClick={toggleAllCats} className="text-xs font-semibold text-(--brand) hover:underline">{allCatsOpen ? '모두 접기' : '모두 펼치기'}</button>}
             </div>
@@ -321,25 +371,39 @@ export default function ScholarshipManager() {
               </div>
             ) : (
             <div className="flex-1 overflow-y-auto flex flex-col" style={{ gap: '10px' }}>
-              {groupedByCat.map(([cat, items]) => {
+              {groupedByCat.map(([cat, items], ci) => {
                 const open = searching || !!openCats[cat]
+                const canOrderCat = !searching && cat !== '미분류'
                 return (
                   <div key={cat} className="border border-(--border-strong) rounded-xl overflow-hidden">
-                    {/* 카테고리 헤더 (드롭다운) */}
-                    <button
-                      onClick={() => setOpenCats((p) => ({ ...p, [cat]: !p[cat] }))}
-                      className="flex items-center gap-2 w-full bg-(--surface-2) hover:brightness-95 transition text-left"
-                      style={{ padding: '11px 14px' }}
-                    >
-                      <svg className={`h-4 w-4 text-(--text-faint) transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                      <span className="font-bold text-(--text) text-sm">{cat}</span>
-                      <span className="rounded-full font-semibold text-white text-[11px] shrink-0" style={{ padding: '1px 8px', background: TEAL }}>{items.length}</span>
-                    </button>
+                    {/* 카테고리 헤더 (드롭다운 + 순서 이동) */}
+                    <div className="flex items-center gap-2 bg-(--surface-2)" style={{ padding: '11px 14px' }}>
+                      <button
+                        onClick={() => setOpenCats((p) => ({ ...p, [cat]: !p[cat] }))}
+                        className="flex items-center gap-2 flex-1 min-w-0 hover:brightness-95 transition text-left"
+                      >
+                        <svg className={`h-4 w-4 text-(--text-faint) transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                        <span className="font-bold text-(--text) text-sm">{cat}</span>
+                        <span className="rounded-full font-semibold text-white text-[11px] shrink-0" style={{ padding: '1px 8px', background: TEAL }}>{items.length}</span>
+                      </button>
+                      {canOrderCat && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <OrderBtn dir="up" onClick={() => moveCat(ci, -1)} disabled={ci === 0 || reordering} title="카테고리 위로" />
+                          <OrderBtn dir="down" onClick={() => moveCat(ci, 1)} disabled={ci >= groupedByCat.length - 1 || reordering} title="카테고리 아래로" />
+                        </div>
+                      )}
+                    </div>
 
                     {open && (
                       <div>
-                        {items.map((s) => (
+                        {items.map((s, si) => (
                           <div key={s.id} className="flex items-center gap-3 border-t border-(--border-strong) hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
+                            {!searching && (
+                              <div className="flex flex-col shrink-0" style={{ gap: '2px' }}>
+                                <OrderBtn dir="up" onClick={() => moveItem(items, si, -1)} disabled={si === 0 || reordering} title="위로" />
+                                <OrderBtn dir="down" onClick={() => moveItem(items, si, 1)} disabled={si >= items.length - 1 || reordering} title="아래로" />
+                              </div>
+                            )}
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-[11px] font-semibold text-white rounded-full shrink-0" style={{ padding: '1px 8px', background: s.scope === '교외' ? '#0ea5a0' : 'var(--text-faint)' }}>{s.scope}</span>

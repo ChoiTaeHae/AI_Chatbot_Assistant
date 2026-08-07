@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, or_, func, update, delete, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.DB_Table import ScholarshipCatalog, ScholarshipFile, DocumentFile, Department
+from app.models.DB_Table import ScholarshipCatalog, ScholarshipFile, DocumentFile, Department, AppConfig
 
 # 마감 판정은 한국시간(KST, DST 없음) 벽시계 기준. end_at도 KST 벽시계로 저장된 naive 값.
 _KST = timezone(timedelta(hours=9))
@@ -36,6 +36,52 @@ def _deadline_order():
         else_=0,                                      # 마감 예정
     )
     return [priority, ScholarshipCatalog.end_at.asc().nulls_last(), ScholarshipCatalog.name]
+
+
+def _card_order():
+    """카테고리 안 카드 정렬 — 관리자가 지정한 display_order 우선, 없으면(NULL) 마감임박순."""
+    return [ScholarshipCatalog.display_order.asc().nulls_last(), *_deadline_order()]
+
+
+# 카테고리 표시 순서는 app_config(key=_CAT_ORDER_KEY)에 이름 배열로 저장한다.
+# (카테고리는 전용 테이블 없이 장학금의 자유 텍스트 컬럼이라 별도 순서 저장소가 필요)
+_CAT_ORDER_KEY = "scholarship_category_order"
+
+
+async def get_category_order(db: AsyncSession) -> list[str]:
+    """저장된 카테고리 표시 순서(이름 배열). 없으면 빈 리스트."""
+    row = await db.get(AppConfig, _CAT_ORDER_KEY)
+    val = (row.value if row else None) or []
+    return [c for c in val if isinstance(c, str)]
+
+
+async def set_category_order(db: AsyncSession, categories: list[str]) -> None:
+    """카테고리 표시 순서를 통째로 저장(관리자 화면의 위/아래 이동 결과)."""
+    clean = [c for c in categories if isinstance(c, str) and c.strip()]
+    row = await db.get(AppConfig, _CAT_ORDER_KEY)
+    if row is None:
+        db.add(AppConfig(key=_CAT_ORDER_KEY, value=clean))
+    else:
+        row.value = clean
+    await db.commit()
+
+
+async def set_scholarship_order(db: AsyncSession, ids: list[int]) -> int:
+    """한 카테고리 안 장학금 표시 순서 저장 — 넘어온 id 순서대로 display_order 0,1,2…"""
+    n = 0
+    for idx, sid in enumerate(ids):
+        row = await db.get(ScholarshipCatalog, sid)
+        if row is not None:
+            row.display_order = idx
+            n += 1
+    await db.commit()
+    return n
+
+
+def _sort_groups(groups: list[dict], order: list[str]) -> list[dict]:
+    """카테고리 그룹을 저장된 순서대로. 순서에 없는 카테고리는 뒤에 이름순으로 붙인다."""
+    pos = {c: i for i, c in enumerate(order)}
+    return sorted(groups, key=lambda g: (pos.get(g["category"], len(pos)), g["category"]))
 
 
 async def _load_files_map(db: AsyncSession, ids: list[int]) -> dict[int, list[dict]]:
@@ -113,10 +159,10 @@ async def get_catalog(
             )
         )
 
-    # 카테고리로 묶고(그룹), 그 안은 마감일 임박순. NULL 카테고리는 맨 뒤로.
+    # 카테고리로 묶고(그룹), 그 안은 관리자 지정 순서(display_order) → 마감일 임박순.
     stmt = stmt.order_by(
         ScholarshipCatalog.category.nulls_last(),
-        *_deadline_order(),
+        *_card_order(),
     )
 
     rows = (await db.execute(stmt)).scalars().all()
@@ -134,6 +180,7 @@ async def get_catalog(
             groups.append(g)
         g["items"].append(_to_item(row, files_map.get(row.id, [])))
 
+    groups = _sort_groups(groups, await get_category_order(db))   # 관리자 지정 카테고리 순서
     return {"kind": kind, "scope": scope, "count": len(rows), "groups": groups}
 
 
@@ -278,14 +325,21 @@ def _region_ok(req_region, basis, self_region, parent_region) -> bool:
     return False
 
 
-def _grade_ok(g: str, grade_year: int | None, semester: int | None = None) -> bool:
-    """학생 학년(grade_year)·학기(semester)가 요건 그룹 g에 해당하는지.
-    신입=1학년 1학기, 재학=1학년 2학기부터. 1학년인데 학기 미상이면 관대하게 둘 다 통과."""
+def _grade_ok(g: str, grade_year: int | None, semester: int | None = None,
+              transfer: bool = False) -> bool:
+    """학생 학년(grade_year)·학기(semester)·편입 여부가 요건 그룹 g에 해당하는지.
+    신입=1학년 1학기, 재학=1학년 2학기부터. 1학년인데 학기 미상이면 관대하게 둘 다 통과.
+    편입생은 학년이 아니라 신분이라 설문의 transfer 답으로 판정한다(편입 전용 장학금 대상)."""
+    if g == "편입":
+        return bool(transfer)                   # 편입생 전용 — 설문에서 편입생이라고 답해야 통과
     if g == "신입":
-        # 1학년 1학기. 학기 미상(None)이면 통과, 2학기면 제외.
-        return grade_year == 1 and semester != 2
+        # 1학년 1학기. 학기 미상(None)이면 통과, 2학기면 제외. 편입생은 신입 전형이 아니라 제외.
+        return grade_year == 1 and semester != 2 and not transfer
     if g == "재학":
         # 2학년 이상, 또는 1학년 2학기(학기 미상도 관대하게 통과). 1학년 1학기(신입)는 제외.
+        # 편입생은 재학생 신분이라 통과.
+        if transfer:
+            return True
         return grade_year is not None and (grade_year >= 2 or semester != 1)
     if g == "2학년이상":
         return grade_year is not None and grade_year >= 2   # 2·3·4학년
@@ -317,6 +371,7 @@ async def match_scholarships(
     interests = set(answers.get("interests") or [])
     want_excellent = "성적 우수" in interests   # '성적 우수'는 정렬이 아니라 태그 필터로 동작
     age = answers.get("age")
+    transfer = bool(answers.get("transfer"))    # 편입생 여부 — 학년 요건 '편입' 판정용
 
     matched: list[ScholarshipCatalog] = []
     for r in rows:
@@ -326,7 +381,7 @@ async def match_scholarships(
             continue
         # 학년 요건(다중) — 하나라도 충족하면 통과. 비면 무관.
         grades = [g for g in (r.req_grade or "").split(",") if g]
-        if grades and not any(_grade_ok(g, grade_year, semester) for g in grades):
+        if grades and not any(_grade_ok(g, grade_year, semester, transfer) for g in grades):
             continue
         if not _income_ok(r.req_income, income):
             continue   # 학생 지원구간이 요건 초과 → 대상 아님
@@ -487,12 +542,10 @@ async def list_department_names(db: AsyncSession) -> list[str]:
 
 
 async def list_catalog_admin(db: AsyncSession) -> list[dict]:
-    """장학금 관리 화면용 — 전체 + 연결 파일. kind→scope→카테고리→마감일 임박순."""
+    """장학금 관리 화면용 — 전체 + 연결 파일. 카테고리 안은 관리자 지정 순서→마감임박순."""
     stmt = select(ScholarshipCatalog).order_by(
-        ScholarshipCatalog.kind,
-        ScholarshipCatalog.scope,
         ScholarshipCatalog.category.nulls_last(),
-        *_deadline_order(),
+        *_card_order(),
     )
     rows = (await db.execute(stmt)).scalars().all()
     files_map = await _load_files_map(db, [r.id for r in rows])

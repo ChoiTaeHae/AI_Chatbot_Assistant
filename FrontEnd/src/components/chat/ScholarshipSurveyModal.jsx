@@ -106,7 +106,7 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
   const [a, setA] = useState({
     self_region: '', parent_region: '', income: '', interests: [], age: '', gpa: '', grade_year: '', semester: '',
     multichild: false, foreigner: false, independent: false, disabled: false, veteran: false,
-    multicultural: false, defector: false,
+    multicultural: false, defector: false, transfer: false,
   })
   // 학년 변경 — 1학년이 아니면 학기 선택값은 비운다(신입/재학 구분은 1학년에서만 의미)
   const setGrade = (v) => setA((p) => ({ ...p, grade_year: v, semester: v === '1' ? p.semester : '' }))
@@ -190,6 +190,10 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
                       <option value="2">2학기 (재학생)</option>
                     </select>
                   )}
+                  <label className="flex items-center gap-1.5 cursor-pointer" style={{ marginTop: '2px' }}>
+                    <input type="checkbox" checked={a.transfer} onChange={(e) => set('transfer', e.target.checked)} style={{ accentColor: TEAL }} />
+                    <span className="text-xs text-(--text-muted)">편입생이에요</span>
+                  </label>
                 </div>
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-bold text-(--text-muted)">학자금 지원구간</span>
