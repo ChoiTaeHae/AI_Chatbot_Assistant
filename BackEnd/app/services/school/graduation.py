@@ -764,19 +764,10 @@ class GraduationService:
         # 위 '0건' FAQ 폴백은 검색이 통째로 실패했을 때만 걸려서, 어휘 매칭으로 무관 문서가
         # 살아난 경우는 빠져나간다. 실측: '재수강 최대 학점 몇이야?'가 졸업규정을 잡고
         # "재수강 최대 학점은 없습니다"로 단정했다(FAQ엔 6학점·2회·A+가 있는데도).
-        if metadata.get("weak_evidence"):
-            # 이 경로는 LLM을 건너뛰므로 오매칭이 곧 확정 오답 → 엄격 임계값(0.75)을 쓴다.
-            # 실측: '내 졸업학점 얼마나 남았어?'가 0.711로 학점포기 FAQ를, '졸업 신청 방법'이
-            # 0.707로 학사경고 FAQ를 물어와 그대로 나갔다.
-            from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
-            hit = await loop.run_in_executor(
-                None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
-            if hit:
-                print(f"[Graduation] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
-                metadata["source"] = "faq"
-                for k in ("url", "contact_name", "contact_phone", "source_file"):
-                    metadata.pop(k, None)
-                return hit[0], metadata
+        # (제거됨) 근거가 약할 때 FAQ로 갈아타던 경로 — rag_general과 같은 이유로 뺀다.
+        # FAQ가 중간에서 낚아채면 검색이 잡은 진짜 근거가 버려진다. 근거 약함은 '검색 실패'가
+        # 아니므로, 아래 WEAK_EVIDENCE_DIRECTIVE(단정 금지)를 붙여 LLM이 답하게 둔다.
+        # FAQ는 위 '졸업 문서 0건' 경로에만 남긴다.
 
         prompt = self._build_rag_prompt(question, rag_context)
         # 입학연도별로 값이 갈리는 규정은 '누구 기준인지'를 고정해준다(수료기준·편입생 학점 등).

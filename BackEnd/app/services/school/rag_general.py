@@ -957,11 +957,13 @@ async def answer_rag_general_question_with_metadata(
         from app.utils.file_matcher import match_relevant_files
 
         # 1순위: 큐레이션 FAQ (검수된 정확한 답변이 애매한 파일 제안보다 우선).
-        from app.services.faq_index import faq_lookup
+        # 여기도 LLM을 건너뛰는 verbatim 경로라 오매칭이 곧 확정 오답 → 재작성 질의로 교차 검증.
+        from app.services.faq_index import faq_lookup_verified
         loop = asyncio.get_event_loop()
-        hit = await loop.run_in_executor(None, faq_lookup, question)
+        hit = await loop.run_in_executor(
+            None, faq_lookup_verified, question, rewritten_for_log)
         if hit:
-            print("[RAG_GENERAL] 문서 0건이지만 FAQ 매칭 → verbatim 답변")
+            print("[RAG_GENERAL] 문서 0건 + FAQ 교차검증 통과 → verbatim 답변")
             metadata["source"] = "faq"
             for k in ("url", "contact_name", "contact_phone", "source_file"):
                 metadata.pop(k, None)
@@ -1051,18 +1053,15 @@ async def answer_rag_general_question_with_metadata(
                 # 사람이 검수한 FAQ가 있으면 그게 정답이므로 모델을 거치지 않고 그대로 낸다.
                 # FAQ가 없으면 아무 일도 일어나지 않고 기존 흐름(단정 금지 지시)으로 이어진다
                 # → 리랭커 저점수 정답('도서 대출 몇 권' 0.001)이 죽지 않는다.
-                if metadata.get("weak_evidence"):
-                    # 이 경로는 LLM을 건너뛰므로 오매칭이 곧 확정 오답 → 엄격 임계값(0.75)을 쓴다.
-                    from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
-                    hit = await loop.run_in_executor(
-                        None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
-                    if hit:
-                        print(f"[RAG_GENERAL] 근거 약함 + FAQ 매칭({hit[1]:.3f}) → LLM 생략, verbatim 답변")
-                        metadata["source"] = "faq"
-                        # 잡았던 무관 문서의 출처·연락처가 FAQ 답변에 붙지 않도록 비운다.
-                        for k in ("url", "contact_name", "contact_phone", "source_file"):
-                            metadata.pop(k, None)
-                        return hit[0], metadata
+                # (제거됨) 근거가 약할 때 FAQ로 갈아타던 경로.
+                # 8B 모델이 단정 금지 지시를 흘리던 시절의 처방인데, 지금은 두 전제가 다르다:
+                #   · LLM이 Gemini로 바뀌어 지시를 따른다
+                #   · FAQ가 15개 → 73개로 늘어 오매칭 표면적이 커졌다
+                # 실측: 회귀 배터리 50문항 중 10건이 0.75를 넘겨 이 경로에 걸릴 수 있었고,
+                # '2학기 기숙사 신청 언제까지?'가 통금 FAQ(0.755)를 물어와 그대로 나갔다.
+                # RAG가 문서를 찾긴 했는데 근거가 약한 상태는 '검색 실패'가 아니므로 FAQ를
+                # 부르지 않는다 — 아래 WEAK_EVIDENCE_DIRECTIVE(단정 금지)를 붙여 LLM에 맡긴다.
+                # FAQ는 검색이 통째로 실패했을 때(위 `if not context:`)만 나서는 최후 보류로 둔다.
                 # 파일 제안은 '답변'을 기준으로 뒤에서 판정한다(아래 참조). 프롬프트에서 파일 목록·
                 # <FILES> 태그 지시를 뺐다 — 태그는 어차피 화면에서 제거하고 임베딩 결과로 확정하므로
                 # 무용했고, 목록을 넣지 않으니 프롬프트가 가벼워진다(오버헤드 감소 → 답변 토큰 여유 증가).
@@ -1119,10 +1118,14 @@ async def answer_rag_general_question_with_metadata(
     #  '엠티 신청 언제야?'가 cs 게시판 문서를 잡아 '못 찾음' 답 → FAQ 0.742는 조회조차 안 됐다)
     _NOT_FOUND_MARKERS = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없", "관련 자료를 찾")
     if any(mk in answer for mk in _NOT_FOUND_MARKERS):
-        from app.services.faq_index import faq_lookup
-        hit = await loop.run_in_executor(None, faq_lookup, question)
+        # 원본만 보면 '언제까지·몇 시까지' 같은 형태가 엉뚱한 FAQ를 끌어온다
+        # (실측: '2학기 기숙사 신청 언제까지?' → 통금 FAQ 0.755). 시간어를 걷어낸 재작성
+        # 질의로 교차 검증해, 같은 FAQ가 양쪽에서 임계값을 넘을 때만 채택한다.
+        from app.services.faq_index import faq_lookup_verified
+        hit = await loop.run_in_executor(
+            None, faq_lookup_verified, question, rewritten_for_log)
         if hit:
-            print("[RAG_GENERAL] LLM 무응답 + FAQ 매칭 → verbatim 답변")
+            print("[RAG_GENERAL] LLM 무응답 + FAQ 교차검증 통과 → verbatim 답변")
             metadata["source"] = "faq"
             # 잡았던 무관 문서의 출처·연락처가 FAQ 답변에 붙지 않도록 비운다.
             for k in ("url", "contact_name", "contact_phone", "source_file"):
