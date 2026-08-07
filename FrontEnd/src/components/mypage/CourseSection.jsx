@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { fetchCourses, previewCourses, commitCourses, addCourse, deleteCourse } from '../../api/me'
 import useIsMobile from '../../hooks/useIsMobile'
+import Toast from '../common/Toast'
 
 /* 수강 이력 — 포털의 '전체 기이수성적' 엑셀을 올려 채운다.
  *
@@ -20,11 +21,28 @@ const EMPTY_MANUAL = {
 }
 const CATEGORIES = ['전공필수', '전공선택', '교양필수', '교양선택', '일반', '트랙']
 const SEMESTERS = ['1학기', '2학기', '여름학기', '겨울학기']
+
+// 이수구분 배지 — 전공(티일)·교양(보라)·그 외(무채색)로 계열을 색으로 나눈다.
+// 줄임말을 쓰는 이유: 폭을 고정해야 과목명 칸이 학기마다 들쭉날쭉하지 않는다.
+const CATEGORY_BADGE = {
+  전공필수: { short: '전필', bg: 'var(--brand-a20)', color: 'var(--brand)' },
+  전공선택: { short: '전선', bg: 'var(--brand-a8)', color: 'var(--brand)' },
+  교양필수: { short: '교필', bg: 'var(--accent-tint)', color: 'var(--accent)' },
+  교양선택: { short: '교선', bg: 'var(--accent-tint)', color: 'var(--accent)' },
+  트랙: { short: '트랙', bg: 'var(--amber-tint)', color: 'var(--amber-text)' },
+}
+const DEFAULT_BADGE = { short: '일반', bg: 'var(--surface-2)', color: 'var(--text-muted)' }
+
+/* 성적 색 — P(Pass)는 평점에 안 들어가므로 흐리게 빼고, A는 눈에 띄게, F는 경고색.
+   나머지(B·C·D)는 본문색 그대로 둔다. 전부 색을 칠하면 도로 알록달록해진다. */
+function gradeTone(g) {
+  if (!g || g === 'P') return 'var(--text-faint)'
+  if (g.startsWith('A')) return 'var(--brand)'
+  if (g.startsWith('F')) return 'var(--danger-text)'
+  return 'var(--text-body)'
+}
 // 학기 시간순 가중치. 문자열 정렬로는 '여름학기'가 '2학기'보다 앞서 버려 학기 순서가 뒤집힌다.
 const TERM_ORDER = { '1학기': 1, '여름학기': 2, '2학기': 3, '겨울학기': 4 }
-const ALL = '__all__'
-// 목록 스크롤 높이 — 한 줄 약 52px 기준 6.5줄. 소수로 잘라 '더 있다'는 게 보이게 한다.
-const LIST_MAX_HEIGHT = 338
 
 export default function CourseSection({ onGpaChange }) {
   const isMobile = useIsMobile()
@@ -42,7 +60,9 @@ export default function CourseSection({ onGpaChange }) {
   const [manualOpen, setManualOpen] = useState(false)
   const [manual, setManual] = useState(EMPTY_MANUAL)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [term, setTerm] = useState(ALL)          // 학기 필터 ('__all__' = 전체)
+  // 펼친 학기 집합. null이면 '아직 손대지 않음' → 최신 학기만 펼친 기본값을 쓴다.
+  // (기본값을 state 초기값으로 넣지 않는 이유: 과목을 불러오기 전에는 학기 목록을 모른다)
+  const [openTerms, setOpenTerms] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -142,20 +162,29 @@ export default function CourseSection({ onGpaChange }) {
     return [...map.entries()].sort((a, b) => rank(b[1]) - rank(a[1]))
   }, [courses])
 
-  // 드롭다운에 보여줄 학기 목록 (과목 수 포함)
-  const termOptions = useMemo(
-    () => allGroups.map(([key, list]) => ({ key, count: list.length })), [allGroups])
+  // 기본은 최신 학기 하나만 펼침 — 40과목 가까이 쌓이면 전부 펼친 목록이 화면 몇 개 분량이라
+  // 아래 카드(비밀번호 등)까지 스크롤로만 닿는다. 지난 학기는 필요할 때 열어 본다.
+  const defaultOpen = useMemo(
+    () => new Set(allGroups.length ? [allGroups[0][0]] : []), [allGroups])
+  const open = openTerms ?? defaultOpen
+  const allExpanded = allGroups.length > 0 && allGroups.every(([key]) => open.has(key))
 
-  const grouped = useMemo(
-    () => (term === ALL ? allGroups : allGroups.filter(([key]) => key === term)),
-    [allGroups, term])
+  // 이전 값(openTerms)이 아니라 기본값이 반영된 open을 기준으로 바꾼다 —
+  // 아직 손대지 않았으면 openTerms는 null이라 갱신 함수의 prev를 쓸 수 없다.
+  function toggleTerm(key) {
+    const next = new Set(open)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setOpenTerms(next)
+  }
 
-  // 선택한 학기가 사라지면(마지막 과목 삭제 등) 전체로 되돌린다
-  useEffect(() => {
-    if (term !== ALL && !allGroups.some(([key]) => key === term)) setTerm(ALL)
-  }, [allGroups, term])
+  function toggleAll() {
+    setOpenTerms(allExpanded ? new Set() : new Set(allGroups.map(([key]) => key)))
+  }
 
-  const totalCredits = courses.filter((c) => c.is_passed).reduce((n, c) => n + (c.credits || 0), 0)
+  const passedCredits = (list) => list.filter((c) => c.is_passed)
+    .reduce((n, c) => n + (c.credits || 0), 0)
+  const totalCredits = passedCredits(courses)
 
   const cardCls = 'bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)'
   const cardStyle = { padding: isMobile ? '18px 16px' : '24px 26px' }
@@ -164,11 +193,11 @@ export default function CourseSection({ onGpaChange }) {
   const labelCls = 'text-xs font-bold text-(--text-muted)'
 
   return (
-    <section className={cardCls} style={{ ...cardStyle, marginBottom: '16px' }}>
+    <section className={cardCls} style={cardStyle}>
       <div className="flex items-start flex-wrap" style={{ gap: '10px' }}>
         <div className="flex-1 min-w-0">
           <h2 className="font-black text-(--text)" style={{ fontSize: '15px' }}>수강 이력</h2>
-          <p className="text-[11px] text-(--text-faint)" style={{ marginTop: '4px', lineHeight: 1.6 }}>
+          <p className="text-xs text-(--text-faint)" style={{ marginTop: '4px', lineHeight: 1.6 }}>
             학교 포털의 <b>전체 기이수성적</b> 엑셀을 올리면 과목·학점·평점평균이 자동으로 채워집니다.
           </p>
         </div>
@@ -185,71 +214,109 @@ export default function CourseSection({ onGpaChange }) {
         </div>
       </div>
 
+      {/* 오류는 카드 안에 남긴다 — 어떤 동작이 실패했는지 옆에 붙어 있어야 하고 사라지면 안 된다.
+          성공 알림만 토스트로 띄운다(나타날 때 아래 목록을 밀지 않도록). */}
       {error && <p className="text-xs font-bold text-red-500" style={{ marginTop: '12px' }}>{error}</p>}
-      {msg && <p className="text-xs font-bold text-(--brand)" style={{ marginTop: '12px' }}>{msg}</p>}
+      <Toast message={msg} />
 
-      {/* 요약 + 학기 필터 */}
+      {/* 요약 + 전체 펼치기 */}
       {!loading && courses.length > 0 && (
         <div className="flex flex-wrap items-center rounded-xl bg-(--surface-2)"
              style={{ gap: '12px', padding: '12px 14px', marginTop: '14px' }}>
           <span className="text-xs text-(--text-muted)">이수 과목 <b className="text-(--text)">{courses.length}</b></span>
           <span className="text-xs text-(--text-muted)">이수 학점 <b className="text-(--text)">{totalCredits}</b></span>
+          <span className="text-xs text-(--text-muted)">학기 <b className="text-(--text)">{allGroups.length}</b></span>
           <span className="flex-1" />
-          <select value={term} onChange={(e) => setTerm(e.target.value)}
-                  className="border border-(--border) rounded-lg bg-(--surface-card) text-(--text-muted) outline-none cursor-pointer hover:border-(--brand-a40) transition"
-                  style={{ padding: '6px 9px', fontSize: isMobile ? '16px' : '12.5px' }}
-                  aria-label="학기 선택">
-            <option value={ALL}>전체 ({courses.length}과목)</option>
-            {termOptions.map((o) => (
-              <option key={o.key} value={o.key}>{o.key} ({o.count}과목)</option>
-            ))}
-          </select>
+          <button type="button" onClick={toggleAll}
+                  className="border border-(--border) rounded-lg bg-(--surface-card) text-(--text-muted) font-bold hover:border-(--brand-a40) hover:text-(--text) transition"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}>
+            {allExpanded ? '모두 접기' : '모두 펼치기'}
+          </button>
         </div>
       )}
 
-      {/* 목록 — 과목이 30개를 넘기도 해서 페이지를 밀지 않도록 자체 스크롤 영역에 담는다.
-          overscrollBehavior: 목록 끝에서 페이지가 따라 밀리는 것을 막는다(중첩 스크롤). */}
-      <div style={{
-        marginTop: '14px',
-        maxHeight: courses.length > 0 ? `${LIST_MAX_HEIGHT}px` : undefined,
-        overflowY: courses.length > 0 ? 'auto' : undefined,
-        overscrollBehavior: 'contain',
-      }}>
-        {loading && <p className="text-xs text-(--text-faint) text-center" style={{ padding: '24px' }}>불러오는 중…</p>}
+      {/* 목록 — 전용 탭 안에 있으므로 페이지 스크롤에 그대로 맡긴다.
+          예전엔 카드 안에 자체 스크롤 영역을 뒀는데, 페이지 스크롤과 겹쳐 스크롤바가 두 개로
+          보이고 목록 끝에서 스크롤이 페이지로 튀는 문제가 있었다.
+          길이는 학기별 접기로 줄인다 — 다 펼쳐도 학기 머리글은 sticky라 위치를 잃지 않는다. */}
+      <div style={{ marginTop: '14px' }}>
+        {/* 스켈레톤 — 들어올 목록과 같은 높이를 미리 잡아 로딩이 끝날 때 화면이 튀지 않는다 */}
+        {loading && [0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex items-center border-b border-(--border)"
+               style={{ gap: '10px', padding: '8px 6px' }}>
+            <span className="skeleton shrink-0" style={{ width: '36px', height: '20px' }} />
+            <span className="skeleton" style={{ flex: 1, height: '14px', maxWidth: `${190 - i * 22}px` }} />
+            <span className="flex-1" />
+            <span className="skeleton shrink-0" style={{ width: '34px', height: '12px' }} />
+            <span className="skeleton shrink-0" style={{ width: '22px', height: '12px' }} />
+          </div>
+        ))}
         {!loading && courses.length === 0 && (
           <p className="text-xs text-(--text-faint) text-center" style={{ padding: '28px', lineHeight: 1.7 }}>
             등록된 수강 이력이 없습니다.<br />엑셀을 올리거나 직접 추가해 주세요.
           </p>
         )}
 
-        {grouped.map(([termKey, list]) => (
-          <div key={termKey} style={{ marginBottom: '14px' }}>
-            {/* 스크롤해도 지금 보고 있는 학기가 보이도록 상단에 고정.
-                배경을 카드색으로 채우지 않으면 아래 항목이 글자에 겹쳐 지나간다. */}
-            <p className="font-bold text-(--brand)"
-               style={{
-                 fontSize: '12.5px', padding: '4px 0 6px',
-                 position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)',
-               }}>
-              {termKey} <span className="font-normal text-(--text-faint)">· {list.length}과목</span>
-            </p>
-            {list.map((c) => (
-              <div key={c.id}
-                   className="flex items-center border-b border-(--border)"
-                   style={{ gap: '10px', padding: '9px 2px' }}>
-                <div className="flex-1 min-w-0">
-                  <p className="text-(--text) truncate" style={{ fontSize: '13.5px' }}>{c.course_name}</p>
-                  <p className="text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
-                    {c.category || '-'} · {c.credits}학점{c.grade ? ` · ${c.grade}` : ''}
-                  </p>
-                </div>
-                <button onClick={() => setDeleteTarget(c)}
-                        className="shrink-0 text-(--text-faint) hover:text-red-500 transition"
-                        aria-label={`${c.course_name} 삭제`} style={{ fontSize: '13px', padding: '4px 6px' }}>✕</button>
-              </div>
-            ))}
-          </div>
-        ))}
+        {allGroups.map(([termKey, list]) => {
+          const isOpen = open.has(termKey)
+          return (
+            <div key={termKey} style={{ marginBottom: '6px' }}>
+              {/* 학기 머리글 = 접기 버튼. 스크롤해도 지금 보고 있는 학기가 보이도록 상단에 고정.
+                  --sticky-offset: 부모(마이페이지)가 위에 고정 요소를 두면 그 높이만큼 내려 붙는다.
+                  단독으로 쓰일 땐 0이라 화면 맨 위에 붙는다.
+                  배경은 className으로 준다 — 인라인 style로 주면 hover 클래스가 밀려 안 먹는다. */}
+              <button type="button" onClick={() => toggleTerm(termKey)} aria-expanded={isOpen}
+                      className="w-full flex items-center text-left rounded-lg bg-(--surface-card) hover:bg-(--surface-2) transition"
+                      style={{
+                        gap: '7px', padding: '8px 6px',
+                        position: 'sticky', top: 'var(--sticky-offset, 0px)', zIndex: 1,
+                      }}>
+                <svg className="text-(--text-faint) shrink-0" width="12" height="12" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" strokeWidth={3} aria-hidden="true"
+                     style={{ transform: isOpen ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                </svg>
+                <span className="font-bold text-(--brand)" style={{ fontSize: '13px' }}>{termKey}</span>
+                <span className="text-xs text-(--text-faint)">
+                  · {list.length}과목 · {passedCredits(list)}학점
+                </span>
+              </button>
+
+              {/* 한 줄에 [이수구분][과목명][학점][성적][삭제] 순으로 열을 맞춘다.
+                  예전엔 셋을 '전공선택 · 3학점 · P'처럼 한 덩어리 회색 글자로 붙여 놨는데,
+                  40줄이 똑같은 회색이라 훑을 때 눈이 미끄러졌다. */}
+              {isOpen && list.map((c) => {
+                const badge = CATEGORY_BADGE[c.category] || DEFAULT_BADGE
+                return (
+                  <div key={c.id}
+                       className="flex items-center border-b border-(--border)"
+                       style={{ gap: isMobile ? '8px' : '10px', padding: '8px 6px' }}>
+                    <span className="rounded-md font-bold shrink-0 text-center"
+                          style={{
+                            padding: '3px 0', fontSize: '12px', width: '36px',
+                            background: badge.bg, color: badge.color,
+                          }}
+                          title={c.category || '이수구분 없음'}>
+                      {badge.short}
+                    </span>
+                    <p className="text-(--text) truncate flex-1 min-w-0" style={{ fontSize: '14px' }}>
+                      {c.course_name}
+                    </p>
+                    <span className="text-xs text-(--text-faint) shrink-0">{c.credits}학점</span>
+                    {/* 폭을 고정해 성적이 세로로 줄맞춤된다 — 들쭉날쭉하면 비교가 어렵다 */}
+                    <span className="font-bold shrink-0 text-right"
+                          style={{ fontSize: '13px', width: '26px', color: gradeTone(c.grade) }}>
+                      {c.grade || '–'}
+                    </span>
+                    <button onClick={() => setDeleteTarget(c)}
+                            className="shrink-0 text-(--text-faint) hover:text-red-500 transition"
+                            aria-label={`${c.course_name} 삭제`} style={{ fontSize: '13px', padding: '4px 6px' }}>✕</button>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
       </div>
 
       {/* 미리보기 모달 */}
@@ -277,7 +344,7 @@ export default function CourseSection({ onGpaChange }) {
                      style={{ gap: '10px', padding: '8px 0' }}>
                   <div className="flex-1 min-w-0">
                     <p className="text-(--text) truncate" style={{ fontSize: '13px' }}>{r.course_name}</p>
-                    <p className="text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
+                    <p className="text-xs text-(--text-faint)" style={{ marginTop: '2px' }}>
                       {r.year} {r.semester} · {r.raw_category}
                       {r.raw_category !== r.category && <span className="text-(--text-faint)"> → {r.category}</span>}
                       {' · '}{r.credits}학점{r.grade ? ` · ${r.grade}` : ''}
@@ -311,7 +378,7 @@ export default function CourseSection({ onGpaChange }) {
                onMouseDown={(e) => e.stopPropagation()}>
             <div className="border-b border-(--border)" style={{ padding: '18px 20px' }}>
               <h3 className="font-black text-(--text)" style={{ fontSize: '15px' }}>과목 직접 추가</h3>
-              <p className="text-[11px] text-(--text-faint)" style={{ marginTop: '4px' }}>
+              <p className="text-xs text-(--text-faint)" style={{ marginTop: '4px' }}>
                 엑셀에 없는 과목(교환학생·인정과목 등)을 넣을 때 사용하세요.
               </p>
             </div>
@@ -365,7 +432,7 @@ export default function CourseSection({ onGpaChange }) {
                          value={manual.grade_point} onChange={(e) => setManual({ ...manual, grade_point: e.target.value })} />
                 </label>
               </div>
-              <p className="text-[11px] text-(--text-faint)" style={{ marginTop: '8px', lineHeight: 1.6 }}>
+              <p className="text-xs text-(--text-faint)" style={{ marginTop: '8px', lineHeight: 1.6 }}>
                 P(Pass) 과목처럼 평점이 없으면 평점 칸을 비워두세요 — 평점평균 계산에서 빠집니다.
               </p>
             </div>
@@ -393,7 +460,7 @@ export default function CourseSection({ onGpaChange }) {
               <p className="text-xs text-(--text-muted)" style={{ marginTop: '8px' }}>
                 {deleteTarget.course_name} · {deleteTarget.credits}학점
               </p>
-              <p className="text-[11px] text-(--text-faint)" style={{ marginTop: '8px' }}>
+              <p className="text-xs text-(--text-faint)" style={{ marginTop: '8px' }}>
                 평점평균과 졸업 현황이 다시 계산됩니다.
               </p>
             </div>

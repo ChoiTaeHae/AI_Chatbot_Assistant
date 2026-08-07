@@ -145,6 +145,23 @@ button:disabled { cursor: not-allowed; }
 }
 .chat-view-enter { animation: chatViewEnter 0.28s ease-out; }
 
+/* 로딩 스켈레톤 — 들어올 내용과 같은 자리를 미리 차지해, 로딩이 끝나는 순간 레이아웃이
+   튀지 않게 한다. 크기는 쓰는 쪽에서 인라인 style로 준다(전역 리셋 때문에 유틸이 안 먹는다). */
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+.skeleton {
+  background: var(--surface-2);
+  border-radius: 8px;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+
+/* 움직임을 줄이도록 설정한 사용자에게는 애니메이션을 끈다 */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton, .chat-view-enter { animation: none; }
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
