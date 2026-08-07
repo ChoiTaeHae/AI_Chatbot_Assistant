@@ -34,6 +34,7 @@ class ScholarshipIn(BaseModel):
     req_grade: str | None = None
     req_income: str | None = None
     req_age_max: int | None = None
+    req_age_min: int | None = None
     req_major_field: str | None = None
     req_departments: str | None = None
     req_multichild: bool = False
@@ -42,6 +43,8 @@ class ScholarshipIn(BaseModel):
     req_independent: bool = False
     req_veteran: bool = False
     req_excellent: bool = False
+    req_multicultural: bool = False        # 다문화가정
+    req_defector: bool = False             # 북한이탈주민
     req_flags_preferential: bool = False   # True=우대(안 거름) / False=필수(OR로 거름)
 
 
