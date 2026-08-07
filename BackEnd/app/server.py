@@ -164,13 +164,43 @@ async def lifespan(app: FastAPI):
             # 학생 '자동 연동'용 더미 성적/학년/전공계열 컬럼 + 시드
             for _col, _ddl in [("gpa", "DOUBLE PRECISION"), ("grade_year", "INTEGER"), ("major_field", "VARCHAR(20)")]:
                 await conn.execute(text(f"ALTER TABLE student ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
-            # 아직 값 없는 학생만 결정적(학번 id 기반) 더미로 채움 — 멱등
+            # 아직 값 없는 학생만 결정적(학번 id 기반) 더미로 채움 — 멱등.
+            #
+            # 학점(gpa)은 더 이상 더미로 채우지 않는다
+            #   마이페이지의 수강 이력 업로드가 생기면서 gpa는 student_course에서 계산되는
+            #   실측값이 됐다. 더미를 함께 두면 '수업 0개인데 평점 3.5' 같은 모순이 생기고
+            #   (관리자 계정에도 학점이 붙었다), 학생이 과목을 모두 지워 gpa가 NULL이 되면
+            #   다음 기동 때 더미가 되살아나 지운 값이 돌아오는 문제까지 있었다.
+            #   장학금 매칭은 설문 입력값을 쓰고 졸업 현황은 student_course로 계산하므로,
+            #   더미를 없애도 달라지는 판정은 없다(표시만 '아직 없음'이 된다).
+            #
+            # 학년·전공계열은 아직 대체 수단이 없어 남긴다(마이페이지에서 학생이 교정 가능).
+            # 판정 기준을 gpa에서 grade_year로 옮긴다 — gpa가 더 이상 '시딩 여부' 표식이 아니다.
             await conn.execute(text(
-                "UPDATE student SET "
-                "gpa = ROUND((3.0 + (id % 16) * 0.1)::numeric, 1), "
-                "grade_year = 1 + (id % 4), "
-                "major_field = (ARRAY['인문사회','예술체육','이공'])[1 + (id % 3)] "
-                "WHERE gpa IS NULL"
+                "UPDATE student SET grade_year = 1 + (id % 4) WHERE grade_year IS NULL"))
+            # 전공계열은 학번 id가 아니라 '소속 학과'에서 가져온다. id % 3 더미를 쓰던 때는
+            # 컴퓨터·소프트웨어전공 학생에게 '인문사회'가 붙는 식으로 학과와 어긋났다.
+            await conn.execute(text(
+                "UPDATE student s SET major_field = d.major_field FROM department d "
+                "WHERE d.id = s.dept_id AND d.major_field IS NOT NULL "
+                "AND s.major_field IS NULL"))
+            # 수강 이력이 없는 학생의 학점은 비운다 — 옛 더미 정리이자 앞으로도 유지할 불변식
+            # ('과목이 없으면 평점도 없다'). 이력이 있는 학생의 계산값은 건드리지 않는다.
+            await conn.execute(text(
+                "UPDATE student SET gpa = NULL "
+                "WHERE gpa IS NOT NULL AND id NOT IN "
+                "(SELECT student_id FROM student_course WHERE student_id IS NOT NULL)"
+            ))
+            # 옛 id % 3 더미로 박힌 전공계열을 학과 기준으로 바로잡는다.
+            #   조건에 '값이 아직 더미 공식과 똑같은 행'만 넣는 이유
+            #   학생이 마이페이지에서 직접 고른 값(학과 규칙이 못 맞추는 예외)을 기동할 때마다
+            #   되돌려버리면 안 된다. 더미 공식과 일치하는 행은 '아무도 손대지 않은 값'이므로
+            #   덮어써도 잃을 게 없다. 우연히 일치했더라도 학과에서 온 값이 더 정확하다.
+            await conn.execute(text(
+                "UPDATE student s SET major_field = d.major_field FROM department d "
+                "WHERE d.id = s.dept_id AND d.major_field IS NOT NULL "
+                "AND s.major_field IS DISTINCT FROM d.major_field "
+                "AND s.major_field = (ARRAY['인문사회','예술체육','이공'])[1 + (s.id % 3)]"
             ))
 
             # 학과별 전공계열 — 마이페이지에서 학과를 고르면 계열을 자동으로 채우기 위한 값.

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchMe, fetchDeptOptions, updateMe, changePassword } from '../api/me'
 import { logout } from '../api/auth'
+import { checkBackendHealth } from '../api/chat'
 import { useAuth } from '../store/AuthContext'
 import useIsMobile from '../hooks/useIsMobile'
 import MascotAvatar from '../components/common/MascotAvatar'
@@ -136,6 +137,9 @@ export default function MyPage() {
   const [error, setError] = useState(null)
   const [msg, setMsg] = useState(null)
   const [interestInput, setInterestInput] = useState('')
+  // 방금 저장했는지 — 버튼 문구를 '저장됨'으로 잠깐 바꾼다.
+  // dirty(변경 여부)만으로는 '아직 안 고침'과 '방금 저장함'이 같은 화면이라 저장이 됐는지 알기 어렵다.
+  const [justSaved, setJustSaved] = useState(false)
 
   // 비밀번호 변경
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' })
@@ -167,6 +171,49 @@ export default function MyPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  /* 백엔드 재기동 감지 → 자동 새로고침.
+     개발 중 서버를 다시 띄우면 이 화면은 옛 데이터를 그대로 들고 있어, 고친 값이 반영됐는지
+     확인하려면 수동 새로고침을 해야 했다. 사이드바가 쓰는 것과 같은 방식으로 /health를
+     가볍게 핑하고, 죽었다가 살아난 순간(down→up)에만 다시 불러온다.
+     준비 상태면 15초, 대기 중이면 2초 간격 — 재기동을 빨리 잡되 평소엔 조용하다.
+     탭이 백그라운드면 핑을 쉰다(브라우저가 타이머를 늦추기도 하고, 안 보는 화면을 갱신할
+     이유도 없다). 돌아오면 visibilitychange에서 즉시 한 번 확인한다. */
+  useEffect(() => {
+    let up = true
+    let timer
+    let alive = true
+
+    const ping = async () => {
+      if (!alive) return
+      if (document.visibilityState === 'visible') {
+        const ok = await checkBackendHealth()
+        if (ok && !up) {
+          // 저장 안 한 편집이 있으면 덮어쓰지 않는다 — 서버 값으로 되돌려버리면
+          // 사용자가 방금 고르던 학과·관심사가 소리 없이 사라진다.
+          if (dirtyRef.current) {
+            console.log('[MyPage] 백엔드 재기동 감지 — 편집 중이라 새로고침 보류')
+          } else {
+            console.log('[MyPage] 백엔드 재기동 감지 → 새로고침')
+            load()
+          }
+        }
+        up = ok
+        timer = setTimeout(ping, ok ? 15000 : 2000)
+        return
+      }
+      timer = setTimeout(ping, 5000)
+    }
+    timer = setTimeout(ping, 2000)
+
+    const onVis = () => { if (document.visibilityState === 'visible') ping() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [load])
 
   // 탭 바 높이를 재서 --sticky-offset으로 내려보낸다. 수강 이력의 학기 머리글도 sticky라,
   // 이 값이 없으면 탭 바 뒤로 파고들어 가린다. 패딩·글자 크기를 바꿔도 따라오도록 상수 대신 측정.
@@ -216,6 +263,16 @@ export default function MyPage() {
     setForm((f) => ({ ...f, interests: f.interests.filter((x) => x !== t) }))
   }
 
+  // 다시 고치기 시작하면 '저장됨' 표시를 즉시 거둔다(타이머를 기다리지 않는다)
+  useEffect(() => {
+    if (justSaved) setJustSaved(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form])
+
+  // 감시 effect에서 읽으려고 ref에 담는다. deps에 dirty를 넣으면 값이 바뀔 때마다
+  // 핑 타이머가 해제·재생성되어 주기가 흐트러진다.
+  const dirtyRef = useRef(false)
+
   const dirty = useMemo(() => {
     if (!me || !form) return false
     return (
@@ -225,6 +282,8 @@ export default function MyPage() {
       JSON.stringify(form.interests) !== JSON.stringify(me.interests || [])
     )
   }, [me, form])
+
+  useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   async function save() {
     setSaving(true); setError(null); setMsg(null)
@@ -243,6 +302,8 @@ export default function MyPage() {
       if (user) saveUser({ ...user, dept_name: updated.dept_name })
       setMsg('저장했습니다.')
       setTimeout(() => setMsg(null), 3000)
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 3000)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -524,7 +585,9 @@ export default function MyPage() {
                   <button onClick={save} disabled={saving || !dirty}
                           className="flex-1 bg-(--brand) text-white rounded-xl font-black hover:bg-(--brand-hover) transition disabled:opacity-40 disabled:cursor-not-allowed"
                           style={{ padding: '13px', fontSize: '15px' }}>
-                    {saving ? '저장 중…' : dirty ? '변경사항 저장' : '변경된 내용 없음'}
+                    {saving ? '저장 중…'
+                      : justSaved ? '✓ 저장됨'
+                      : dirty ? '변경사항 저장' : '변경된 내용 없음'}
                   </button>
                 </div>
 
