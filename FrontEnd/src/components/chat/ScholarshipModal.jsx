@@ -101,6 +101,7 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
   const [error, setError] = useState(null)
   const [openCats, setOpenCats] = useState({})  // { category: bool }
   const [openFiles, setOpenFiles] = useState({})  // { itemId: bool } 파일 세트 펼침
+  const [openCond, setOpenCond] = useState({})    // { itemId: bool } 조건(긴 텍스트) 펼침
   const [hideExpired, setHideExpired] = useState(false)  // '기간마감 숨기기' 토글
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : true
@@ -333,12 +334,44 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
                           </div>
                         )}
 
-                        {/* 조건 */}
-                        {it.eligibility && (
-                          <p className="text-(--text-muted)" style={{ fontSize: isMobile ? '13.5px' : '15px', marginTop: '8px', lineHeight: 1.55, wordBreak: 'break-word' }}>
-                            <span className="text-(--text-faint)">{mt.condition} : </span>{highlight(it.eligibility, query)}
-                          </p>
-                        )}
+                        {/* 조건 — 여러 개면 불릿 목록 + 접기/펼치기 */}
+                        {it.eligibility && (() => {
+                          const conds = it.eligibility.split(/\n|\s\/\s/).map((s) => s.trim()).filter(Boolean)
+                          const fs = isMobile ? '13.5px' : '15px'
+                          const condOpen = !!openCond[it.id]
+                          const multi = conds.length > 1
+                          const toggle = () => setOpenCond((p) => ({ ...p, [it.id]: !p[it.id] }))
+                          if (!multi) {
+                            return (
+                              <p className="text-(--text-muted)" style={{ fontSize: fs, marginTop: '8px', lineHeight: 1.55, wordBreak: 'break-word' }}>
+                                <span className="text-(--text-faint)">{mt.condition} : </span>{highlight(conds[0] || it.eligibility, query)}
+                              </p>
+                            )
+                          }
+                          const shown = condOpen ? conds : conds.slice(0, 1)
+                          return (
+                            <div style={{ marginTop: '8px' }}>
+                              <div onClick={toggle} className="flex items-center gap-1 cursor-pointer select-none">
+                                <span className="text-(--text-faint)" style={{ fontSize: fs }}>{mt.condition}</span>
+                                <span className="font-bold rounded-full" style={{ fontSize: '11px', padding: '0 7px', color: TEAL, background: 'var(--brand-tint2)' }}>{conds.length}</span>
+                                <Chevron open={condOpen} size={13} color="var(--text-faint)" />
+                              </div>
+                              <ul className="flex flex-col" style={{ gap: '3px', marginTop: '5px' }}>
+                                {shown.map((c, i) => (
+                                  <li key={i} className="flex text-(--text-muted)" style={{ gap: '6px', fontSize: fs, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                                    <span className="shrink-0" style={{ color: TEAL }}>•</span>
+                                    <span className="flex-1 min-w-0">{highlight(c, query)}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                              {!condOpen && (
+                                <button type="button" onClick={toggle} className="hover:underline" style={{ fontSize: '12px', color: TEAL, marginTop: '5px' }}>
+                                  외 {conds.length - 1}개 조건 더보기
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })()}
 
                         {/* 안내 문구 */}
                         {files.length > 0 && (

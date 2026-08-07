@@ -3,12 +3,19 @@ import { fetchScholarships, createScholarship, updateScholarship, deleteScholars
 import { fetchFiles, linkScholarshipFile, unlinkScholarshipFile, uploadFile, deleteFile } from '../../api/admins/files'
 
 const TEAL = 'var(--brand)'
+// 조건 문자열(줄바꿈 또는 레거시 ' / ' 구분) → 조건 배열. 항상 최소 1칸.
+const splitConds = (str) => {
+  const a = (str || '').split(/\n|\s\/\s/).map((x) => x.trim()).filter(Boolean)
+  return a.length ? a : ['']
+}
+
 const EMPTY = {
-  name: '', scope: '교내', category: '', amount: '', eligibility: '', period: '', end_at: '', link: '',
+  name: '', scope: '교내', category: '', amount: '', conds: [''], period: '', end_at: '', link: '',
   // 맞춤 설문 매칭 요건 — 전부 선택(비우면 '무관' → 필터 통과)
   req_region: '', req_region_basis: '', req_min_gpa: '', req_grade: [], req_income: '',
-  req_age_max: '', req_major_field: [], req_departments: [],
+  req_age_max: '', req_age_min: '', req_major_field: [], req_departments: [],
   req_multichild: false, req_foreigner: false, req_disabled: false, req_independent: false, req_veteran: false,
+  req_multicultural: false, req_defector: false,
   req_excellent: false, req_flags_preferential: false,
 }
 
@@ -29,10 +36,12 @@ const REQ_FLAGS = [
   ['req_excellent', '성적 우수'],
   ['req_multichild', '다자녀'], ['req_foreigner', '외국인·유학생'], ['req_independent', '자취·독립·기숙사'],
   ['req_disabled', '장애'], ['req_veteran', '보훈·유공자'],
+  ['req_multicultural', '다문화가정'], ['req_defector', '북한이탈주민'],
 ]
 // 필수/우대(req_flags_preferential)의 적용 대상 = 성적우수를 뺀 사회배려형 플래그들.
 // (성적우수는 별도 양방향 필터라 필수/우대와 무관)
-const COND_FLAG_KEYS = ['req_multichild', 'req_foreigner', 'req_independent', 'req_disabled', 'req_veteran']
+const COND_FLAG_KEYS = ['req_multichild', 'req_foreigner', 'req_independent', 'req_disabled', 'req_veteran',
+  'req_multicultural', 'req_defector']
 
 /** 서버 ISO(초 포함) → datetime-local 입력값(YYYY-MM-DDTHH:mm) */
 function toLocalInput(iso) {
@@ -70,11 +79,11 @@ function DeptMultiSelect({ all, selected, onChange }) {
           onChange={(e) => { setQ(e.target.value); setOpen(true) }}
           onFocus={() => setOpen(true)}
           placeholder="학과 검색해서 추가 (여러 개 선택 · 비우면 무관)"
-          className="w-full text-sm text-(--text) border border-(--border) rounded-lg bg-(--surface-card) outline-none focus:border-(--brand)"
+          className="w-full text-sm text-(--text) border border-(--border-strong) rounded-lg bg-(--surface-card) outline-none focus:border-(--brand)"
           style={{ padding: '8px 10px' }}
         />
         {open && filtered.length > 0 && (
-          <div className="absolute left-0 right-0 z-20 border border-(--border) rounded-lg bg-(--surface-card) shadow-lg overflow-y-auto" style={{ top: 'calc(100% + 4px)', maxHeight: '220px' }}>
+          <div className="absolute left-0 right-0 z-20 border border-(--border-strong) rounded-lg bg-(--surface-card) shadow-lg overflow-y-auto" style={{ top: 'calc(100% + 4px)', maxHeight: '220px' }}>
             {filtered.map((d) => (
               <button type="button" key={d} onClick={() => { onChange([...selected, d]); setQ('') }}
                 className="w-full text-left text-sm text-(--text-body) hover:bg-(--brand-tint) transition" style={{ padding: '7px 12px' }}>
@@ -162,13 +171,15 @@ export default function ScholarshipManager() {
   function openEdit(s) {
     setForm({
       name: s.name || '', scope: s.scope || '교내', category: s.category || '', amount: s.amount || '',
-      eligibility: s.eligibility || '', period: s.period || '', end_at: toLocalInput(s.end_at), link: s.link || '',
+      conds: splitConds(s.eligibility), period: s.period || '', end_at: toLocalInput(s.end_at), link: s.link || '',
       req_region: s.req_region || '', req_region_basis: s.req_region_basis || '',
       req_min_gpa: s.req_min_gpa ?? '', req_grade: s.req_grade ? s.req_grade.split(',') : [], req_income: normIncome(s.req_income),
-      req_age_max: s.req_age_max ?? '', req_major_field: s.req_major_field ? s.req_major_field.split(',') : [],
+      req_age_max: s.req_age_max ?? '', req_age_min: s.req_age_min ?? '',
+      req_major_field: s.req_major_field ? s.req_major_field.split(',') : [],
       req_departments: s.req_departments ? s.req_departments.split(',') : [],
       req_multichild: !!s.req_multichild, req_foreigner: !!s.req_foreigner, req_disabled: !!s.req_disabled,
       req_independent: !!s.req_independent, req_veteran: !!s.req_veteran, req_excellent: !!s.req_excellent,
+      req_multicultural: !!s.req_multicultural, req_defector: !!s.req_defector,
       req_flags_preferential: !!s.req_flags_preferential,
     })
     setEditingId(s.id); setPendingFile(null); setFileSearch(''); setMsg(null); setMode('form')
@@ -178,6 +189,13 @@ export default function ScholarshipManager() {
   function setField(k, v) { setForm((p) => ({ ...p, [k]: v })) }
   // 배열 필드(학년·전공 다중선택) 토글 — p[k]가 배열, p 전체가 아님에 주의
   const toggleArr = (k, v) => setForm((p) => ({ ...p, [k]: p[k].includes(v) ? p[k].filter((x) => x !== v) : [...p[k], v] }))
+  // 지원 조건 리스트 — 여러 줄로 추가/삭제/수정 (저장 시 줄바꿈으로 합쳐 eligibility로)
+  const addCond = () => setForm((p) => ({ ...p, conds: [...p.conds, ''] }))
+  const setCond = (i, v) => setForm((p) => ({ ...p, conds: p.conds.map((c, idx) => (idx === i ? v : c)) }))
+  const removeCond = (i) => setForm((p) => {
+    const next = p.conds.filter((_, idx) => idx !== i)
+    return { ...p, conds: next.length ? next : [''] }
+  })
 
   async function save() {
     if (!form.name.trim()) { setMsg({ type: 'error', text: '장학금 이름은 필수예요.' }); return }
@@ -185,7 +203,8 @@ export default function ScholarshipManager() {
     const payload = {
       ...form,
       kind: '장학금',
-      category: form.category || null, amount: form.amount || null, eligibility: form.eligibility || null,
+      category: form.category || null, amount: form.amount || null,
+      eligibility: form.conds.map((x) => x.trim()).filter(Boolean).join('\n') || null,
       period: form.period || null, link: form.link || null, end_at: form.end_at || null,
       req_region: form.req_region || null, req_region_basis: form.req_region_basis || null,
       req_grade: form.req_grade.length ? form.req_grade.join(',') : null,
@@ -194,6 +213,7 @@ export default function ScholarshipManager() {
       req_departments: form.req_departments.length ? form.req_departments.join(',') : null,
       req_min_gpa: form.req_min_gpa === '' ? null : Number(form.req_min_gpa),
       req_age_max: form.req_age_max === '' ? null : Number(form.req_age_max),
+      req_age_min: form.req_age_min === '' ? null : Number(form.req_age_min),
     }
     try {
       if (editingId) {
@@ -250,7 +270,7 @@ export default function ScholarshipManager() {
     catch (err) { alert(err.message) }
   }
 
-  const inputCls = 'w-full text-sm text-(--text) border border-(--border) rounded-lg bg-(--surface-card) outline-none focus:border-(--brand)'
+  const inputCls = 'w-full text-sm text-(--text) border border-(--border-strong) rounded-lg bg-(--surface-card) outline-none focus:border-(--brand)'
   const labelCls = 'text-xs font-bold text-(--text-muted)'
   // 사회배려형 대상 조건이 하나라도 켜져야 필수/우대가 의미 있음 (안 켜면 토글 비활성 + ✓ 숨김)
   const hasCondFlags = COND_FLAG_KEYS.some((k) => form[k])
@@ -258,7 +278,7 @@ export default function ScholarshipManager() {
   // ─────────────────────────────── 목록 뷰 ───────────────────────────────
   if (mode === 'list') {
     return (
-      <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col" style={{ padding: '32px', gap: '18px' }}>
+      <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border-strong) flex flex-col" style={{ padding: '32px', gap: '18px' }}>
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-black text-(--text)">장학금 관리</h2>
@@ -282,7 +302,7 @@ export default function ScholarshipManager() {
         ) : (
           <>
             {/* 검색 */}
-            <div className="flex items-center gap-2 rounded-xl border border-(--border) bg-(--surface-card)" style={{ padding: '8px 12px' }}>
+            <div className="flex items-center gap-2 rounded-xl border border-(--border-strong) bg-(--surface-card)" style={{ padding: '8px 12px' }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" strokeLinecap="round" /></svg>
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="장학금 검색 (이름·카테고리·금액·지원조건)" className="flex-1 outline-none bg-transparent text-sm text-(--text)" />
               {searching && <button onClick={() => setQuery('')} className="text-(--text-faint) hover:text-(--text-body) shrink-0" aria-label="검색 지우기">✕</button>}
@@ -304,7 +324,7 @@ export default function ScholarshipManager() {
               {groupedByCat.map(([cat, items]) => {
                 const open = searching || !!openCats[cat]
                 return (
-                  <div key={cat} className="border border-(--border) rounded-xl overflow-hidden">
+                  <div key={cat} className="border border-(--border-strong) rounded-xl overflow-hidden">
                     {/* 카테고리 헤더 (드롭다운) */}
                     <button
                       onClick={() => setOpenCats((p) => ({ ...p, [cat]: !p[cat] }))}
@@ -319,7 +339,7 @@ export default function ScholarshipManager() {
                     {open && (
                       <div>
                         {items.map((s) => (
-                          <div key={s.id} className="flex items-center gap-3 border-t border-(--border) hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
+                          <div key={s.id} className="flex items-center gap-3 border-t border-(--border-strong) hover:bg-(--surface-2) transition" style={{ padding: '11px 14px' }}>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-[11px] font-semibold text-white rounded-full shrink-0" style={{ padding: '1px 8px', background: s.scope === '교외' ? '#0ea5a0' : 'var(--text-faint)' }}>{s.scope}</span>
@@ -330,7 +350,7 @@ export default function ScholarshipManager() {
                               <div className="flex items-center gap-2 text-[11px] text-(--text-faint)" style={{ marginTop: '2px' }}>
                                 {s.period && <span><span className="emoji">🗓</span> {s.period}</span>}
                                 <span><span className="emoji">📎</span> 파일 {s.files?.length || 0}</span>
-                                {(s.req_region || s.req_min_gpa != null || s.req_income || s.req_multichild || s.req_foreigner || s.req_disabled || s.req_independent || s.req_veteran || s.req_excellent) && (
+                                {(s.req_region || s.req_min_gpa != null || s.req_income || s.req_age_min != null || s.req_age_max != null || s.req_multichild || s.req_foreigner || s.req_disabled || s.req_independent || s.req_veteran || s.req_excellent || s.req_multicultural || s.req_defector) && (
                                   <span style={{ color: TEAL }}><span className="emoji">🎯</span> 요건 설정됨</span>
                                 )}
                               </div>
@@ -354,7 +374,7 @@ export default function ScholarshipManager() {
 
   // ─────────────────────────────── 추가/수정 폼 ───────────────────────────────
   return (
-    <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border) flex flex-col overflow-y-auto" style={{ padding: '32px', gap: '16px' }}>
+    <div className="flex-1 bg-(--surface-card) rounded-2xl shadow-sm border border-(--border-strong) flex flex-col overflow-y-auto" style={{ padding: '32px', gap: '16px' }}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button onClick={backToList} className="text-(--text-faint) hover:text-(--text-body)" aria-label="목록으로">
@@ -394,10 +414,27 @@ export default function ScholarshipManager() {
           <span className={labelCls}>마감 일시 <span className="text-(--text-faint) font-normal">(상시는 비움)</span></span>
           <input type="datetime-local" className={inputCls} style={{ padding: '8px 10px' }} value={form.end_at} onChange={(e) => setField('end_at', e.target.value)} />
         </label>
-        <label className="col-span-2 flex flex-col gap-1">
-          <span className={labelCls}>지원 조건 (한 줄, 화면 표시)</span>
-          <input className={inputCls} style={{ padding: '8px 10px' }} value={form.eligibility} onChange={(e) => setField('eligibility', e.target.value)} placeholder="예: 공고문에서 확인 / 직전학기 3.0 이상" />
-        </label>
+        <div className="col-span-2 flex flex-col gap-1">
+          <span className={labelCls}>지원 조건 <span className="font-normal text-(--text-faint)">— 여러 개로 나눠 추가하면 카드에 목록으로 표시돼요</span></span>
+          <div className="flex flex-col" style={{ gap: '6px' }}>
+            {form.conds.map((c, i) => (
+              <div key={i} className="flex items-center" style={{ gap: '6px' }}>
+                <span className="shrink-0 text-center text-xs font-semibold text-(--text-faint)" style={{ width: '18px' }}>{i + 1}</span>
+                <input className={inputCls} style={{ padding: '8px 10px' }} value={c}
+                  onChange={(e) => setCond(i, e.target.value)}
+                  placeholder="예: 직전학기 3.0 이상 / 울산 거주자 / 소득 8구간 이하" />
+                <button type="button" onClick={() => removeCond(i)} disabled={form.conds.length === 1 && !c}
+                  className="shrink-0 inline-flex items-center justify-center rounded-lg border border-(--border-strong) text-(--text-faint) hover:text-red-500 hover:border-red-300 transition disabled:opacity-30"
+                  style={{ width: '30px', height: '30px' }} aria-label="조건 삭제">✕</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={addCond}
+            className="self-start inline-flex items-center gap-1 text-xs font-bold text-(--brand) hover:underline" style={{ marginTop: '4px' }}>
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            조건 추가
+          </button>
+        </div>
         <label className="flex flex-col gap-1">
           <span className={labelCls}>신청 기간 (화면 표시)</span>
           <input className={inputCls} style={{ padding: '8px 10px' }} value={form.period} onChange={(e) => setField('period', e.target.value)} placeholder="예: 2026. 3. 24 ~ 3. 31" />
@@ -409,7 +446,7 @@ export default function ScholarshipManager() {
       </div>
 
       {/* 지원 요건 (맞춤 설문 매칭용) */}
-      <div className="border-t border-(--border)" style={{ paddingTop: '16px' }}>
+      <div className="border-t border-(--border-strong)" style={{ paddingTop: '16px' }}>
         <p className="text-sm font-bold text-(--text)">🎯 지원 요건 <span className="text-xs font-normal text-(--text-faint)">— 맞춤 설문 매칭용 · 비운 칸은 '무관'(모두 대상)</span></p>
         <div className="grid grid-cols-2" style={{ gap: '14px', marginTop: '12px' }}>
           <label className="flex flex-col gap-1">
@@ -427,8 +464,12 @@ export default function ScholarshipManager() {
             <input type="number" step="0.1" min="0" max="4.5" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_min_gpa} onChange={(e) => setField('req_min_gpa', e.target.value)} placeholder="예: 3.0 (비우면 무관)" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className={labelCls}>나이 상한</span>
-            <input type="number" min="15" max="99" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_age_max} onChange={(e) => setField('req_age_max', e.target.value)} placeholder="예: 34 (비우면 무관)" />
+            <span className={labelCls}>나이 <span className="font-normal text-(--text-faint)">(하한 이상 ~ 상한 이하 · 비우면 무관)</span></span>
+            <div className="flex items-center" style={{ gap: '6px' }}>
+              <input type="number" min="15" max="99" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_age_min} onChange={(e) => setField('req_age_min', e.target.value)} placeholder="예: 25 이상" />
+              <span className="shrink-0 text-xs text-(--text-faint)">~</span>
+              <input type="number" min="15" max="99" className={inputCls} style={{ padding: '8px 10px' }} value={form.req_age_max} onChange={(e) => setField('req_age_max', e.target.value)} placeholder="예: 34 이하" />
+            </div>
           </label>
           <label className="flex flex-col gap-1">
             <span className={labelCls}>학자금 지원구간 (상한)</span>
@@ -503,12 +544,12 @@ export default function ScholarshipManager() {
               </button>
             )
           })}
-          {!hasCondFlags && <span className="text-[10px] text-(--text-faint)">— 다자녀·외국인·자취·장애·보훈 중 하나를 켜면 지정할 수 있어요</span>}
+          {!hasCondFlags && <span className="text-[10px] text-(--text-faint)">— 다자녀·외국인·자취·장애·보훈·다문화·북한이탈 중 하나를 켜면 지정할 수 있어요</span>}
         </div>
       </div>
 
       {/* 파일 */}
-      <div className="border-t border-(--border)" style={{ paddingTop: '16px' }}>
+      <div className="border-t border-(--border-strong)" style={{ paddingTop: '16px' }}>
         <p className="text-sm font-bold text-(--text)" style={{ marginBottom: '8px' }}>📎 파일</p>
 
         {!editingId ? (
@@ -546,11 +587,11 @@ export default function ScholarshipManager() {
                 {uploading ? '업로드 중…' : '파일 업로드'}
               </button>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-(--border)" style={{ padding: '6px 10px', margin: '10px 0' }}>
+            <div className="flex items-center gap-2 rounded-lg border border-(--border-strong)" style={{ padding: '6px 10px', margin: '10px 0' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" strokeLinecap="round" /></svg>
               <input value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} placeholder="파일 검색" className="flex-1 outline-none bg-transparent text-sm" />
             </div>
-            <div className="border border-(--border) rounded-xl overflow-hidden" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+            <div className="border border-(--border-strong) rounded-xl overflow-hidden" style={{ maxHeight: '300px', overflowY: 'auto' }}>
               {shownFiles.length === 0 ? (
                 <p className="text-center text-(--text-faint) text-xs" style={{ padding: '20px' }}>파일이 없어요. 위 '파일 업로드'로 올리세요.</p>
               ) : shownFiles.map((f) => {
@@ -559,7 +600,7 @@ export default function ScholarshipManager() {
                 const linkedHere = !!here
                 const others = links.filter((x) => x.scholarship_id !== editingId)
                 return (
-                  <div key={f.id} className="flex items-center gap-2 border-b border-(--border) last:border-b-0" style={{ padding: '8px 12px', background: linkedHere ? 'var(--brand-tint)' : 'transparent' }}>
+                  <div key={f.id} className="flex items-center gap-2 border-b border-(--border-strong) last:border-b-0" style={{ padding: '8px 12px', background: linkedHere ? 'var(--brand-tint)' : 'transparent' }}>
                     <input type="checkbox" checked={linkedHere} onChange={() => toggleFile(f)} style={{ accentColor: TEAL }} />
                     <span className="flex-1 min-w-0 truncate text-xs text-(--text-body)" title={f.name}>{f.name}</span>
                     {others.length > 0 && (

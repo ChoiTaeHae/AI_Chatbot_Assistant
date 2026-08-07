@@ -28,11 +28,14 @@ class MatchRequest(BaseModel):
     age: int | None = None
     gpa: float | None = None             # 학점(4.5) — 설문에서 직접 입력(자동 연동 안 함). None=무관
     grade_year: int | None = None        # 학년(1~4) — 설문에서 직접 선택(자동 연동 안 함). None=무관
+    semester: int | None = None          # 학기(1|2) — 1학년일 때만 신입/재학 구분에 사용. None=미상(관대)
     multichild: bool = False             # 다자녀 가정
     foreigner: bool = False              # 외국인/유학생
     disabled: bool = False               # 장애
     independent: bool = False            # 자취/독립 거주
     veteran: bool = False                # 보훈·국가유공자(후손)
+    multicultural: bool = False          # 다문화가정
+    defector: bool = False               # 북한이탈주민
 
 
 @router.get("/scholarships", summary="장학금 카탈로그 (둘러보기 모달)")
@@ -93,6 +96,7 @@ async def match(
             grade_year=body.grade_year, # 학년: 설문 선택값 (자동연동 제거)
             major_field=getattr(current_user, "major_field", None),
             dept_name=dept_name,
+            semester=body.semester,     # 학기: 1학년 신입/재학 구분용
         )
         # 전공은 내 정보 연동, 학년·학점은 설문에서 입력한 값을 그대로 표시
         result["profile"] = {
