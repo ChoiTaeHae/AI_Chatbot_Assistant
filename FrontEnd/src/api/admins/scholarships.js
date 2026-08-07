@@ -35,6 +35,35 @@ export async function deleteScholarship(id) {
   return res.json()
 }
 
+/** 카테고리 표시 순서 조회 — { categories: string[] } */
+export async function fetchCategoryOrder() {
+  const res = await authFetch(`${BASE}/scholarships/category-order`)
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '카테고리 순서 조회 실패')
+  return res.json()
+}
+
+/** 카테고리 표시 순서 저장 (둘러보기·관리 목록 공통) */
+export async function saveCategoryOrder(categories) {
+  const res = await authFetch(`${BASE}/scholarships/category-order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ categories }),
+  })
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '카테고리 순서 저장 실패')
+  return res.json()
+}
+
+/** 한 카테고리 안 장학금 표시 순서 저장 — ids는 표시할 순서대로 */
+export async function saveScholarshipOrder(ids) {
+  const res = await authFetch(`${BASE}/scholarships/order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '장학금 순서 저장 실패')
+  return res.json()
+}
+
 /** 학과 목록 (지원 요건 '대상 학과' 다중선택용) — string[] */
 export async function fetchDepartments() {
   const res = await authFetch(`${BASE}/departments`)
