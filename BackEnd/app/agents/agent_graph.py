@@ -572,8 +572,33 @@ async def _embedding_classify(state: AgentState) -> dict:
 
 
 
+# ── 개인 시간표: 검색으로 답이 나올 수 없는 질문 ────────────────────────
+# 시간표는 학생마다 달라 코퍼스에 있을 수 없다(실측: '시간표'가 든 청크는 기숙사 간사
+# 근무표와 시험시간표 공고 규정 둘뿐, 개인 강의시간표는 없음). 그런데 검색을 태우면
+# 리라이트가 '오늘 수업 뭐 있어?'를 '수업 일정'으로 바꾸면서 '오늘'을 버리고, 그러면
+# 솔숲 신입생 OT 표가 리랭커 0.585로 잡혀(임계 0.4 통과) 근거 확인을 빠져나간다.
+# 결과: "오늘 수업은 오전 09:00~12:00 프로그램 안내…"라는 완전한 거짓말(실측).
+# 근거 약함이 아니라 '확신에 찬 오답'이라 점수 기반 가드로는 못 막는다 → 검색 자체를 생략한다.
+_TIMETABLE_WORDS = ("시간표", "수업", "강의")
+# 날짜어를 반드시 함께 요구한다. 안 그러면 '어학센터 수업 있어?'(프로그램 문의)와
+# 'S3 강의실 찾고 있어요'(위치)까지 막힌다 — 실제 대화기록에서 확인한 오탐이다.
+_TIMETABLE_DATE = ("오늘", "내일", "모레", "이번주", "다음주",
+                   "월요일", "화요일", "수요일", "목요일", "금요일")
+# '강의실'은 위치, '셔틀'은 운행표, '시험시간표'·'강의계획서'는 공지 대상이다.
+_TIMETABLE_EXCLUDE = ("강의실", "셔틀", "버스", "시험시간표", "강의계획서")
+
+
+def _is_personal_timetable(question: str) -> bool:
+    """개인 시간표를 묻는가 — 실제 질문 2,142건 기준 3건만 잡히고 오탐 0건."""
+    compact = (question or "").replace(" ", "")
+    if any(x in compact for x in _TIMETABLE_EXCLUDE):
+        return False
+    return (any(w in compact for w in _TIMETABLE_WORDS)
+            and any(d in compact for d in _TIMETABLE_DATE))
+
+
 async def _keyword_classify(state: AgentState) -> dict:
-    """규칙 기반 fast-path 분류 (0ms) — campus 건물코드 / 학사일정 날짜질문"""
+    """규칙 기반 fast-path 분류 (0ms) — campus 건물코드 / 학사일정 날짜질문 / 개인 시간표"""
     if _is_campus_question(state["question"]):
         print("[Graph] 키워드 분류 → campus")
         return {"intent": "campus"}
@@ -584,10 +609,39 @@ async def _keyword_classify(state: AgentState) -> dict:
     if not _PROCEDURE_RE.search(q) and await _campus_gate(q):
         print("[Graph] 키워드 분류 → campus (건물명 매칭)")
         return {"intent": "campus"}
+    # 학사일정 날짜 질문보다 먼저 본다 — '오늘 수업 뭐 있어?'는 날짜어가 있어 그쪽에
+    # 먼저 걸리고, 학사일정에 없으니 결국 전체 검색 폴백으로 새기 때문이다.
+    # campus 판정 뒤에 두어 'S3 강의실 찾고 있어요' 같은 위치 질문은 campus가 먼저 가져간다.
+    if _is_personal_timetable(state["question"]):
+        print("[Graph] 키워드 분류 → 개인 시간표(시스템에 없는 데이터)")
+        return {"intent": "no_data"}
     if _is_schedule_date_question(state["question"]):
         print("[Graph] 키워드 분류 → schedule (날짜 질문 fast-path)")
         return {"intent": "schedule", "topic": "schedule"}
     return {"intent": None}
+
+
+# 주소는 '수강신청_매뉴얼(한국어)' 문서에 적힌 실제 경로다("대학정보시스템 로그인
+# (https://wsinfo.wsu.ac.kr)"). 학교가 주소를 바꾸면 이 줄도 같이 고쳐야 한다.
+_NO_TIMETABLE_REPLY = (
+    "개인 시간표는 챗봇에서 확인할 수 없어요. "
+    "대학정보시스템(https://wsinfo.wsu.ac.kr)에서 확인해 주세요."
+)
+
+
+async def _handle_no_data(state: AgentState) -> dict:
+    """코퍼스에 있을 수 없는 개인 데이터 질문 — 검색도 LLM도 타지 않는다.
+
+    검색을 태우면 리랭커가 '수업 일정'처럼 생긴 아무 표나 자신 있게 집어 오고, 그걸로
+    LLM이 오늘 시간표를 지어낸다(실측 0.585). 답이 있을 수 없는 질문이므로 아예 묻지 않는다.
+    """
+    print("[Graph] 개인 데이터 질문 → 검색 생략, 안내 응답")
+    return {
+        "answer": _NO_TIMETABLE_REPLY,
+        "source": None,
+        "source_file": None,
+        "topic": None,
+    }
 
 
 async def _handle_campus(state: AgentState) -> dict:
@@ -617,6 +671,64 @@ async def _handle_department(state: AgentState) -> dict:
     }
 
 
+# 답을 지어내느니 모른다고 하는 쪽이 낫다고 판단했을 때의 문구.
+# rag_general이 검색 0건일 때 쓰는 안내와 같은 말로 맞춰 사용자 눈에 일관되게 보이게 한다.
+_NOT_FOUND_REPLY = (
+    "죄송해요, 해당 내용에 대한 자료를 찾지 못했어요. "
+    "조금 더 구체적으로 질문해 주시거나, "
+    "학교 공식 홈페이지(wsu.ac.kr) 또는 담당 부서에 문의해 주세요."
+)
+
+
+async def _faq_for_non_dining(question: str) -> dict | None:
+    """학식 질문이 아니라고 걸러진 질문을 검수 FAQ로 먼저 받아본다. 없으면 None.
+
+    라우터가 dining으로 보낸 질문 중에는 검수된 답이 이미 있는 것들이 섞여 있는데,
+    그동안 학식 담당이 가로채서 FAQ까지 닿지 못했다 — 실측: '맛집 추천해줘'는 FAQ에
+    교외 맛집 10곳이 등록돼 있는데도 학식 메뉴가 나갔다(FAQ 유사도 1.000).
+    '과사 점심시간 언제야?'도 마찬가지(1.000).
+
+    LLM을 건너뛰고 그대로 내보내는 경로라 오매칭이 곧 확정 오답이다. 그래서 일반 조회
+    (0.70)가 아니라 엄격 임계값을 쓴다 — rag_general·graduation의 verbatim 경로와 같은 기준.
+    """
+    loop = asyncio.get_event_loop()
+    from app.services.faq_index import faq_lookup, FAQ_STRICT_THRESHOLD
+    hit = await loop.run_in_executor(None, faq_lookup, question, FAQ_STRICT_THRESHOLD)
+    if not hit:
+        return None
+    print(f"[Graph] 학식 아님 + FAQ 매칭({hit[1]:.3f}) → verbatim 답변")
+    return {"answer": hit[0], "source": "faq", "source_file": None, "topic": "general"}
+
+
+async def _rag_fallback_guarded(state: AgentState, why: str) -> dict:
+    """오라우팅된 질문의 전체 검색 폴백 — 근거가 약하면 답을 만들지 않는다.
+
+    dining·schedule 토픽엔 Qdrant 문서가 0개라, 이 폴백은 항상 topic 없이 전 문서를 뒤진다.
+    그런데 라우터가 잘못 보낸 질문은 제 주제의 문서가 애초에 코퍼스에 없다. 리트리버는
+    '못 찾음'을 피하려고 어휘가 겹치는 문서를 살려 주는데(retriever.py 3-1b), 그 구제는
+    청크가 아니라 '문서' 단위라 정작 넘어가는 청크엔 그 단어가 없을 수도 있다.
+    실측 — '오늘 수업 뭐 있어?': 내용어는 '오늘'(0건)·'수업'(7건)뿐인데, '수업'이 든 다른
+    청크 때문에 솔숲 문서가 열려 신입생 OT 시간표가 넘어갔고 LLM이 오늘 시간표로 답했다.
+    같은 원인으로 '축제언제야?'는 그 OT 일정을 축제로, '오늘 공지 뭐 올라왔어?'는 5월
+    근로장학 공고를 오늘 공지로 답했다(셋 다 리랭크 최고점 0.000).
+
+    rag_general은 이 상태에서 먼저 검수 FAQ를 조회하므로(0.75), 검수된 답이 있으면
+    source='faq'로 돌아온다 — 그건 그대로 내보낸다. 근거가 확실한 폴백도 마찬가지다
+    (실측: '기숙사 통금' 0.815, '도서 대출 몇 권' 등 리랭커 저점수 정답은 죽지 않는다).
+    """
+    print(f"[Graph] {why} → RAG 폴백")
+    result = await _handle_rag_general({**state, "topic": None})
+    if result.get("weak_evidence") and result.get("source") != "faq":
+        print(f"[Graph] {why} + 검색 근거도 약함 → 답변 생성 대신 '못 찾음'")
+        return {
+            "answer": _NOT_FOUND_REPLY,
+            "source": None,
+            "source_file": None,
+            "topic": None,
+        }
+    return result
+
+
 async def _handle_dining(state: AgentState) -> dict:
     """학식 안내(메뉴·위치·운영시간·전화·가격) — RAG도 LLM도 타지 않는다.
 
@@ -639,6 +751,17 @@ async def _handle_dining(state: AgentState) -> dict:
     # 여기서 끝내면 막다른 길이 되므로 RAG로 넘긴다(_handle_schedule의 0건 폴백과 동일 패턴).
     # topic은 비워 전체 검색으로 돌린다 — dining 토픽엔 Qdrant 문서가 없다.
     if not found:
+        # 빈 답변 = _looks_like_dining이 '학식 질문이 아니다'라고 막은 경우.
+        # 안내표 칸이 비어서 온 경우는 안내 문구가 들어 있어 구분된다.
+        gate_blocked = not answer
+        if gate_blocked:
+            # 검수된 답이 이미 있는 질문이면 RAG보다 그게 정확하다(맛집·과사 운영시간 등).
+            hit = await _faq_for_non_dining(state["question"])
+            if hit is not None:
+                return hit
+            return await _rag_fallback_guarded(state, "학식 질문 아님")
+        # 안내표 칸만 비어 있는 경우는 진짜 학식 질문이라 근거 확인을 걸지 않는다 —
+        # '기숙사 식당 가격'처럼 다른 문서(기숙사비_안내)에 답이 흩어져 있을 수 있다.
         print("[Graph] 학식 안내표에 값 없음 → RAG 폴백")
         return await _handle_rag_general({**state, "topic": None})
     return {
@@ -666,6 +789,25 @@ async def _handle_graduation(state: AgentState) -> dict:
     }, "graduation", state["question"])
 
 
+# 달력은 '언제'를 묻는 질문에만 답이 된다. 이벤트어(계절학기·공휴일 등)가 들어 있다는 이유로
+# 달력을 내보내면, 그 일정의 '성격'을 묻는 질문에 날짜표가 나간다 — 실측: '계절학기 들어야 해?'에
+# 겨울학기 수강신청 기간 7행이 나갔다. 학사일정 핸들러는 검색을 안 타므로 FAQ에도 닿지 못한다.
+# 실제 질문 2,157종 전수: 핸들러 도달 189종 / 달력이 답을 내던 130종 중 여기 걸리는 건 8종뿐이고
+# (계절학기 6 + '과사 공휴일에 해?' 2), 8종 모두 검수된 FAQ 답이 0.88 이상으로 이미 있다.
+_TIMING_WORDS = (
+    "언제", "며칠", "몇월", "몇일", "몇시", "날짜", "요일",
+    "기간", "일정", "스케줄", "달력", "마감", "데드라인",
+    "시작", "끝", "종료", "개강", "종강", "개학", "남았", "남은",
+    "오늘", "내일", "모레", "이번주", "다음주", "이번달", "다음달",
+    "부터", "까지", "전에", "이후",
+)
+
+
+def _asks_about_timing(question: str) -> bool:
+    """일정의 '시점'을 묻는 질문인가 — 아니면 달력을 답으로 쓰지 않는다."""
+    return any(w in (question or "").replace(" ", "") for w in _TIMING_WORDS)
+
+
 async def _handle_schedule(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "schedule")
     # 학사일정 분기(날짜·이벤트 파싱)는 '현재 질문' 기준으로만 해야 한다. 이전 주제 프리픽스를
@@ -676,8 +818,17 @@ async def _handle_schedule(state: AgentState) -> dict:
     # 매칭 0건 = 라우팅이 잘못 왔거나 학사일정에 없는 내용. 여기서 끝내면 막다른 길이 되므로
     # RAG로 넘긴다. topic은 비워서(schedule 토픽엔 문서가 없다) 전체 검색으로 돌린다.
     if metadata.get("no_match"):
-        print("[Graph] 학사일정 매칭 0건 → RAG 폴백")
-        return await _handle_rag_general({**state, "topic": None})
+        return await _rag_fallback_guarded(state, "학사일정 매칭 0건")
+    # '시간표'는 날짜가 아니라 문서 이름이라 달력에 있을 수 없다. 언제 공고되는지는 성적평가
+    # 및 처리규정 제3조("학기말시험의 시험시간표는 시험개시 일주일전에 공고한다")에 적혀 있어
+    # 검색으로 답이 나온다 — 실측: '시험시간표 어디서 봐?'가 그 조문을 그대로 답한다.
+    # 달력을 두면 '시험시간표 언제 나와?'에 시험 기간이 나가 묻지 않은 걸 답한다(실측).
+    # ('시간표'가 든 실제 질문은 3종뿐이고 달력이 답을 내던 건 이 1종이다.)
+    if "시간표" in state["question"].replace(" ", ""):
+        return await _rag_fallback_guarded(state, "시간표는 달력에 없는 문서")
+    # 달력에 맞는 행이 있어도, 질문이 시점을 묻는 게 아니면 그건 답이 아니다(위 주석 참조).
+    if not _asks_about_timing(state["question"]):
+        return await _rag_fallback_guarded(state, "일정의 시점을 묻는 질문이 아님")
 
     answer = _append_contact_info(answer, metadata)
     return {
@@ -781,6 +932,9 @@ async def _handle_rag_general(state: AgentState) -> dict:
         "rewritten_query": metadata.get("rewritten_query"),
         "files_to_offer": metadata.get("files_to_offer", []),
         "schedule_card": metadata.get("schedule_card"),   # 보강으로 붙은 미니 달력
+        # 리랭커가 다 떨어뜨린 걸 어휘 매칭으로 겨우 건진 상태. 폴백으로 여기 들어온
+        # 호출부가 '이 답을 내보내도 되는지' 판단할 수 있게 그대로 실어 보낸다.
+        "weak_evidence": bool(metadata.get("weak_evidence")),
     }, topic, state["question"])
 
 
@@ -881,6 +1035,8 @@ def _route_keyword(state: AgentState) -> str:
         return "campus"
     if it == "schedule":
         return "schedule"
+    if it == "no_data":
+        return "no_data"
     return "embed"
 
 
@@ -938,6 +1094,7 @@ def _build_graph():
     g.add_node("handle_dining",     _handle_dining)
     g.add_node("handle_rag_general",_handle_rag_general)
     g.add_node("handle_general",    _handle_general)
+    g.add_node("handle_no_data",    _handle_no_data)
 
     g.set_entry_point("pre_check")
 
@@ -945,6 +1102,7 @@ def _build_graph():
     g.add_conditional_edges("keyword_classify", _route_keyword, {
         "campus":   "handle_campus",
         "schedule": "handle_schedule",
+        "no_data":  "handle_no_data",
         "embed":    "chitchat_gate",
     })
     g.add_conditional_edges("chitchat_gate", _route_chitchat_gate, {
@@ -966,6 +1124,7 @@ def _build_graph():
     for handler in [
         "handle_campus", "handle_graduation", "handle_schedule", "handle_scholarship",
         "handle_department", "handle_dining", "handle_rag_general", "handle_general",
+        "handle_no_data",
     ]:
         g.add_edge(handler, END)
 

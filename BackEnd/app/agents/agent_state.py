@@ -31,4 +31,5 @@ class AgentState(TypedDict):
     source_file: str | None
     topic: str | None
     rewritten_query: str | None  # RAG 경로에서 생성된 검색용 재작성 질문 (파인튜닝 로깅용)
+    weak_evidence: bool      # RAG가 어휘 매칭으로 겨우 건진 결과 (호출부가 답을 신뢰할지 판단)
     done: bool               # pre_check에서 이미 처리 완료된 경우
