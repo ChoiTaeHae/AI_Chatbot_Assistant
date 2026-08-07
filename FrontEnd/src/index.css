@@ -145,6 +145,23 @@ button:disabled { cursor: not-allowed; }
 }
 .chat-view-enter { animation: chatViewEnter 0.28s ease-out; }
 
+/* 로딩 스켈레톤 — 들어올 내용과 같은 자리를 미리 차지해, 로딩이 끝나는 순간 레이아웃이
+   튀지 않게 한다. 크기는 쓰는 쪽에서 인라인 style로 준다(전역 리셋 때문에 유틸이 안 먹는다). */
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+.skeleton {
+  background: var(--surface-2);
+  border-radius: 8px;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+
+/* 움직임을 줄이도록 설정한 사용자에게는 애니메이션을 끈다 */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton, .chat-view-enter { animation: none; }
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
@@ -154,3 +171,20 @@ button:disabled { cursor: not-allowed; }
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* 모바일 자동 확대 방지 — 입력 요소 글자가 16px 미만이면 모바일 브라우저(iOS Safari,
+   iOS Chrome 모두 WebKit)가 탭할 때 화면을 확대하고, 그 배율이 그대로 남아 레이아웃이
+   어긋난 것처럼 보인다.
+   viewport에 user-scalable=no를 주면 간단히 막히지만 손가락 확대까지 막혀 접근성을
+   해치므로, 확대 '조건' 자체를 없앤다(모바일에서만 16px, sm 이상은 원래 크기 유지).
+
+   !important가 필요한 이유: 이 규칙은 요소 선택자(특이도 0-0-1)라서 Tailwind의
+   .text-xs / .text-sm(0-1-0)이나 인라인 style에 그대로 밀린다. 실제로 프로젝트 안에
+   text-xs·text-sm이 붙은 입력이 30곳 넘게 있어 !important 없이는 안전망이 무력하다. */
+@media (max-width: 639px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

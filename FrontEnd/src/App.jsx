@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './store/AuthContext'
 import LoginPage from './pages/LoginPage'
 import ChatPage from './pages/ChatPage'
 import AdminPage from './pages/AdminPage'
+import MyPage from './pages/MyPage'
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth()
@@ -16,6 +17,7 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/chat" replace /> : <LoginPage />} />
       <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
+      <Route path="/mypage" element={<ProtectedRoute><MyPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to={user ? '/chat' : '/login'} replace />} />
     </Routes>
   )

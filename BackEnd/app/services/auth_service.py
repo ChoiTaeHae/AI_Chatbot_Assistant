@@ -8,6 +8,11 @@ from app.core.security import create_access_token
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def hash_password(plain_password: str) -> str:
+    """비밀번호 해시 생성 — 마이페이지 비밀번호 변경에서 사용."""
+    return pwd_context.hash(plain_password)
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 

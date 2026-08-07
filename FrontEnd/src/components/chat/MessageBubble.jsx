@@ -4,6 +4,7 @@ import MascotAvatar from '../common/MascotAvatar'
 import ScheduleCard from './ScheduleCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
 import { useAuth } from '../../store/AuthContext'
+import useIsMobile from '../../hooks/useIsMobile'
 
 const API_BASE = ''
 
@@ -55,13 +56,14 @@ function FeedbackModal({ type, onSubmit, onClose }) {
         position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(0,0,0,0.35)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '16px',   // 좁은 폰(320px)에서 카드가 화면 끝에 닿지 않게
       }}
       onClick={onClose}
     >
       <div
         style={{
           background: 'var(--surface-card)', borderRadius: '16px', padding: '24px 28px',
-          width: '340px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          width: '100%', maxWidth: '340px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
           position: 'relative',
         }}
         onClick={e => e.stopPropagation()}
@@ -362,17 +364,18 @@ function ScholarshipSurveyOffer({ onStart }) {
 }
 
 export default function MessageBubble({ message, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, isLatest, onStartSurvey }) {
+  const isMobile = useIsMobile()
   const ct = CT[lang] || CT.ko
   const isUser = message.role === 'user'
   const [downloadedFiles, setDownloadedFiles] = useState(new Set())
 
   if (isUser) {
     return (
-      <div className="flex justify-end items-start gap-3" style={{ marginBottom: '15px', paddingRight: '8px' }}>
+      <div className="flex justify-end items-start gap-2 sm:gap-3" style={{ marginBottom: '15px', paddingRight: isMobile ? '0' : '8px' }}>
         <div className="flex flex-col items-end gap-1">
           <div
             className="rounded-2xl rounded-tr-sm bg-(--user-bubble) text-(--text) whitespace-pre-wrap break-words"
-            style={{ padding: '12px 16px', fontSize: '15px', lineHeight: '1.6', maxWidth: '320px' }}
+            style={{ padding: isMobile ? '10px 13px' : '12px 16px', fontSize: isMobile ? '14.5px' : '15px', lineHeight: '1.6', maxWidth: isMobile ? '78vw' : '320px' }}
           >
             {message.content}
           </div>
@@ -396,12 +399,14 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
   }
 
   return (
-    <div className="flex items-start gap-4" style={{ marginBottom: '24px', paddingLeft: '8px' }}>
-      <MascotAvatar className="h-12 w-12 shrink-0 object-contain" style={{ marginTop: '4px' }} />
-      <div style={{ flex: 1, maxWidth: '80%' }}>
+    <div className="flex items-start gap-2 sm:gap-4" style={{ marginBottom: isMobile ? '18px' : '24px', paddingLeft: isMobile ? '0' : '8px' }}>
+      <MascotAvatar className={`${isMobile ? 'h-8 w-8' : 'h-12 w-12'} shrink-0 object-contain`} style={{ marginTop: '4px' }} />
+      {/* 폰에서는 80% 제한을 풀고 남는 폭을 전부 쓴다 — 학사일정 카드가 7열 달력이라
+          80%로 묶으면 한 칸이 33px까지 줄어 날짜와 일정 막대가 뭉갠다. */}
+      <div style={{ flex: 1, minWidth: 0, maxWidth: isMobile ? '100%' : '80%' }}>
         <div
           className="rounded-2xl rounded-tl-sm border border-(--border) bg-(--surface-card) text-(--text) shadow-sm"
-          style={{ padding: '16px 20px', fontSize: '15px', lineHeight: '1.7' }}
+          style={{ padding: isMobile ? '12px 13px' : '16px 20px', fontSize: isMobile ? '14.5px' : '15px', lineHeight: '1.7' }}
         >
           <ReactMarkdown
             className="prose prose-slate max-w-none text-(--text)"

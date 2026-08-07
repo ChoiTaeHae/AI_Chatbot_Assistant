@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getScholarships } from '../../api/scholarship'
+import useIsMobile from '../../hooks/useIsMobile'
 
 const TEAL = 'var(--brand)'
 
@@ -104,6 +105,7 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : true
   )  // 데스크톱이면 사이드바(264+24=288px)만큼 왼쪽을 비워 메인 카드 영역 중앙에 띄운다
+  const isMobile = useIsMobile()   // 폰(639px 이하) — 여백·글자·열수를 줄인다
   const debounceRef = useRef(null)
   const groupRefs = useRef({})   // 카테고리별 DOM ref — 퀵네비 점프(scrollIntoView)용
 
@@ -164,41 +166,45 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'var(--scrim)', padding: isDesktop ? '24px' : '12px' }}
+      style={{ background: 'var(--scrim)', padding: isDesktop ? '24px' : isMobile ? '0' : '12px' }}
       onClick={onClose}
     >
+      {/* 폰에서는 전체화면 — 여백/모서리를 없애 좁은 폭을 최대한 쓴다(닫기는 헤더 ✕). */}
       <div
-        className="bg-(--surface-modal) rounded-2xl shadow-2xl border border-(--modal-edge) overflow-hidden flex flex-col"
-        style={{ width: '100%', maxWidth: '1160px', height: '100%', maxHeight: '960px' }}
+        className={`bg-(--surface-modal) shadow-2xl overflow-hidden flex flex-col ${isMobile ? '' : 'rounded-2xl border border-(--modal-edge)'}`}
+        style={{ width: '100%', maxWidth: '1160px', height: '100%', maxHeight: isMobile ? '100%' : '960px' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
-        <div className="flex items-center gap-3 border-b border-(--border) shrink-0" style={{ padding: '16px 18px' }}>
+        <div className="flex items-center gap-3 border-b border-(--border) shrink-0" style={{ padding: isMobile ? '11px 12px' : '16px 18px' }}>
           {onBack && (
             <button onClick={onBack} className="text-(--text-faint) hover:text-(--text-body) shrink-0" aria-label="뒤로" title="설문 결과로 돌아가기">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
-          <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: '34px', height: '34px', background: TEAL }}>
-            <span className="emoji" style={{ fontSize: '18px' }}>🎓</span>
+          <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: isMobile ? '30px' : '34px', height: isMobile ? '30px' : '34px', background: TEAL }}>
+            <span className="emoji" style={{ fontSize: isMobile ? '16px' : '18px' }}>🎓</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-(--text)" style={{ fontSize: '15px' }}>{mt.title}</p>
-            <p className="text-(--text-faint)" style={{ fontSize: '12px' }}>{mt.subtitle}</p>
+            <p className="font-bold text-(--text) truncate" style={{ fontSize: isMobile ? '14px' : '15px' }}>{mt.title}</p>
+            {/* 부제는 폰에서 숨김 — 좁은 폭에서 제목·버튼과 경쟁해 헤더가 두 줄로 밀린다 */}
+            {!isMobile && <p className="text-(--text-faint)" style={{ fontSize: '12px' }}>{mt.subtitle}</p>}
           </div>
           {onOpenSurvey && !onBack && (
+            /* 폰에서는 라벨을 빼고 아이콘만 — 텍스트까지 넣으면 헤더 폭을 넘긴다 */
             <button onClick={onOpenSurvey}
               className="shrink-0 inline-flex items-center gap-1.5 rounded-full font-bold text-white transition hover:brightness-110"
-              style={{ fontSize: '12.5px', padding: '7px 14px', background: TEAL }}>
-              <span className="emoji">🎯</span> {mt.findMatch}
+              style={{ fontSize: '12.5px', padding: isMobile ? '7px 9px' : '7px 14px', background: TEAL }}
+              aria-label={mt.findMatch} title={mt.findMatch}>
+              <span className="emoji">🎯</span>{!isMobile && ` ${mt.findMatch}`}
             </button>
           )}
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-body) text-lg" aria-label={mt.close}>✕</button>
         </div>
 
         {/* 탭 + 검색 */}
-        <div className="border-b border-(--border) shrink-0" style={{ padding: '12px 18px' }}>
-          <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
+        <div className="border-b border-(--border) shrink-0" style={{ padding: isMobile ? '10px 12px' : '12px 18px' }}>
+          <div className="flex items-center gap-2" style={{ marginBottom: isMobile ? '8px' : '10px' }}>
             {['전체', '교내', '교외'].map((s) => {
               const active = scope === s
               const label = s === '전체' ? ({ ko: '전체', en: 'All', zh: '全部' }[lang] || '전체')
@@ -210,7 +216,7 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
                   onClick={() => { setQuery(''); setCatFilter([]); setScope(s) }}
                   className="font-semibold transition"
                   style={{
-                    fontSize: '13px', padding: '6px 16px', borderRadius: '999px',
+                    fontSize: '13px', padding: isMobile ? '6px 12px' : '6px 16px', borderRadius: '999px',
                     background: active ? TEAL : 'var(--surface-2)',
                     color: active ? '#fff' : 'var(--text-muted)',
                   }}
@@ -241,7 +247,7 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
 
         {/* 유형(카테고리) 필터 — 다중선택. 선택하면 그 유형만 목록에 남는다(스크롤 대신 필터). */}
         {!loading && !error && allCats.length > 1 && (
-          <div className="flex items-center gap-1.5 border-b border-(--border) shrink-0 overflow-x-auto" style={{ padding: '8px 18px' }}>
+          <div className="flex items-center gap-1.5 border-b border-(--border) shrink-0 overflow-x-auto" style={{ padding: isMobile ? '8px 12px' : '8px 18px' }}>
             {allCats.map((cat) => {
               const on = catFilter.includes(cat)
               return (
@@ -274,7 +280,7 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
         )}
 
         {/* 본문 */}
-        <div style={{ padding: '12px 18px 18px', overflowY: 'auto' }}>
+        <div style={{ padding: isMobile ? '10px 12px 14px' : '12px 18px 18px', overflowY: 'auto' }}>
           {loading && <p className="text-center text-(--text-faint)" style={{ fontSize: '13px', padding: '30px' }}>{mt.loading}</p>}
           {error && !loading && <p className="text-center text-red-400" style={{ fontSize: '13px', padding: '30px' }}>{error}</p>}
           {!loading && !error && visibleCount === 0 && (
@@ -301,14 +307,16 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
                 </button>
 
                 {open && (
-                  <div style={{ padding: '8px 12px 10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(480px, 1fr))', gap: '12px', alignItems: 'stretch' }}>
+                  /* minmax의 최소값을 min(480px, 100%)로 — 폭이 480px보다 좁은 화면에서 열이
+                     480px로 고정돼 모달 밖으로 넘치던 문제를 막는다(폰에선 자동으로 1열 100%). */
+                  <div style={{ padding: isMobile ? '8px 9px 10px' : '8px 12px 10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(480px, 100%), 1fr))', gap: isMobile ? '10px' : '12px', alignItems: 'stretch' }}>
                     {g.items.map((it) => {
                       const files = it.files || []
                       const filesOpen = !!openFiles[it.id]
                       return (
-                      <div key={it.id} className="rounded-2xl" style={{ padding: '14px 16px', background: 'var(--item-bubble)', boxShadow: 'var(--item-shadow)', display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        <div className="flex items-start flex-wrap" style={{ columnGap: '8px', rowGap: '4px' }}>
-                          <span className="font-semibold text-(--text)" style={{ fontSize: '17px', lineHeight: 1.35 }}>{highlight(it.name, query)}</span>
+                      <div key={it.id} className="rounded-2xl min-w-0" style={{ padding: isMobile ? '12px 13px' : '14px 16px', background: 'var(--item-bubble)', boxShadow: 'var(--item-shadow)', display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        <div className="flex items-start flex-wrap min-w-0" style={{ columnGap: '8px', rowGap: '4px' }}>
+                          <span className="font-semibold text-(--text)" style={{ fontSize: isMobile ? '15.5px' : '17px', lineHeight: 1.35, wordBreak: 'break-word' }}>{highlight(it.name, query)}</span>
                           {it.amount && <span className="font-semibold rounded-full shrink-0" style={{ fontSize: '13px', padding: '3px 11px', background: 'var(--brand-tint2)', color: TEAL }}>{it.amount}</span>}
                         </div>
                         {/* 기간 + 마감 */}
@@ -327,7 +335,7 @@ export default function ScholarshipModal({ lang = 'ko', initialScope = '교내',
 
                         {/* 조건 */}
                         {it.eligibility && (
-                          <p className="text-(--text-muted)" style={{ fontSize: '15px', marginTop: '8px', lineHeight: 1.55 }}>
+                          <p className="text-(--text-muted)" style={{ fontSize: isMobile ? '13.5px' : '15px', marginTop: '8px', lineHeight: 1.55, wordBreak: 'break-word' }}>
                             <span className="text-(--text-faint)">{mt.condition} : </span>{highlight(it.eligibility, query)}
                           </p>
                         )}
