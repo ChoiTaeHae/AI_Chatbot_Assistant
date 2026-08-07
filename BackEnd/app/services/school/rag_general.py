@@ -1012,7 +1012,18 @@ async def answer_rag_general_question_with_metadata(
     # 이전 질문에 "동아리"가 있었다고 현재 질문이 클럽 질문이 되는 오탐을 방지한다.
     is_club = "동아리" in question and effective_topic == "student_support"
     _LIST_KEYWORDS = {"목록", "종류", "어떤", "뭐가", "뭐뭐", "다 알", "전부", "모두", "있어", "있나", "있어요", "있나요"}
-    is_club_list = is_club and any(kw in question for kw in _LIST_KEYWORDS)
+    # '있어/있나'는 단독으로 목록 신호가 아니다 — 앞에 오는 말에 따라 뜻이 갈린다.
+    #   '동아리 뭐 있어?'        → 목록
+    #   '동아리 가입 제한 있어?'  → 제한 질문(목록이 아님)
+    # 목록 경로는 format_club_list()가 코드로 목록을 찍어내고 끝이라 LLM도 FAQ도 거치지 않는다.
+    # 그래서 제한·조건 질문이 여기로 새면 "가입 제한 있냐"는 물음에 동아리 목록이 나가고,
+    # 검수 FAQ(동아리 가입/개수 제한)에는 영원히 닿지 못한다.
+    # 아래 낱말이 있으면 목록에서 제외해 상세 경로로 보낸다 — 거기서는 LLM이 답을 못 만들면
+    # '못 찾음'으로 끝나고, 그 뒤 FAQ 폴백이 검수 답변을 집어 준다.
+    _NOT_LIST_KEYWORDS = ("제한", "조건", "자격", "기준", "개수", "몇 개", "몇개", "가능한가", "되나요")
+    is_club_list = (is_club
+                    and any(kw in question for kw in _LIST_KEYWORDS)
+                    and not any(kw in question for kw in _NOT_LIST_KEYWORDS))
     # 제증명 코드 렌더링 게이트: 토픽 분류에 의존하지 않는다(예전 == "rag_general"은 제증명이
     # '미분류'로 떨어질 때만 성립해, 나중에 증명서 토픽을 추가하면 조용히 죽는 시한폭탄이었다).
     # 질문에 증명서 언급이 있으면 시도만 하고, 실제 발동은 format_certificate_info가 컨텍스트에서
@@ -1104,6 +1115,13 @@ async def answer_rag_general_question_with_metadata(
     if earliest_marker:
         answer = answer[:earliest_pos].strip()
         print(f"[RAG_GENERAL] 프롬프트 누출 감지 → '{earliest_marker}' 앞에서 잘라냄")
+        # 잘라낸 뒤 남은 게 사실상 없으면(예: "제공된") 실패로 본다.
+        # LLM이 "제공된 [참고 문서]에는 명시가 없습니다"처럼 답하면 표지 앞에서 잘려
+        # 한 단어만 남는데, 그대로 두면 아래 '못 찾음' 마커 검사에 안 걸려 FAQ 폴백이
+        # 발동하지 못한다(실측: '동아리 개수 제한 있어?' — FAQ 0.935가 있는데도 못 닿음).
+        if len(answer) < 20:
+            print(f"[RAG_GENERAL] 누출 제거 후 잔여 {len(answer)}자 → 못 찾음으로 처리")
+            answer = "관련 자료를 찾지 못했어요."
 
     # 파일 제안은 임베딩 필터(match_relevant_files) 결과로 확정한다.
     # 작은 로컬 LLM이 <FILES> 태그를 불안정하게 누락해 관련 파일을 못 주던 문제 →
@@ -1116,7 +1134,13 @@ async def answer_rag_general_question_with_metadata(
     # 조회한다. 0건이 아니라 '문서는 있지만 답이 없음'이라 위쪽 0건-FAQ 폴백에 안 걸린다.
     # (과잠·엠티 등 FAQ감이 RAG 토픽으로 새면서 무관 문서를 잡은 경우를 여기서 건진다. 실측:
     #  '엠티 신청 언제야?'가 cs 게시판 문서를 잡아 '못 찾음' 답 → FAQ 0.742는 조회조차 안 됐다)
-    _NOT_FOUND_MARKERS = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없", "관련 자료를 찾")
+    # '제공된 문서에'만 보면 놓친다 — 프롬프트마다 자료를 부르는 말이 다르다.
+    # 동아리 전용 프롬프트는 "제공된 중앙동아리 정보에는 … 명시가 없습니다"라고 답해
+    # 한 끗 차이로 폴백을 비켜갔고, 검수 FAQ(원본 1.000)가 있는데도 닿지 못했다.
+    # '제공된' + '없습니다/없음' 조합까지 잡아 표현 차이를 흡수한다.
+    _NOT_FOUND_MARKERS = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없", "관련 자료를 찾",
+                          "명시가 없", "명시되어 있지 않", "확인되지 않", "포함되어 있지 않",
+                          "정보가 없", "내용이 없")
     if any(mk in answer for mk in _NOT_FOUND_MARKERS):
         # 원본만 보면 '언제까지·몇 시까지' 같은 형태가 엉뚱한 FAQ를 끌어온다
         # (실측: '2학기 기숙사 신청 언제까지?' → 통금 FAQ 0.755). 시간어를 걷어낸 재작성
