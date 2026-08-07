@@ -65,6 +65,61 @@ async def warmup() -> None:
     print(f"[FAQ] {len(_index)}개 질문 임베딩 완료 (임계값 {FAQ_THRESHOLD})")
 
 
+def _best_match(question: str) -> tuple[int, str, float] | None:
+    """가장 가까운 FAQ를 (faq_id, 답변, 점수)로 반환. 임계값 판정은 하지 않는다."""
+    if not _index or not question:
+        return None
+    qv = _normalize(rag_service.embedding.embed_text(question))
+    best = None
+    for item in _index:
+        s = sum(a * b for a, b in zip(qv, item["vec"]))
+        if best is None or s > best[2]:
+            best = (item["faq_id"], item["answer"], s)
+    return best
+
+
+def faq_lookup_verified(question: str, rewritten: str | None = None,
+                        threshold: float | None = None) -> tuple[str, float] | None:
+    """원본과 재작성 질의로 각각 조회해 '같은 FAQ가 둘 다 임계값을 넘을 때만' 채택한다.
+
+    왜 교차 검증인가
+        임베딩은 문장의 '모양'을 강하게 보고 무엇에 대한 얘기인지는 약하게 본다. 그래서
+        주제어가 다른데 형태가 같으면 높은 점수가 나온다.
+          '2학기 기숙사 신청 언제까지 인가요?'  →  기숙사 통금 FAQ  0.755
+          '도서관 몇시까지 해?'                →  과사 운영시간 FAQ 0.760
+        점수만으로는 못 가른다 — 실측상 진짜 FAQ 질문 70개 중 44개가 오매칭 최고점(0.915)
+        아래에 깔려 있어, 임계값을 올리면 진짜가 먼저 죽는다(0.85에서 33% 소실).
+
+        재작성 질의는 시간어·군더더기를 걷어내고 주제만 남긴 형태라 다른 축의 신호가 된다.
+        위 예시의 재작성 '2학기 기숙사 신청 기간'은 통금 FAQ에 0.689로 미달한다.
+
+    재작성이 없거나 원본과 같으면 기존 단일 조회와 동일하게 동작한다.
+    """
+    th = FAQ_THRESHOLD if threshold is None else threshold
+    primary = _best_match(question)
+    if primary is None or primary[2] < th:
+        print(f"[FAQ] 매칭 실패 (top score={primary[2]:.3f} < {th})" if primary else "[FAQ] 인덱스 비어있음")
+        return None
+
+    rw = (rewritten or "").strip()
+    if not rw or rw == question.strip():
+        print(f"[FAQ] 매칭 (score={primary[2]:.3f} ≥ {th}) → verbatim 답변")
+        return primary[1], primary[2]
+
+    secondary = _best_match(rw)
+    if secondary is None or secondary[2] < th:
+        print(f"[FAQ] 교차검증 탈락 — 원본 {primary[2]:.3f} ≥ {th} 이지만 "
+              f"재작성 '{rw}' 은 {secondary[2]:.3f} < {th}")
+        return None
+    if secondary[0] != primary[0]:
+        print(f"[FAQ] 교차검증 탈락 — 원본과 재작성이 서로 다른 FAQ를 가리킴 "
+              f"(faq {primary[0]} {primary[2]:.3f} vs faq {secondary[0]} {secondary[2]:.3f})")
+        return None
+
+    print(f"[FAQ] 교차검증 통과 (원본 {primary[2]:.3f} · 재작성 {secondary[2]:.3f}) → verbatim 답변")
+    return primary[1], primary[2]
+
+
 def faq_lookup(question: str, threshold: float | None = None) -> tuple[str, float] | None:
     """질문과 가장 유사한 FAQ를 찾아 (답변, 점수) 반환. 임계값 미만이면 None.
 
