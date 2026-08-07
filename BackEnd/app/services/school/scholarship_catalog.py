@@ -278,12 +278,15 @@ def _region_ok(req_region, basis, self_region, parent_region) -> bool:
     return False
 
 
-def _grade_ok(g: str, grade_year: int | None) -> bool:
-    """학생 학년(grade_year)이 요건 그룹 g에 해당하는지."""
+def _grade_ok(g: str, grade_year: int | None, semester: int | None = None) -> bool:
+    """학생 학년(grade_year)·학기(semester)가 요건 그룹 g에 해당하는지.
+    신입=1학년 1학기, 재학=1학년 2학기부터. 1학년인데 학기 미상이면 관대하게 둘 다 통과."""
     if g == "신입":
-        return grade_year == 1                  # 신입생 = 1학년
+        # 1학년 1학기. 학기 미상(None)이면 통과, 2학기면 제외.
+        return grade_year == 1 and semester != 2
     if g == "재학":
-        return grade_year is not None           # 재학생 = 1·2·3·4학년 전체
+        # 2학년 이상, 또는 1학년 2학기(학기 미상도 관대하게 통과). 1학년 1학기(신입)는 제외.
+        return grade_year is not None and (grade_year >= 2 or semester != 1)
     if g == "2학년이상":
         return grade_year is not None and grade_year >= 2   # 2·3·4학년
     if g == "3학년이상":
@@ -300,6 +303,7 @@ async def match_scholarships(
     grade_year: int | None = None,
     major_field: str | None = None,
     dept_name: str | None = None,
+    semester: int | None = None,
 ) -> dict:
     """설문 답 + 학생 더미(성적/학년/전공)로 장학금을 필터. 요건이 '무관(NULL/False)'이면 통과(폭넓게).
     반환: {count, items:[...]} — items는 모달 표시/딥링크용 _to_item 형태."""
@@ -322,11 +326,14 @@ async def match_scholarships(
             continue
         # 학년 요건(다중) — 하나라도 충족하면 통과. 비면 무관.
         grades = [g for g in (r.req_grade or "").split(",") if g]
-        if grades and not any(_grade_ok(g, grade_year) for g in grades):
+        if grades and not any(_grade_ok(g, grade_year, semester) for g in grades):
             continue
         if not _income_ok(r.req_income, income):
             continue   # 학생 지원구간이 요건 초과 → 대상 아님
+        # 나이 범위 — 상한(이하)·하한(이상) 각각 선택. 학생이 나이를 안 넣으면(None) 무관 통과.
         if r.req_age_max is not None and age is not None and age > r.req_age_max:
+            continue
+        if r.req_age_min is not None and age is not None and age < r.req_age_min:
             continue
         # 전공계열(다중) — 학생 전공이 목록에 있으면 통과. 비면 무관.
         majors = [m for m in (r.req_major_field or "").split(",") if m]
@@ -343,6 +350,7 @@ async def match_scholarships(
             (r.req_multichild, "multichild"), (r.req_foreigner, "foreigner"),
             (r.req_disabled, "disabled"), (r.req_independent, "independent"),
             (r.req_veteran, "veteran"),
+            (r.req_multicultural, "multicultural"), (r.req_defector, "defector"),
         ]
         # 우대(preferential)면 대상 조건으로 거르지 않는다 — 일반 학생도 포함, 플래그는 안내·우대용.
         # 필수(기본)면 켜진 플래그 중 하나라도 해당해야 통과(OR).
@@ -448,6 +456,7 @@ _REQ_FIELDS = (
     "req_region", "req_region_basis", "req_min_gpa", "req_grade", "req_income",
     "req_age_max", "req_major_field", "req_departments", "req_multichild", "req_foreigner",
     "req_disabled", "req_independent", "req_veteran", "req_excellent", "req_flags_preferential",
+    "req_multicultural", "req_defector", "req_age_min",
 )
 _EDITABLE = ("name", "kind", "scope", "category", "amount", "eligibility", "period", "end_at", "link") + _REQ_FIELDS
 

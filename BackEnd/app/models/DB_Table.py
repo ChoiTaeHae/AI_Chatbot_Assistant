@@ -431,7 +431,7 @@ class ScholarshipCatalog(Base):
     scope         = Column(String(10), nullable=False)     # '교내' | '교외' (탭 구분)
     category      = Column(String(50), nullable=True)      # 성적우수·복지·근로·특별 / 교외는 지자체명 등 (아코디언 그룹)
     amount        = Column(String(100), nullable=True)     # 금액 표기 (예: '전액', '100만원', '전액/70%/50만')
-    eligibility   = Column(String(300), nullable=True)     # 한 줄 조건 요약 (예: '공인어학성적 차등 · 4년')
+    eligibility   = Column(Text, nullable=True)            # 지원 조건 (여러 줄 — 줄바꿈으로 구분, 카드에서 목록 표시)
     period        = Column(String(100), nullable=True)     # 신청 기간 표시 텍스트 (예: '2026. 3. 24(화) 10:00 ~ 31(화) 16:00')
     end_at        = Column(DateTime, nullable=True)         # 마감 판정용(화면 비표시, KST 벽시계). 지금 > end_at → '기간마감'. NULL=상시
     link          = Column(String(500), nullable=True)     # 외부 공고 URL (파일 대신 링크로 넘길 때)
@@ -444,7 +444,8 @@ class ScholarshipCatalog(Base):
     req_min_gpa      = Column(Float, nullable=True)         # 최소 학점. NULL=무관
     req_grade        = Column(String(120), nullable=True)  # 학년 요건(다중, 콤마): '신입,재학,3학년이상,대학원' 중. 비면 무관
     req_income       = Column(String(20), nullable=True)   # 소득 상한: '기초'|'차상위'|'중위100'|'중위200'|None
-    req_age_max      = Column(Integer, nullable=True)       # 나이 상한. NULL=무관
+    req_age_max      = Column(Integer, nullable=True)       # 나이 상한(이하). NULL=무관
+    req_age_min      = Column(Integer, nullable=True)       # 나이 하한(이상). NULL=무관
     req_major_field  = Column(String(120), nullable=True)  # 전공계열(다중, 콤마): '인문사회,예술체육,이공' 중. 비면 무관
     req_departments  = Column(String(500), nullable=True)  # 대상 학과(다중, 콤마: '간호학과,물리치료학과'). 비면 무관
     req_multichild   = Column(Boolean, nullable=False, server_default="false")  # 다자녀 가정 대상
@@ -452,6 +453,8 @@ class ScholarshipCatalog(Base):
     req_disabled     = Column(Boolean, nullable=False, server_default="false")  # 장애 대상
     req_independent  = Column(Boolean, nullable=False, server_default="false")  # 자취/주거 지원
     req_veteran      = Column(Boolean, nullable=False, server_default="false")  # 보훈·국가유공자(후손)
+    req_multicultural = Column(Boolean, nullable=False, server_default="false") # 다문화가정
+    req_defector      = Column(Boolean, nullable=False, server_default="false") # 북한이탈주민
     req_excellent    = Column(Boolean, nullable=False, server_default="false")  # 성적 우수 대상 (자동연동 학점 ≥ 우수 기준)
     req_flags_preferential = Column(Boolean, nullable=False, server_default="false")  # 대상 조건 성격: True=우대(안 거름·일반학생 포함) / False=필수(OR로 거름)
 

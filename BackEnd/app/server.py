@@ -156,11 +156,16 @@ async def lifespan(app: FastAPI):
                 ("req_veteran", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_excellent", "BOOLEAN NOT NULL DEFAULT false"),
                 ("req_flags_preferential", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_multicultural", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_defector", "BOOLEAN NOT NULL DEFAULT false"),
+                ("req_age_min", "INTEGER"),
             ]:
                 await conn.execute(text(f"ALTER TABLE scholarship_catalog ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))
             # 학년·전공계열은 다중선택(콤마 저장)으로 바뀌어 폭을 넓힌다 (기존 VARCHAR(20) → 120, 멱등)
             await conn.execute(text("ALTER TABLE scholarship_catalog ALTER COLUMN req_grade TYPE VARCHAR(120)"))
             await conn.execute(text("ALTER TABLE scholarship_catalog ALTER COLUMN req_major_field TYPE VARCHAR(120)"))
+            # 지원 조건은 여러 줄(줄바꿈 구분)로 저장돼 300자를 넘을 수 있다 → TEXT로 확장 (멱등)
+            await conn.execute(text("ALTER TABLE scholarship_catalog ALTER COLUMN eligibility TYPE TEXT"))
             # 학생 '자동 연동'용 더미 성적/학년/전공계열 컬럼 + 시드
             for _col, _ddl in [("gpa", "DOUBLE PRECISION"), ("grade_year", "INTEGER"), ("major_field", "VARCHAR(20)")]:
                 await conn.execute(text(f"ALTER TABLE student ADD COLUMN IF NOT EXISTS {_col} {_ddl}"))

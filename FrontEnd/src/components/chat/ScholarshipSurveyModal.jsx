@@ -85,6 +85,8 @@ const FLAGS = [
   ['independent', '자취 · 독립 · 기숙사'],
   ['disabled', '장애'],
   ['veteran', '보훈 · 국가유공자(후손)'],
+  ['multicultural', '다문화가정'],
+  ['defector', '북한이탈주민'],
 ]
 
 const majorFieldLabel = (f) => ({ 인문사회: '인문·사회', 예술체육: '예술·체육', 이공: '이공' }[f] || f || '-')
@@ -102,9 +104,12 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
   }, [])
 
   const [a, setA] = useState({
-    self_region: '', parent_region: '', income: '', interests: [], age: '', gpa: '', grade_year: '',
+    self_region: '', parent_region: '', income: '', interests: [], age: '', gpa: '', grade_year: '', semester: '',
     multichild: false, foreigner: false, independent: false, disabled: false, veteran: false,
+    multicultural: false, defector: false,
   })
+  // 학년 변경 — 1학년이 아니면 학기 선택값은 비운다(신입/재학 구분은 1학년에서만 의미)
+  const setGrade = (v) => setA((p) => ({ ...p, grade_year: v, semester: v === '1' ? p.semester : '' }))
   const set = (k, v) => setA((p) => ({ ...p, [k]: v }))
   const toggleInterest = (c) =>
     setA((p) => ({ ...p, interests: p.interests.includes(c) ? p.interests.filter((x) => x !== c) : [...p.interests, c] }))
@@ -117,6 +122,7 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
         age: a.age ? Number(a.age) : null,
         gpa: a.gpa === '' ? null : Number(a.gpa),
         grade_year: a.grade_year === '' ? null : Number(a.grade_year),
+        semester: a.semester === '' ? null : Number(a.semester),
       }
       const res = await matchScholarships(payload)
       setResult(res)
@@ -172,12 +178,19 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
               <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: isMobile ? '11px' : '14px' }}>
                 <RegionPicker label="본인 거주 지역" value={a.self_region} onChange={(v) => set('self_region', v)} selectCls={selectCls} />
                 <RegionPicker label="부모님 거주 지역" value={a.parent_region} onChange={(v) => set('parent_region', v)} selectCls={selectCls} />
-                <label className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1">
                   <span className="text-xs font-bold text-(--text-muted)">학년</span>
-                  <select className={selectCls} style={{ padding: '8px 10px' }} value={a.grade_year} onChange={(e) => set('grade_year', e.target.value)}>
+                  <select className={selectCls} style={{ padding: '8px 10px' }} value={a.grade_year} onChange={(e) => setGrade(e.target.value)}>
                     {GRADES.map((o) => <option key={o.v || 'none'} value={o.v}>{o.label}</option>)}
                   </select>
-                </label>
+                  {a.grade_year === '1' && (
+                    <select className={selectCls} style={{ padding: '8px 10px' }} value={a.semester} onChange={(e) => set('semester', e.target.value)}>
+                      <option value="">학기 선택 (신입/재학 구분)</option>
+                      <option value="1">1학기 (신입생)</option>
+                      <option value="2">2학기 (재학생)</option>
+                    </select>
+                  )}
+                </div>
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-bold text-(--text-muted)">학자금 지원구간</span>
                   <select className={selectCls} style={{ padding: '8px 10px' }} value={a.income} onChange={(e) => set('income', e.target.value)}>
