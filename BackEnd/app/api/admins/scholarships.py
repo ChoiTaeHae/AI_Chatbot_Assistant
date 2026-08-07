@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.Database import get_db
 from app.services.school.scholarship_catalog import (
     list_catalog_admin, create_catalog, update_catalog, delete_catalog, list_department_names,
+    get_category_order, set_category_order, set_scholarship_order,
 )
 
 router = APIRouter()
@@ -72,6 +73,33 @@ async def create_scholarship(body: ScholarshipIn, db: AsyncSession = Depends(get
     _validate(body)
     sid = await create_catalog(db, body.model_dump())
     return {"id": sid, "success": True}
+
+
+class CategoryOrderIn(BaseModel):
+    categories: list[str]      # 표시할 순서대로 카테고리 이름
+
+
+class ScholarshipOrderIn(BaseModel):
+    ids: list[int]             # 한 카테고리 안에서 표시할 순서대로 장학금 id
+
+
+# 표시 순서 라우트는 '/scholarships/{sid}'보다 먼저 선언해야 한다.
+# (먼저 선언된 {sid}가 'order'·'category-order'를 sid로 잡아 422가 나기 때문)
+@router.get("/scholarships/category-order", summary="카테고리 표시 순서 조회")
+async def read_category_order(db: AsyncSession = Depends(get_db)):
+    return {"categories": await get_category_order(db)}
+
+
+@router.put("/scholarships/category-order", summary="카테고리 표시 순서 저장")
+async def write_category_order(body: CategoryOrderIn, db: AsyncSession = Depends(get_db)):
+    await set_category_order(db, body.categories)
+    return {"success": True}
+
+
+@router.put("/scholarships/order", summary="카테고리 안 장학금 표시 순서 저장")
+async def write_scholarship_order(body: ScholarshipOrderIn, db: AsyncSession = Depends(get_db)):
+    n = await set_scholarship_order(db, body.ids)
+    return {"success": True, "updated": n}
 
 
 @router.put("/scholarships/{sid}", summary="장학금 수정")

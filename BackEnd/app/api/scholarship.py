@@ -29,6 +29,7 @@ class MatchRequest(BaseModel):
     gpa: float | None = None             # 학점(4.5) — 설문에서 직접 입력(자동 연동 안 함). None=무관
     grade_year: int | None = None        # 학년(1~4) — 설문에서 직접 선택(자동 연동 안 함). None=무관
     semester: int | None = None          # 학기(1|2) — 1학년일 때만 신입/재학 구분에 사용. None=미상(관대)
+    transfer: bool = False               # 편입생 여부 — 학년 요건 '편입' 판정용
     multichild: bool = False             # 다자녀 가정
     foreigner: bool = False              # 외국인/유학생
     disabled: bool = False               # 장애
