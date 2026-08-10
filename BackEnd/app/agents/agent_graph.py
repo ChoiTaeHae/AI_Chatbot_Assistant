@@ -897,6 +897,33 @@ async def _handle_scholarship(state: AgentState) -> dict:
     }
 
 
+# 근로장학 검수 Q&A도 국가장학금과 같은 방식(topic=work_study_faq)으로 Qdrant에 저장돼 있다.
+# work_study는 전용 핸들러가 없고 rag로 라우팅되므로, RAG 검색 전에 여기서 먼저 조회한다.
+_WORK_STUDY_FAQ_THRESHOLD = 0.81
+
+
+# 라우팅이 work_study가 아닐 때 쓰는 상향 임계값. 근로 질문은 '근무지는 내가 정해?'처럼
+# 토픽 프로토타입과 어휘가 안 겹쳐 welfare_facilities·drop_out 등으로 오분류되는 일이 잦다.
+# (rewrite가 '근무지' 같은 핵심어를 떨어뜨려 라우팅을 흔드는 경우도 있다.)
+# 그래서 rag 계열 토픽이면 어디로 갔든 검수 Q&A를 조회하되, 라우팅이 동의하지 않을 땐
+# 더 확실할 때만(0.88) 채택해 다른 토픽 질문을 가로채지 않게 한다.
+_WORK_STUDY_FAQ_STRICT = 0.88
+
+
+def _lookup_work_study_faq(question: str, threshold: float | None = None) -> str | None:
+    th = _WORK_STUDY_FAQ_THRESHOLD if threshold is None else threshold
+    try:
+        qv = rag_service.embedding.embed_text(question)
+        results = rag_service.vector_store.search(qv, topic="work_study_faq", limit=1)
+    except Exception as e:
+        print(f"[WorkStudy FAQ] 조회 실패(무시): {e}")
+        return None
+    if results and results[0].score >= th:
+        print(f"[WorkStudy FAQ] 매칭 {results[0].score:.3f} ≥ {th} → 원문 답변")
+        return results[0].text
+    return None
+
+
 async def _handle_rag_general(state: AgentState) -> dict:
     """RAG 검색 핸들러 — state["topic"]을 Qdrant 필터로 사용 (None이면 필터 없이 전체 검색)"""
     # topic=None은 '전체 검색' 의도다(학사일정 0건 폴백, 저신뢰 폴백 등). 여기서 "rag_general"로
@@ -904,6 +931,21 @@ async def _handle_rag_general(state: AgentState) -> dict:
     # 폴백들이 실제로는 좁게 검색하고 있었다. 기본값은 로그 라벨에만 쓴다.
     topic = state.get("topic")
     await _log(state["db"], state["student_id"], topic or "rag_general")
+
+    # 근로장학 검수 Q&A를 RAG 검색보다 먼저 조회 — 매칭되면 LLM 없이 원문 그대로(숫자·조건 변형 방지).
+    # 라우팅이 work_study가 아니어도 조회하되(오분류 구제), 그때는 상향 임계값을 적용한다.
+    # 검색은 rewrite된 문장이 아니라 학생이 실제로 친 원문(state["question"])으로 한다.
+    _th = _WORK_STUDY_FAQ_THRESHOLD if topic == "work_study" else _WORK_STUDY_FAQ_STRICT
+    loop = asyncio.get_event_loop()
+    verbatim = await loop.run_in_executor(None, _lookup_work_study_faq, state["question"], _th)
+    if verbatim:
+        return {
+            "answer": verbatim,
+            "next_pending_context": None,
+            "source": "work_study_faq",
+            "source_file": None,
+            "topic": "work_study",
+        }
 
     prev_prefix = _build_prev_prefix(state)
     enriched_question = prev_prefix + state["question"] if prev_prefix else None
