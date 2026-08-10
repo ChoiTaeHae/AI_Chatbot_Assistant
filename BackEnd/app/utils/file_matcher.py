@@ -143,13 +143,42 @@ def strip_files_tag(text: str) -> str:
     return text.strip()
 
 
+def strip_orphan_table_separators(text: str) -> str:
+    """답변에서 '표에 속하지 않은' 구분선만 지운다. 정상 표의 구분선은 반드시 남긴다.
+
+    답변 쪽에 strip_table_separators(전량 제거)를 쓰면 안 된다 — 구분선은 마크다운 표의
+    필수 문법이라, 지우는 순간 헤더행과 데이터행만 남아 표가 성립하지 않는다. 그러면
+    화면에는 '| 분야 | 동아리명 | … |'이 본문에 그대로 찍힌다(실측: 동아리 답변 파이프 노출).
+    SYSTEM_PROMPT 5번이 "복잡한 수치·날짜·절차는 마크다운 표를 적극 활용"하라고 지시하므로
+    이 증상은 동아리뿐 아니라 표를 그리는 어느 답변에서든 날 수 있었다.
+
+    전량 제거는 원래 로컬 8B용 처방이었다. 8B는 컨텍스트(PDF 표 유래)의 '|--|'를 흉내 내
+    표 없이 구분선만 뱉었는데, 그 잔해는 '바로 위에 헤더행이 없는 구분선'이라는 형태로
+    구별된다. 그래서 전량이 아니라 그 형태만 지운다 — 로컬 provider에서도 안전망이 유지되고,
+    Gemini가 만든 정상 표는 살아남는다.
+    """
+    if not text or "|" not in text:
+        return text
+    lines = text.split("\n")
+    out: list[str] = []
+    for line in lines:
+        if "|" in line and _is_separator_row(_row_cells(line)):
+            prev = out[-1] if out else ""
+            is_header = ("|" in prev and not _is_separator_row(_row_cells(prev))
+                         and len(_row_cells(prev)) == len(_row_cells(line)))
+            if not is_header:
+                continue                  # 표에 속하지 않은 떠돌이 구분선 → 제거
+        out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out))
+
+
 def clean_answer(text: str) -> str:
     """LLM 답변 최종 정리 — 화면에 새면 안 되는 잔해를 한 번에 제거한다.
 
-    컨텍스트 단에서 이미 표 구분선을 지우지만(rag_service), 모델이 스스로 표를 그리려다
-    '|--|'를 뱉는 경우가 있어 답변 쪽에도 같은 안전망을 둔다.
+    컨텍스트 단에서는 표 구분선을 전량 제거하지만(rag_service — 모델에 '복사할 표'를 아예
+    안 준다), 답변 쪽은 표를 살려야 하므로 떠돌이 구분선만 지운다(위 함수 설명 참조).
     """
-    return strip_files_tag(strip_table_separators(text))
+    return strip_files_tag(strip_orphan_table_separators(text))
 
 # 아래 세 값은 실제 bge-m3로 여러 케이스(휴학/장학금 등) 코사인 유사도를 측정해 정한 값 — 튜닝 가능.
 # _MIN_TOP_SCORE는 '질문' 기준 0.55였으나 '답변' 기준으로 바꾸며 0.60으로 올렸다.
