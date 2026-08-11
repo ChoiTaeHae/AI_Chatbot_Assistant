@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { matchScholarships, fetchMyScholarshipProfile } from '../../api/scholarship'
+import { matchScholarships, fetchMyScholarshipProfile, fetchScholarshipCategories } from '../../api/scholarship'
 import useIsMobile from '../../hooks/useIsMobile'
 
 const TEAL = 'var(--brand)'
@@ -73,11 +73,11 @@ const GRADES = [
   { v: '3', label: '3학년' },
   { v: '4', label: '4학년' },
 ]
-// 관심 유형 — 카탈로그의 실제 카테고리(선택 시 결과에서 앞으로 정렬)
-const INTERESTS = [
-  '성적 우수', '학업지원금(생활비)', '지자체', '학업장려금', '우수인재',
-  '학회·연구지원', '인재육성', '주거복지(주거지원) 장학금', '취·창업지원형', '취업연계형',
-]
+// 관심 유형 = 카탈로그의 실제 카테고리(선택한 유형만 결과에 나오는 필터).
+// 목록은 서버에서 받아온다 — 하드코딩하면 카테고리가 바뀔 때 '취업연계형'처럼
+// 아무 장학금도 없는 유령 항목이 남아 "골라도 결과가 그대로"인 상황이 생긴다.
+// '성적 우수'만 카테고리가 아니라 req_excellent 태그 필터라 맨 앞에 고정한다.
+const EXCELLENT = '성적 우수'
 // 예/아니오 토글 항목
 const FLAGS = [
   ['multichild', '다자녀 가정'],
@@ -98,9 +98,17 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
   const [result, setResult] = useState(null)  // { count, items, profile }
   const [myProfile, setMyProfile] = useState(null)  // 자동 연동 표시용 (설문 열 때 조회)
 
+  const [interestOpts, setInterestOpts] = useState([EXCELLENT])   // 관심 유형 칩 (서버 카테고리)
+
   // 설문 열자마자 내 학년·전공(학과명)·성적을 불러와 상단에 표시 (제출 전에도 보이게)
   useEffect(() => {
     fetchMyScholarshipProfile().then(setMyProfile).catch(() => {})
+    fetchScholarshipCategories()
+      .then((d) => {
+        const cats = (d.categories || []).map((c) => c.category).filter(Boolean)
+        setInterestOpts([EXCELLENT, ...cats])
+      })
+      .catch(() => {})   // 실패해도 '성적 우수'만으로 동작
   }, [])
 
   const [a, setA] = useState({
@@ -230,9 +238,9 @@ export default function ScholarshipSurveyModal({ onClose, onPick }) {
               </div>
 
               {/* 관심 유형 */}
-              <p className="text-xs font-bold text-(--text-muted)" style={{ marginTop: '18px', marginBottom: '8px' }}>관심 있는 유형 <span className="font-normal text-(--text-faint)">(여러 개 · 선택 시 위로 정렬)</span></p>
+              <p className="text-xs font-bold text-(--text-muted)" style={{ marginTop: '18px', marginBottom: '8px' }}>관심 있는 유형 <span className="font-normal text-(--text-faint)">(여러 개 · 고른 유형만 결과에 나와요 · 안 고르면 전체)</span></p>
               <div className="flex flex-wrap gap-2">
-                {INTERESTS.map((c) => {
+                {interestOpts.map((c) => {
                   const on = a.interests.includes(c)
                   return (
                     <button key={c} onClick={() => toggleInterest(c)} className="rounded-full border transition" style={{

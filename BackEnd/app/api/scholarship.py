@@ -14,6 +14,7 @@ from app.core.deps import get_current_user
 from app.models.DB_Table import Student, Department
 from app.services.school.scholarship_catalog import (
     get_catalog, get_scope_counts, get_kind_counts, match_scholarships,
+    build_scholarship_card,
 )
 
 router = APIRouter()
@@ -59,6 +60,29 @@ async def list_scholarships(
     except Exception:
         traceback.print_exc()
         raise HTTPException(status_code=503, detail="장학금 정보를 불러오지 못했어요.")
+
+
+# 학년·신분으로 나뉜 카테고리('수시 장학제도(신입생)'·'편입생 장학제도'·'유학생 장학제도' 등)는
+# '관심 유형'이 아니라 지원 자격 구분이다. 학년은 설문에서 따로 고르므로 칩으로 내보내면
+# 3학년이 '신입생 장학제도'를 골라 0건이 나오는 식으로 헷갈린다 → 설문 목록에서만 제외한다.
+# (채팅 카테고리 카드는 build_scholarship_card를 그대로 써서 영향 없음)
+_GRADE_CATEGORY_KEYWORDS = ("신입생", "재학생", "편입", "유학생")
+
+
+@router.get("/scholarships/categories", summary="맞춤 설문 '관심 유형' 목록 (실제 카테고리)")
+async def scholarship_categories(
+    db: AsyncSession = Depends(get_db),
+    current_user: Student = Depends(get_current_user),
+):
+    """설문의 관심 유형 칩을 DB 실제 카테고리로 채운다.
+    하드코딩하면 카테고리가 바뀔 때 '취업연계형'처럼 아무 장학금도 없는 유령 항목이 남는다.
+    학년·신분 구분 카테고리는 제외한다(학년은 설문의 '학년' 항목이 담당)."""
+    card = await build_scholarship_card(db)
+    card["categories"] = [
+        c for c in card["categories"]
+        if not any(k in (c.get("category") or "") for k in _GRADE_CATEGORY_KEYWORDS)
+    ]
+    return card
 
 
 @router.get("/scholarships/profile", summary="맞춤 설문 자동 연동 프로필 (학년·전공 등)")

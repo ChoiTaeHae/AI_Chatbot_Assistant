@@ -899,7 +899,11 @@ async def _handle_scholarship(state: AgentState) -> dict:
 
 # 근로장학 검수 Q&A도 국가장학금과 같은 방식(topic=work_study_faq)으로 Qdrant에 저장돼 있다.
 # work_study는 전용 핸들러가 없고 rag로 라우팅되므로, RAG 검색 전에 여기서 먼저 조회한다.
-_WORK_STUDY_FAQ_THRESHOLD = 0.81
+# 0.81은 낮았다 — '근로장학 하면 수업 빠져도 돼?'가 0.813으로 휴학 답변을 채택했다(확정 오답).
+# 그 질문은 상위 3개가 0.813/0.798/0.793으로 평평했다 = 정답이 없다는 신호.
+# 실측 19문항: 0.81 → 정답 9/11·오답 3/8, 0.85 → 정답 8/11·오답 0/8.
+# verbatim 경로는 LLM을 안 거쳐 오매칭이 곧 확정 오답이라, '놓침'보다 '틀린 답'이 훨씬 비싸다.
+_WORK_STUDY_FAQ_THRESHOLD = 0.85
 
 
 # 라우팅이 work_study가 아닐 때 쓰는 상향 임계값. 근로 질문은 '근무지는 내가 정해?'처럼
@@ -930,15 +934,16 @@ async def _handle_rag_general(state: AgentState) -> dict:
     # 메우면 실재하는 '일반학사' 토픽으로 필터링돼 의도와 정반대가 된다 — 전체 검색인 줄 알았던
     # 폴백들이 실제로는 좁게 검색하고 있었다. 기본값은 로그 라벨에만 쓴다.
     topic = state.get("topic")
-    await _log(state["db"], state["student_id"], topic or "rag_general")
 
     # 근로장학 검수 Q&A를 RAG 검색보다 먼저 조회 — 매칭되면 LLM 없이 원문 그대로(숫자·조건 변형 방지).
     # 라우팅이 work_study가 아니어도 조회하되(오분류 구제), 그때는 상향 임계값을 적용한다.
     # 검색은 rewrite된 문장이 아니라 학생이 실제로 친 원문(state["question"])으로 한다.
+    # _log는 이 조회 뒤에 한다 — 적중 시 실제로 답한 토픽(work_study)을 기록해야 통계가 안 어긋난다.
     _th = _WORK_STUDY_FAQ_THRESHOLD if topic == "work_study" else _WORK_STUDY_FAQ_STRICT
     loop = asyncio.get_event_loop()
     verbatim = await loop.run_in_executor(None, _lookup_work_study_faq, state["question"], _th)
     if verbatim:
+        await _log(state["db"], state["student_id"], "work_study")
         return {
             "answer": verbatim,
             "next_pending_context": None,
@@ -946,6 +951,8 @@ async def _handle_rag_general(state: AgentState) -> dict:
             "source_file": None,
             "topic": "work_study",
         }
+
+    await _log(state["db"], state["student_id"], topic or "rag_general")
 
     prev_prefix = _build_prev_prefix(state)
     enriched_question = prev_prefix + state["question"] if prev_prefix else None

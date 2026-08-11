@@ -369,7 +369,10 @@ async def match_scholarships(
     parent_region = (answers.get("parent_region") or "").strip()
     income = answers.get("income")
     interests = set(answers.get("interests") or [])
-    want_excellent = "성적 우수" in interests   # '성적 우수'는 정렬이 아니라 태그 필터로 동작
+    want_excellent = "성적 우수" in interests   # '성적 우수'는 카테고리가 아니라 req_excellent 태그 필터
+    # 나머지 관심 유형은 실제 카테고리명 → 고른 유형만 남기는 필터(선택 안 하면 전체).
+    # 예전엔 '우선 정렬'이라 골라도 결과가 그대로여서 학생이 필터가 고장 난 것으로 오해했다.
+    want_cats = {c for c in interests if c != "성적 우수"}
     age = answers.get("age")
     transfer = bool(answers.get("transfer"))    # 편입생 여부 — 학년 요건 '편입' 판정용
 
@@ -415,11 +418,10 @@ async def match_scholarships(
         # '성적 우수'는 태그 필터(양방향): 체크하면 성적우수 태그만, 체크 안 하면 성적우수 태그는 제외.
         if bool(r.req_excellent) != want_excellent:
             continue
+        # 관심 유형(카테고리) — 고른 게 있으면 그 카테고리만 남긴다.
+        if want_cats and (r.category or "기타") not in want_cats:
+            continue
         matched.append(r)
-
-    # 나머지 관심 유형(카테고리)은 '제외' 대신 '우선 정렬'(선택한 유형을 앞으로) — 놓침 방지 + 선호 반영.
-    if interests:
-        matched.sort(key=lambda r: 0 if (r.category or "기타") in interests else 1)
 
     files_map = await _load_files_map(db, [r.id for r in matched])
     return {"count": len(matched), "items": [_to_item(r, files_map.get(r.id, [])) for r in matched]}
