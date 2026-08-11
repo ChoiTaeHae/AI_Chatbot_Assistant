@@ -147,6 +147,28 @@ class ChatService:
         await db.commit()
         await db.refresh(asst_msg)
 
+        # 답하지 못한 질문은 관리자 검토 목록으로 넘긴다(FAQ 후보).
+        # 커밋 뒤에 기록하는 이유는 asst_msg.id를 함께 남기기 위해서다 — 관리자가 목록에서
+        # 원래 대화를 열어 맥락을 볼 수 있어야 답변을 제대로 쓸 수 있다.
+        #
+        # 판정은 반드시 '번역 전 원문'(result.answer)으로 한다. chat_message에 저장되는 것은
+        # 화면 언어로 번역된 문장이라, 영어·중국어로 물으면 한국어 '못 찾음' 표현이 하나도
+        # 걸리지 않아 수집이 통째로 새어 나간다.
+        #
+        # 기록은 INSERT 한 번뿐이라 여기 두어도 되지만, LLM 선별은 수백 ms가 걸리므로
+        # 응답을 보낸 뒤 백그라운드에서 돌린다(schedule_classify).
+        from app.services import faq_service
+        if faq_service.is_unanswered(result.answer, getattr(result, "source", None)):
+            _uid = await faq_service.record(
+                db, request.question,
+                rewritten=getattr(result, "rewritten_query", None),
+                topic=getattr(result, "topic", None),
+                student_id=current_user.id,
+                message_id=asst_msg.id,
+            )
+            await db.commit()
+            faq_service.schedule_classify(_uid)
+
         return ChatResponse(
             answer=localized_answer,   # 저장한 번역본과 동일 (번역 1회)
             session_id=session.id,

@@ -232,6 +232,24 @@ async def lifespan(app: FastAPI):
                 except Exception as _e:
                     print(f"[Server] CHECK 제약 {_name} 추가 실패(무시): {_e}")
 
+            # 미답변 질문의 옛 복합 유니크 인덱스 제거.
+            # (normalized, status) 유니크였을 때, LLM이 filtered로 걸러 낸 질문이 다시
+            # 들어오면 pending 행이 없어 새 행이 생기고 선별도 매번 다시 돌았다.
+            # 지금은 부분 유니크(uq_unanswered_open: status <> 'answered')로 바꿔
+            # 닫히지 않은 질문은 한 행만 두고 횟수만 올린다. create_all은 기존 인덱스를
+            # 지우지 않으므로 옛 인덱스를 여기서 직접 떨어뜨린다(남아 있으면 새 upsert가
+            # 옛 유니크에 걸려 실패한다).
+            # create_all은 '이미 있는 테이블'은 통째로 건너뛰므로 나중에 추가한 인덱스를
+            # 만들어 주지 않는다 — 여기서 직접 만든다(모델에도 선언해 두어 새 환경에서는
+            # create_all이 만들고, 기존 환경에서는 이 문장이 만든다).
+            try:
+                await conn.execute(text("DROP INDEX IF EXISTS uq_unanswered_pending"))
+                await conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_unanswered_open "
+                    "ON unanswered_question (normalized) WHERE status <> 'answered'"))
+            except Exception as _e:
+                print(f"[Server] 미답변 인덱스 정리 실패(무시): {_e}")
+
             # 옛 id % 3 더미로 박힌 전공계열을 학과 기준으로 바로잡는다.
             #   조건에 '값이 아직 더미 공식과 똑같은 행'만 넣는 이유
             #   학생이 마이페이지에서 직접 고른 값(학과 규칙이 못 맞추는 예외)을 기동할 때마다

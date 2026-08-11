@@ -36,3 +36,34 @@ export async function deleteFaq(id) {
 export async function reloadFaqIndex() {
   return _json(await authFetch(`${BASE}/faq/reload`, { method: 'POST' }), 'FAQ 인덱스 재적재 실패')
 }
+
+/* ── 미답변 질문 → FAQ 전환 ─────────────────────────────────────
+ * 챗봇이 답하지 못한 질문이 쌓이는 곳. 답변을 저장하면 그대로 FAQ가 되고
+ * 서버가 인덱스를 재적재해 다음 학생부터 바로 답을 받는다.
+ * status: pending(대기) / answered(전환됨) / ignored(제외) / filtered(자동 걸러짐)
+ */
+export async function fetchUnanswered(status = 'pending') {
+  return _json(
+    await authFetch(`${BASE}/faq/unanswered?status=${encodeURIComponent(status)}`),
+    '미답변 질문 조회 실패',
+  )
+}
+
+/** 사이드바 배지용 — { pending: number } */
+export async function fetchUnansweredCount() {
+  return _json(await authFetch(`${BASE}/faq/unanswered/count`), '미답변 건수 조회 실패')
+}
+
+export async function setUnansweredStatus(id, status) {
+  return _json(await authFetch(`${BASE}/faq/unanswered/${id}`, {
+    method: 'PATCH', headers: JSON_HEAD, body: JSON.stringify({ status }),
+  }), '상태 변경 실패')
+}
+
+/** answer = 검수 답변, extraQuestions = 질문 변형(표현이 달라도 잡히게 하는 핵심) */
+export async function answerUnanswered(id, answer, extraQuestions = []) {
+  return _json(await authFetch(`${BASE}/faq/unanswered/${id}/answer`, {
+    method: 'POST', headers: JSON_HEAD,
+    body: JSON.stringify({ answer, extra_questions: extraQuestions }),
+  }), '답변 저장 실패')
+}
