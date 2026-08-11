@@ -133,7 +133,9 @@ class ChatStatsResponse(BaseModel):
 # ── 서비스 설정 관련 ────────────────────────────────────
 class SettingsResponse(BaseModel):
     dev_mode: bool
-    model_path: str
+    llm_provider: str        # local(Bllossom) | vertex(Gemini) — 지금 답변을 만드는 쪽
+    llm_model: str           # provider에 맞는 실제 모델(경로 또는 모델명)
+    model_path: str          # 로컬 GGUF 경로 (provider=vertex여도 참고용으로 유지)
     device: str
     embedding_model: str
     embedding_device: str

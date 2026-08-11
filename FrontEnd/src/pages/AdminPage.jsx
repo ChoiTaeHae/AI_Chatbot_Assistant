@@ -870,7 +870,10 @@ export default function AdminPage() {
                 <div className="flex flex-col" style={{ gap: '8px' }}>
                   {[
                     { label: 'DEV MODE', value: settings.dev_mode ? 'true (LLM 스킵)' : 'false' },
-                    { label: '모델 경로', value: settings.model_path },
+                    /* 답변을 '지금 무엇이' 만드는지가 이 화면에서 가장 궁금한 값이라 맨 위에 둔다.
+                       예전엔 모델 경로만 있어서 vertex로 돌 때도 로컬 GGUF 경로가 떴다. */
+                    { label: '답변 생성', value: `${settings.llm_provider} · ${settings.llm_model}` },
+                    { label: '로컬 LLM 경로', value: settings.model_path },
                     { label: 'DEVICE', value: settings.device },
                     { label: '임베딩 모델', value: settings.embedding_model },
                     { label: '임베딩 DEVICE', value: settings.embedding_device },
