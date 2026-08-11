@@ -197,6 +197,41 @@ async def lifespan(app: FastAPI):
                 "WHERE gpa IS NOT NULL AND id NOT IN "
                 "(SELECT student_id FROM student_course WHERE student_id IS NOT NULL)"
             ))
+            # ── 값 범위 제약(CHECK) ──────────────────────────────────
+            # 지금까지 값 검증은 Pydantic(API 입구)에만 있었다. SQL로 직접 넣거나 스크립트로
+            # 넣으면 막을 것이 없어 DB가 마지막 방어선 역할을 못 했다.
+            #
+            # course.category가 특히 중요하다 — 졸업 학점 집계가 문자열 정확 일치에 의존한다.
+            #   earned_major = passed.get("전공필수") + passed.get("전공선택")
+            # '전공 필수'(공백 하나)처럼 어긋난 값이 들어가면 오류 없이 그 과목 학점이 0으로
+            # 계산된다. 학생은 학점이 왜 모자란지 알 수 없다 — 조용히 틀리는 유일한 경우다.
+            #
+            # ADD CONSTRAINT에는 IF NOT EXISTS가 없어 DO 블록으로 중복을 삼킨다(멱등).
+            # 제약을 어기는 데이터가 이미 있으면 ALTER 자체가 실패하므로, 실패해도 기동을
+            # 막지 않도록 개별로 감싼다(로그만 남기고 계속 — 기존 데이터 정리는 별도 작업).
+            _CHECKS = [
+                ("course", "ck_course_category",
+                 "category IN ('전공필수','전공선택','교양필수','교양선택','일반','트랙')"),
+                ("student", "ck_student_gpa",
+                 "gpa IS NULL OR (gpa >= 0 AND gpa <= 4.5)"),
+                ("student", "ck_student_grade_year",
+                 "grade_year IS NULL OR (grade_year >= 1 AND grade_year <= 4)"),
+                ("student", "ck_student_role",
+                 "role IN ('student','admin')"),
+                ("student", "ck_student_major_field",
+                 "major_field IS NULL OR major_field IN ('인문사회','예술체육','이공','의학계열')"),
+                ("department", "ck_department_major_field",
+                 "major_field IS NULL OR major_field IN ('인문사회','예술체육','이공','의학계열')"),
+            ]
+            for _tbl, _name, _expr in _CHECKS:
+                try:
+                    await conn.execute(text(
+                        f"DO $$ BEGIN "
+                        f"ALTER TABLE {_tbl} ADD CONSTRAINT {_name} CHECK ({_expr}); "
+                        f"EXCEPTION WHEN duplicate_object THEN NULL; END $$;"))
+                except Exception as _e:
+                    print(f"[Server] CHECK 제약 {_name} 추가 실패(무시): {_e}")
+
             # 옛 id % 3 더미로 박힌 전공계열을 학과 기준으로 바로잡는다.
             #   조건에 '값이 아직 더미 공식과 똑같은 행'만 넣는 이유
             #   학생이 마이페이지에서 직접 고른 값(학과 규칙이 못 맞추는 예외)을 기동할 때마다

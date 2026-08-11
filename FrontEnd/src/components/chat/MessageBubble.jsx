@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import MascotAvatar from '../common/MascotAvatar'
 import ScheduleCard from './ScheduleCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
@@ -408,8 +409,13 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
           className="rounded-2xl rounded-tl-sm border border-(--border) bg-(--surface-card) text-(--text) shadow-sm"
           style={{ padding: isMobile ? '12px 13px' : '16px 20px', fontSize: isMobile ? '14.5px' : '15px', lineHeight: '1.7' }}
         >
+          {/* remark-gfm이 있어야 표가 파싱된다. 없으면 react-markdown은 표 문법을 아예 모르고
+              '| 분야 | 동아리명 |' 이 그대로 본문에 찍힌다(실측: 동아리 답변에서 파이프 노출).
+              SYSTEM_PROMPT 5번이 "복잡한 수치·날짜·절차는 마크다운 표를 적극 활용"하라고
+              지시하고 있어, 이 플러그인이 없으면 어느 답변에서든 같은 증상이 날 수 있었다. */}
           <ReactMarkdown
             className="prose prose-slate max-w-none text-(--text)"
+            remarkPlugins={[remarkGfm]}
             components={{
               a: ({ href, children }) => (
                 <a href={href} target="_blank" rel="noopener noreferrer"
@@ -447,6 +453,45 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
               ),
               strong: ({ children }) => (
                 <strong style={{ fontWeight: 600, color: 'var(--text)' }}>{children}</strong>
+              ),
+              /* 표 — 여백·테두리를 전부 인라인으로 준다. 전역 `* { padding: 0 }`(index.css:105)이
+                 레이어 밖 규칙이라 Tailwind의 어떤 유틸리티보다 세서 클래스로는 여백이 안 먹는다.
+                 감싼 div의 가로 스크롤이 핵심: 요금표처럼 열이 많은 표가 말풍선 폭을 밀어내
+                 화면 전체가 가로로 흔들리는 것을 막는다(모바일에서 특히). */
+              table: ({ children }) => (
+                <div style={{ overflowX: 'auto', margin: '10px 0', maxWidth: '100%' }}>
+                  <table style={{
+                    borderCollapse: 'collapse',
+                    fontSize: isMobile ? '13px' : '13.5px',
+                    lineHeight: 1.5,
+                    minWidth: '100%',
+                  }}>
+                    {children}
+                  </table>
+                </div>
+              ),
+              th: ({ children }) => (
+                <th style={{
+                  padding: '7px 10px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text-muted)',
+                  fontWeight: 700,
+                  textAlign: 'left',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {children}
+                </th>
+              ),
+              td: ({ children }) => (
+                <td style={{
+                  padding: '7px 10px',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  verticalAlign: 'top',
+                }}>
+                  {children}
+                </td>
               ),
             }}
           >

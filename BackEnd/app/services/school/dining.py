@@ -607,9 +607,21 @@ def _dining_domain_hit(compact: str) -> bool:
             and any(r in compact for r in _MENU_REQUEST_STRONG))
 
 
+# 학식 '식당' 데이터로는 답할 수 없는 별개 사업·프로그램.
+# 학교 식당안내 표에는 식당별 메뉴·운영시간·가격 칸만 있어서, 이 낱말이 들어간 질문은
+# 도메인어 판정을 통과해도 엉뚱한 식당 운영시간으로 답하게 된다.
+# 실측: '천원의아침밥 몇 시부터야?' → 서캠퍼스 학생식당 운영시간(11:30~13:00)이 나갔다.
+# 정작 검수 FAQ에 '천원의아침밥 몇시부터야?'까지 등록돼 있는데, 학식 담당이 먼저
+# 가로채는 바람에 _faq_for_non_dining 게이트에 닿지 못했다.
+# 여기서 걸러 내면 호출부가 '학식 질문 아님'으로 보고 FAQ를 먼저 조회한다.
+_NOT_DINING_PROGRAMS = ("천원의아침", "천원아침", "1000원의아침", "1000원아침", "천원朝")
+
+
 def _looks_like_dining(question: str, prev_question: str | None = None) -> bool:
     """이 질문을 학식 데이터로 답하는 게 맞는지 확인한다."""
     compact = (question or "").replace(" ", "")
+    if any(p in compact for p in _NOT_DINING_PROGRAMS):
+        return False                    # 식당 단위 데이터로 답할 수 없는 사업 → FAQ/RAG로
     if _dining_domain_hit(compact):     # 도메인어 / 끼니어+요청어 / 날짜어+요청어
         return True
     if (any(a in compact for a in _AMBIGUOUS_ALIASES)

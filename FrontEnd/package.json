@@ -15,6 +15,7 @@
     "react-dom": "^19.2.6",
     "react-markdown": "^9.0.1",
     "react-router-dom": "^7.16.0",
+    "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {

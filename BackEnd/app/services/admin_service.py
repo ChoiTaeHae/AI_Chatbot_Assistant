@@ -162,13 +162,27 @@ class AdminService:
 
     # ── 서비스 설정 ─────────────────────────────────────────
     def get_settings(self) -> SettingsResponse:
+        """서버가 '지금 실제로' 쓰고 있는 설정을 보여준다(읽기 전용).
+
+        예전에는 .env 값을 그대로 나열해, 화면과 실제 동작이 어긋나는 항목이 둘 있었다.
+          · Qdrant 컬렉션: QDRANT_COLLECTION('school_documents')을 보여줬지만 HYBRID_SEARCH가
+            켜져 있으면 실제로는 HYBRID_COLLECTION을 쓴다. 관리자가 화면의 이름으로 컬렉션을
+            찾으면 없다(실측: 404 Collection doesn't exist). 컬렉션 선택 규칙은
+            settings.active_collection 한 곳에만 두고 여기서도 그걸 읽는다(qdrant_store와 동일).
+          · 답변 생성 모델: MODEL_PATH(로컬 GGUF)만 보여줘, LLM_PROVIDER=vertex로 돌 때도
+            쓰지 않는 파일 경로가 떴다. 무엇이 답변을 만드는지 화면만 봐선 알 수 없었다.
+        """
+        provider = (settings.LLM_PROVIDER or "local").lower()
         return SettingsResponse(
             dev_mode=settings.DEV_MODE,
+            llm_provider=provider,
+            # 실제로 답변을 생성하는 모델 — provider에 따라 읽는 값이 다르다.
+            llm_model=(settings.GEMINI_MODEL if provider == "vertex" else settings.MODEL_PATH),
             model_path=settings.MODEL_PATH,
             device=settings.DEVICE,
             embedding_model=settings.EMBEDDING_MODEL,
             embedding_device=settings.EMBEDDING_DEVICE,
-            qdrant_collection=settings.QDRANT_COLLECTION,
+            qdrant_collection=settings.active_collection,
             rag_top_k=settings.RAG_TOP_K,
         )
 

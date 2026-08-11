@@ -644,9 +644,26 @@ async def _handle_no_data(state: AgentState) -> dict:
     }
 
 
+# 위치를 묻는 신호. 위치 검색이 실패했을 때 '건물명을 다시 입력해 달라'는 안내를
+# 내보내도 되는지 가른다.
+_LOCATION_INTENT = ("어디", "위치", "찾아가", "가는 법", "가는길", "가는 길",
+                    "몇 층", "몇층", "층에", "어느 건물", "어떻게 가")
+
+
 async def _handle_campus(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "campus")
     result = await _campus_service.search_location(state["question"])
+    # 위치를 못 찾았을 때는 두 경우를 갈라야 한다.
+    #  (1) 진짜 위치 질문인데 건물명을 못 알아들음 → 건물명을 다시 물어보는 안내가 맞다.
+    #  (2) 위치 질문이 아닌데 라우터가 campus로 보냄 → 그 안내가 질문과 동떨어져 혼란만 준다.
+    #      실측: '우송대는 어떤 학교야?'(campus 0.719) → "건물명, 학과명, 강의실 번호를
+    #      조금 더 정확하게 입력해주세요"가 나갔다. 학교 소개를 물었는데 건물명을 되묻는 꼴이다.
+    # (2)는 dining이 쓰는 폴백과 같은 처리를 한다 — 전체 검색으로 한 번 더 찾아보되
+    # 근거가 약하면 답을 만들지 않고 '못 찾음'으로 끝낸다(검수 FAQ가 있으면 그게 이긴다).
+    if not result.get("found"):
+        q = state.get("question", "")
+        if not any(k in q for k in _LOCATION_INTENT):
+            return await _rag_fallback_guarded(state, "위치 질문 아님")
     return {
         "answer": result.get("answer", "위치 정보를 찾을 수 없습니다."),
         "map_card": result.get("map_card") if result.get("found") else None,
