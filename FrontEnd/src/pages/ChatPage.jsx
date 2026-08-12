@@ -19,7 +19,7 @@ const LANGUAGES = [
 ]
 
 const T = {
-  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', mypage: '마이페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기' },
+  ko: { title: 'AI 캠퍼스 코치', admin: '관리자 페이지', mypage: '마이페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기' },
   en: { title: 'AI Assistant',   admin: 'Admin Page',    mypage: 'My Page',  logout: 'Logout',   grad: '🎓 My Graduation Status', menu: 'Open menu' },
   zh: { title: 'AI助手',          admin: '管理员页面',      mypage: '我的页面', logout: '退出登录',  grad: '🎓 我的毕业进度', menu: '打开菜单' },
 }

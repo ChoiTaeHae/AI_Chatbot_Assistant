@@ -66,7 +66,7 @@ export default function LoginPage() {
         {/* 타이틀 */}
         <div className="text-center">
           <h1 className="break-keep font-black leading-snug text-(--text)" style={{ fontSize: 'clamp(1.15rem, 3.2vh, 1.6rem)' }}>
-            우송대학교 학사 지원<br />AI 어시스턴트 시스템
+            우송대학교 학사 지원<br />AI 캠퍼스 코치 시스템
           </h1>
           <p className="font-medium text-(--text-faint)" style={{ fontSize: 'clamp(11.5px, 1.7vh, 14px)', lineHeight: 1.5, marginTop: 'clamp(8px, 1.6vh, 16px)' }}>
             RAG 기반 LLM 엔진·정보 검색 및 맞춤형 학사 지원 서비스
