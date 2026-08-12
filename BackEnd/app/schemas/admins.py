@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from datetime import datetime
 from datetime import date
@@ -318,3 +318,42 @@ class FaqUpdateRequest(BaseModel):
 
 class FaqReloadResponse(BaseModel):
     count: int
+
+
+# ── 미답변 질문 ────────────────────────────────────────────────
+class UnansweredItem(BaseModel):
+    id: int
+    question: str
+    rewritten: Optional[str] = None
+    topic: Optional[str] = None
+    occurrences: int
+    status: str
+    is_academic: Optional[bool] = None      # None = 아직 선별 전이거나 선별 실패
+    triage_reason: Optional[str] = None
+    student_id: Optional[int] = None
+    faq_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+class UnansweredCountResponse(BaseModel):
+    pending: int
+
+
+class UnansweredStatusRequest(BaseModel):
+    status: Literal["pending", "ignored", "filtered"]
+
+
+class UnansweredAnswerRequest(BaseModel):
+    # 상한을 두는 이유 — 이 답변은 검수를 거치지 않고 학생에게 그대로 나가고, 질문 변형은
+    # 하나하나가 FAQ 인덱스의 임베딩 항목이 된다. 개수 제한이 없으면 실수로 대량 입력했을 때
+    # 인덱스가 비대해지고 조회가 느려진다.
+    answer: str = Field(..., min_length=1, max_length=4000)
+    # 학생은 등록된 문장 그대로 묻지 않는다. 원 질문 외에 표현 변형을 함께 받아야
+    # 다음에 조금 다르게 물어도 같은 FAQ가 잡힌다.
+    extra_questions: list[str] = Field(default_factory=list, max_length=20)
+
+
+class UnansweredAnswerResponse(BaseModel):
+    faq_id: int
+    question_count: int
+    reloaded: int                            # 재적재된 FAQ 질문 수

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MascotAvatar from '../components/common/MascotAvatar'
 import { useAuth } from '../store/AuthContext'
@@ -13,6 +13,8 @@ import ScheduleManager from '../components/admin/ScheduleManager'
 import ScholarshipManager from '../components/admin/ScholarshipManager'
 import DepartmentManager from '../components/admin/DepartmentManager'
 import FaqManager from '../components/admin/FaqManager'
+import { fetchUnansweredCount } from '../api/admins/faq'
+import NotificationPanel from '../components/admin/NotificationPanel'
 import ThemeToggle from '../components/common/ThemeToggle'
 
 // 파일 관리 탭에서 숨길 topic — 장학금 파일은 '장학금 관리' 화면에서 전용 관리
@@ -71,7 +73,7 @@ const NAV_ITEMS = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
     </svg>
   )},
-  { id: 'faqs', label: 'FAQ 관리', icon: (
+  { id: 'faqs', label: 'FAQ 관리', badge: 'unanswered', icon: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
     </svg>
@@ -107,6 +109,9 @@ function StatusBadge({ status, color }) {
 
 export default function AdminPage() {
   const [activeNav, setActiveNav] = useState('documents')
+  const [unansweredCount, setUnansweredCount] = useState(0)   // 사이드바·종 배지
+  const [faqTab, setFaqTab] = useState('faqs')                // FAQ 화면의 탭
+  const [notifOpen, setNotifOpen] = useState(false)           // 헤더 알림 팝업
   const [searchText, setSearchText] = useState('')
   const [docTitle, setDocTitle] = useState('')
   const [documents, setDocuments] = useState([])
@@ -187,6 +192,7 @@ export default function AdminPage() {
 
   const fileInputRef = useRef(null)
   const profileRef = useRef(null)
+  const notifRef = useRef(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const { user, clearUser } = useAuth()
   const navigate = useNavigate()
@@ -195,6 +201,37 @@ export default function AdminPage() {
   useEffect(() => {
     fetchTopics().then(setTopicLabels).catch(console.error)
   }, [])
+
+  /* 미답변 대기 건수 — 다른 메뉴를 보고 있어도 배지가 보여야 하므로 화면 진입 시 한 번 읽는다.
+     실패는 무시한다(배지가 안 뜰 뿐, 관리자 화면 전체를 막을 이유가 없다). */
+  const loadUnansweredCount = useCallback(async () => {
+    try {
+      const r = await fetchUnansweredCount()
+      setUnansweredCount(r.pending ?? 0)
+    } catch { /* 배지는 부가 정보라 조용히 넘어간다 */ }
+  }, [])
+
+  /* 미답변 대기 건수 폴링.
+     한 번만 읽으면 화면을 켜 둔 사이 새로 들어온 질문이 보이지 않아 '알림'이 되지 못한다.
+     학사 챗봇이라 초 단위로 급할 일이 없어 30초로 둔다(가벼운 GET 하나).
+     탭이 백그라운드면 쉰다 — 브라우저가 타이머를 늦추기도 하고 안 보는 화면을 갱신할
+     이유도 없다. 돌아오면 visibilitychange에서 즉시 한 번 읽는다(MyPage와 같은 방식). */
+  useEffect(() => {
+    let timer
+    const tick = () => {
+      if (document.visibilityState === 'visible') loadUnansweredCount()
+      timer = setTimeout(tick, 30000)
+    }
+    tick()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadUnansweredCount()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [loadUnansweredCount])
 
   async function loadTopicList() {
     try {
@@ -254,11 +291,17 @@ export default function AdminPage() {
     if (activeNav === 'topics') loadTopicList()
   }, [activeNav])
 
-  // 프로필 드롭다운 바깥 클릭 시 닫기
+  // 프로필·알림 드롭다운 바깥 클릭 시 닫기
   useEffect(() => {
     function handleClickOutside(e) {
       if (profileRef.current && !profileRef.current.contains(e.target)) {
         setProfileOpen(false)
+      }
+      // 답변 모달은 팝업 밖(포털 아닌 형제)에 그려지므로, 모달 안을 클릭했을 때
+      // 팝업이 닫히면 모달만 남아 맥락이 사라진다 → 모달이 열려 있으면 건드리지 않는다.
+      if (notifRef.current && !notifRef.current.contains(e.target)
+          && !document.querySelector('[data-answer-modal]')) {
+        setNotifOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -586,7 +629,13 @@ export default function AdminPage() {
               style={{ gap: '12px', padding: '10px 14px' }}
             >
               {item.icon}
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.badge === 'unanswered' && unansweredCount > 0 && (
+                <span className="rounded-full font-bold text-white shrink-0"
+                      style={{ background: 'var(--danger-text)', fontSize: '11px', padding: '2px 7px' }}>
+                  {unansweredCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -626,6 +675,42 @@ export default function AdminPage() {
         <header className="shrink-0 bg-(--surface-card) border-b border-(--border) flex items-center justify-between relative z-50" style={{ padding: '16px 32px' }}>
           <h1 className="text-lg font-black text-(--text) truncate min-w-0">우송대 AI 캠퍼스 코치 - 문서 관리 포털</h1>
           <div className="flex items-center shrink-0" style={{ gap: '16px' }}>
+            {/* 알림 종 — 미답변 질문이 있을 때만 빨간 점이 붙는다.
+                누르면 FAQ 관리의 '미답변 질문' 탭으로 바로 들어간다. */}
+            <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => setNotifOpen(v => !v)}
+              className="relative rounded-xl hover:bg-(--surface-2) transition"
+              style={{ padding: '8px' }}
+              title={unansweredCount > 0
+                ? `답변을 기다리는 질문 ${unansweredCount}건`
+                : '미답변 질문 없음'}
+              aria-label={unansweredCount > 0
+                ? `미답변 질문 ${unansweredCount}건`
+                : '미답변 질문 없음'}
+            >
+              <svg className="h-5 w-5 text-(--text-faint)" fill="none" viewBox="0 0 24 24"
+                   stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+              </svg>
+              {unansweredCount > 0 && (
+                <span className="absolute rounded-full"
+                      style={{
+                        top: '6px', right: '6px', width: '9px', height: '9px',
+                        background: 'var(--danger-text)',
+                        border: '2px solid var(--surface-card)',
+                      }} />
+              )}
+            </button>
+            {notifOpen && (
+              <NotificationPanel
+                onClose={() => setNotifOpen(false)}
+                onCountChange={loadUnansweredCount}
+                onOpenList={() => { setActiveNav('faqs'); setFaqTab('unanswered') }}
+              />
+            )}
+            </div>
             <ThemeToggle className="text-(--text-faint) hover:text-(--text-muted) transition" />
             {/* 프로필 드롭다운 */}
             <div className="relative" ref={profileRef}>
@@ -711,7 +796,9 @@ export default function AdminPage() {
           {/* FAQ 관리 — 저장 시 서버가 메모리 인덱스를 자동 재적재한다 */}
           {activeNav === 'faqs' && (
             <div className="flex-1 flex flex-col min-h-0" style={{ gap: '20px' }}>
-              <FaqManager />
+              <FaqManager tab={faqTab} onTabChange={setFaqTab}
+                          pendingCount={unansweredCount}
+                          onCountChange={loadUnansweredCount} />
             </div>
           )}
 

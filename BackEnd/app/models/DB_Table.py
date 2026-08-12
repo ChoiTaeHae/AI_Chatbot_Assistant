@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime, Boolean, Text, Index, LargeBinary, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, JSON, Date, DateTime, Boolean, Text, Index, LargeBinary, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -487,4 +487,57 @@ class ScholarshipFile(Base):
         Index("uq_scholarship_file_pair", "scholarship_id", "document_file_id", unique=True),
         Index("ix_scholarship_file_scholarship", "scholarship_id"),
         Index("ix_scholarship_file_document", "document_file_id"),  # 파일→연결된 장학금들 역조회
+    )
+
+
+# ==========================================
+# 25. 미답변 질문 (unanswered_question)
+# ==========================================
+# 챗봇이 답하지 못한 질문을 모아 관리자에게 넘긴다. 관리자가 답변을 작성하면 FAQ가 되고,
+# 저장 즉시 인메모리 인덱스가 재적재돼 다음 학생부터 바로 답을 받는다(순환 구조).
+#
+# 왜 chat_message로 충분하지 않은가
+#   대화 로그에는 '무엇을 답했나'만 남고 '처리했나'가 없다. 관리자가 어디까지 봤는지,
+#   무시하기로 한 질문이 무엇인지 추적하려면 상태를 가진 별도 행이 필요하다.
+#
+# occurrences — 같은 질문이 몇 번 들어왔는지. 관리자가 많이 물어본 것부터 답하게 하는 유일한
+#   신호라서 목록의 기본 정렬 기준이다. 1명이 물은 것과 10명이 물은 것을 구분 못 하면
+#   목록이 길어질수록 우선순위를 잃는다.
+class UnansweredQuestion(Base):
+    __tablename__ = "unanswered_question"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    question    = Column(Text, nullable=False)                  # 학생이 실제로 친 원문
+    normalized  = Column(String(500), nullable=False)           # 중복 판정용(공백·문장부호 제거)
+    rewritten   = Column(Text, nullable=True)                   # 검색용 재작성 질의 — 관리자가 답변 쓸 때 힌트
+    topic       = Column(String(50), nullable=True)             # 어디로 라우팅됐나 (오라우팅 진단용)
+    student_id  = Column(Integer, ForeignKey("student.id", ondelete="SET NULL"), nullable=True)
+    message_id  = Column(Integer, ForeignKey("chat_message.id", ondelete="SET NULL"), nullable=True)
+    occurrences = Column(Integer, nullable=False, server_default="1")
+
+    # pending: 관리자 확인 대기 / answered: FAQ로 전환됨 / ignored: 관리자가 제외
+    # filtered: LLM 선별에서 학사 무관·부적절로 걸러짐(자동, 감사 목적으로 지우지 않고 남긴다)
+    status      = Column(String(20), nullable=False, server_default="pending")
+    faq_id      = Column(Integer, ForeignKey("faq.id", ondelete="SET NULL"), nullable=True)
+
+    # LLM 선별 결과. None이면 아직 분류 전(분류 실패 시에도 None으로 남아 목록에는 보인다).
+    is_academic   = Column(Boolean, nullable=True)
+    triage_reason = Column(String(200), nullable=True)
+
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        # 아직 닫히지 않은(answered가 아닌) 질문은 normalized 하나당 한 행만 둔다.
+        #
+        # (normalized, status) 복합 유니크였을 때 두 가지가 깨졌다.
+        #   · LLM이 filtered로 걸러 낸 질문이 다시 들어오면 pending 행이 없어 새 행이 생기고
+        #     LLM을 또 부른다 → 같은 무의미 입력이 반복되면 행과 호출이 무한히 쌓인다.
+        #   · 상태별로 유니크라 같은 질문이 pending·filtered·ignored에 동시에 존재할 수 있다.
+        #
+        # answered만 예외로 두는 이유 — 답변을 등록했는데도 또 못 찾았다면 그건 이미 해결한
+        # 질문이 아니라 새로운 문제다(등록한 답변이 매칭되지 않는다는 신호).
+        Index("uq_unanswered_open", "normalized", unique=True,
+              postgresql_where=text("status <> 'answered'")),
+        Index("ix_unanswered_status_created", "status", "created_at"),
     )
