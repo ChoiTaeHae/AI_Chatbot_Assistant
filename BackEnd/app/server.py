@@ -53,6 +53,57 @@ async def _load_topics() -> list[dict]:
         ]
 
 
+async def _seed_my_grades_topic() -> None:
+    """'내 성적 조회' 라우팅 topic을 없으면 만든다(멱등).
+
+    이 topic엔 Qdrant 문서가 없다 — 답은 학생의 수강 이력(student_course)에서 나온다.
+    라우터에 등록해 두는 이유는 두 가지다.
+      · 키워드 fast-path가 놓친 표현('나 성적 어때?')을 임베딩이 받아 준다.
+      · 후속 질문('2학기는?')이 이전 topic 유지(stickiness)로 같은 핸들러에 남는다.
+    문장은 어드민 'topic 관리'에서 편집할 수 있고, 여기 기본값은 최초 1회만 쓰인다.
+    """
+    from sqlalchemy import select
+    from app.core.Database import AsyncSessionLocal
+    from app.models.DB_Table import Topic
+
+    # 문장은 전부 '성적표를 달라'는 쪽으로 고정한다. '내 학점 얼마나 들었어?'처럼 학점만
+    # 말하는 문장은 넣지 않는다 — graduation의 '내 졸업학점 얼마나 남았어?'와 임베딩이 겹쳐
+    # 졸업 잔여학점 질문을 이 토픽이 가로챈다(키워드 게이트에서 실제로 적발된 충돌).
+    sentences = [
+        "내 성적 알려줘",
+        "내 성적표 보여줘",
+        "2학년 1학기 과목별 성적 알려줘",
+        "1학년 2학기에 뭐 들었는지 알려줘",
+        "이번 학기 성적 보여줘",
+        "지난 학기 평점 얼마야?",
+        "제 평점평균이 몇 점인가요?",
+        "학기별 평점 정리해서 보여줘",
+        "학기별 성적 정리해서 보여줘",
+        "3학년 1학기 성적표 보여줘",
+        "2025년 2학기 성적 알려줘",
+        "내가 A+ 받은 과목 뭐야?",
+        "전공 과목 성적 알려줘",
+        "자료구조 성적 몇 점이야?",
+        "내 수강 이력 보여줘",
+        "내가 들은 과목 목록 보여줘",
+        "학년별로 평점 어떻게 되는지 알려줘",
+        "여름학기에 들은 과목 알려줘",
+    ]
+
+    async with AsyncSessionLocal() as session:
+        exists = (await session.execute(
+            select(Topic).where(Topic.name == "my_grades"))).scalar_one_or_none()
+        if exists:
+            return
+        session.add(Topic(
+            name="my_grades", label="내 성적 조회", handler_type="my_grades",
+            sentences=sentences, is_system=True, is_active=True,
+            description="본인 수강 이력(student_course)으로 학기별 과목·등급·평점을 답한다. RAG 미사용.",
+        ))
+        await session.commit()
+        print("[Server] topic 'my_grades' 시딩 완료")
+
+
 async def _load_schedule_gate() -> None:
     """학사일정 게이트 키워드를 app_config(key=schedule_gate)에서 로드. 없으면 기본값 시딩."""
     from sqlalchemy import select
@@ -367,7 +418,11 @@ async def lifespan(app: FastAPI):
     # ── 임베딩 인스턴스 공유 ──────────────────────────────
     topic_router._embedding = rag_service.embedding
 
-    # DB에서 활성 topic 로드
+    # DB에서 활성 topic 로드 (신규 topic 시딩을 먼저 — 첫 기동부터 라우팅에 반영되도록)
+    try:
+        await _seed_my_grades_topic()
+    except Exception as e:
+        print(f"[Server] my_grades topic 시딩 실패 (무시): {e}")
     topic_data = await _load_topics()
     print(f"[Server] {len(topic_data)}개 topic 로드 완료")
 
