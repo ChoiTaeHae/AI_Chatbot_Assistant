@@ -4,9 +4,12 @@ RAG도 LLM도 타지 않는다. 성적은 학생 본인의 사실 데이터라, 
 하나가 흔들리면 그대로 오답이 된다(졸업 학점 현황·학식 안내와 같은 원칙). 표는 코드로 만든다.
 
 '몇 학년 몇 학기'는 DB에 없다 — 포털의 '전체 기이수성적' 엑셀에는 년도(2025)와 학기(1학기)만
-있다. 그래서 정규학기(1·2학기)를 오래된 순으로 세어 학년·학기를 붙인다. 휴학한 기간은 등록을
-안 해 행 자체가 없어 세어지지 않으므로, '이수한 정규학기 수 = 학년·학기'라는 학사 상식과
-맞아떨어진다. 계절학기(여름·겨울)는 학년을 올리지 않으니 직전 정규학기의 학년에 매단다.
+있다. 그래서 '등록한 학년도의 순번'을 학년으로 쓴다. 첫 해가 1학년, 다음 등록한 해가 2학년이며
+한 해 안의 1학기·2학기·계절학기는 모두 같은 학년이다. 휴학해 등록하지 않은 해는 행이 없어
+자연히 건너뛰어진다.
+
+정규학기 개수를 2로 나누는 방식은 쓰지 않는다. 한 학기만 이수한 해가 있으면 그 뒤의 학년
+경계가 반 학기씩 밀려 같은 학년도의 1·2학기가 다른 학년으로 갈린다(실측 사례는 _build_terms 참조).
 
 이 매핑이 이 서비스에서 유일하게 '추정'이 섞이는 지점이라, 답변에는 항상
 '2학년 1학기 (2025년 1학기)'처럼 실제 년도·학기를 함께 적는다 — 어긋났을 때 학생이 바로
@@ -185,27 +188,36 @@ async def _load_rows(db: AsyncSession, student_id: int) -> tuple[list[dict], int
 def _build_terms(rows: list[dict]) -> list[dict]:
     """(년도, 학기)를 오래된 순으로 정렬하고 학년·학기 라벨을 붙인다.
 
-    정규학기만 학년을 올린다. 계절학기는 직전 정규학기의 학년에 매단다
-    ('1학년 2학기' 다음 여름학기는 여전히 1학년이다).
+    학년은 '이수한 학년도의 순번'이다. 등록한 해를 오래된 순으로 세어 첫 해가 1학년,
+    다음 해가 2학년이 된다. 한 해 안의 1학기·2학기·계절학기는 모두 같은 학년이다.
+
+    정규학기 개수를 2로 나누는 방식이면 안 된다. 그러면 한 학기만 이수한 해가 있을 때
+    그 뒤의 학년 경계가 반 학기씩 밀려, 같은 학년도의 1학기와 2학기가 다른 학년으로 갈린다.
+    실측(김철수, 2024년 1학기만 이수):
+        2025년 1학기 → '2학년 2학기' / 2025년 2학기 → '3학년 1학기'
+    같은 해인데 학년이 바뀌어 버렸다. 학년은 학년도 단위로 오르므로 이는 사실과 다르다.
+    학년도로 세면 2025년의 두 학기가 함께 3학년이 된다.
+
+    휴학해 등록하지 않은 해는 행이 없어 자연히 건너뛰어진다 — 학년은 등록한 해만 오른다.
     """
     keys = sorted({(r["year"], r["semester"]) for r in rows},
                   key=lambda k: (k[0], _TERM_RANK.get(k[1], 9), k[1]))
 
+    # 등록한 학년도 → 학년. 첫 해가 1학년.
+    grade_of_year = {y: i + 1 for i, y in enumerate(sorted({k[0] for k in keys}))}
+
     terms: list[dict] = []
-    done = 0                     # 지금까지 이수한 정규학기 수
-    cur_grade = 1                # 계절학기가 매달릴 학년
     for year, sem in keys:
+        grade = grade_of_year[year]
         if sem in _REGULAR_TERMS:
-            done += 1
-            cur_grade = (done - 1) // 2 + 1
-            no = (done - 1) % 2 + 1
-            label = f"{cur_grade}학년 {no}학기"
+            no = 1 if sem == "1학기" else 2
+            label = f"{grade}학년 {no}학기"
         else:
             no = None
-            label = f"{cur_grade}학년 {sem}"
+            label = f"{grade}학년 {sem}"
         terms.append({
             "year": year, "semester": sem,
-            "grade_year": cur_grade, "term_no": no,
+            "grade_year": grade, "term_no": no,
             "label": label,
             "full_label": f"{label} ({year}년 {sem})",
             "rows": [r for r in rows if r["year"] == year and r["semester"] == sem],
