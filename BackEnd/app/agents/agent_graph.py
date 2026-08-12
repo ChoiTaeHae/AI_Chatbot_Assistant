@@ -25,6 +25,11 @@ from app.services.school.campus import CampusService, has_building_hit, building
 from app.services.school.department import answer_department_question
 from app.services.school.dining import answer_dining_question_with_meta
 from app.services.school.graduation import graduation_service
+from app.services.school.my_grades import (
+    my_grades_service,
+    is_my_grades_question as _is_my_grades_question,
+    is_grade_fragment as _is_grade_fragment,
+)
 from app.services.school.schedule import schedule_service
 from app.services.school.rag_general import answer_rag_general_question_with_metadata, _rewrite_query, _distinctive_terms
 from app.services.rag_service import rag_service
@@ -41,7 +46,7 @@ _SWITCH_MARGIN = 0.15
 
 # prev_topic이 RAG 토픽(_proto_vecs)이 아니라 핸들러명으로 저장되는 경우
 # (graduation/campus/general/scholarship 핸들러의 topic은 DB RAG 토픽이 아님)
-_NON_RAG_HANDLERS = {"campus", "graduation", "scholarship", "schedule", "general"}
+_NON_RAG_HANDLERS = {"campus", "graduation", "scholarship", "schedule", "general", "my_grades"}
 
 _BUILDING_CODE_RE = re.compile(r'^[WwEeSs]\d{1,2}$')
 
@@ -597,6 +602,14 @@ def _is_personal_timetable(question: str) -> bool:
             and any(d in compact for d in _TIMETABLE_DATE))
 
 
+# ── 내 성적 조회: 문서가 아니라 학생 본인의 수강 이력이 답인 질문 ──────────
+# grades 토픽엔 성적 '제도' 문서(이의신청·학점포기·학사경고)만 있어서, '2학년 1학기 성적
+# 알려줘'를 검색에 태우면 제도 문서를 근거로 엉뚱한 답을 만든다. 개인 데이터가 답인 질문은
+# 검색 전에 갈라 전용 핸들러로 보낸다(개인 시간표 게이트와 같은 원리 — 다만 이쪽은 답이 있다).
+# 판정 규칙 자체는 services/school/my_grades.py에 모아 두었다(파일 상단에서 import) —
+# 핸들러의 재검증(looks_personal)과 같은 규칙을 써야, 한쪽만 고쳐 두 판정이 어긋나지 않는다.
+
+
 async def _keyword_classify(state: AgentState) -> dict:
     """규칙 기반 fast-path 분류 (0ms) — campus 건물코드 / 학사일정 날짜질문 / 개인 시간표"""
     if _is_campus_question(state["question"]):
@@ -618,6 +631,15 @@ async def _keyword_classify(state: AgentState) -> dict:
     if _is_schedule_date_question(state["question"]):
         print("[Graph] 키워드 분류 → schedule (날짜 질문 fast-path)")
         return {"intent": "schedule", "topic": "schedule"}
+    # 학사일정보다 뒤에 둔다 — '성적 언제 나와?'는 날짜 질문이라 달력이 답이고,
+    # '2학년 1학기 성적 알려줘'는 날짜 의도어가 없어 위 게이트에 걸리지 않는다.
+    if _is_my_grades_question(state["question"]):
+        print("[Graph] 키워드 분류 → my_grades (본인 수강 이력 조회)")
+        return {"intent": "my_grades", "topic": "my_grades"}
+    _prev = state.get("prev_context") or {}
+    if _prev.get("prev_topic") == "my_grades" and _is_grade_fragment(state["question"]):
+        print("[Graph] 키워드 분류 → my_grades (직전 성적 조회의 학기 후속)")
+        return {"intent": "my_grades", "topic": "my_grades"}
     return {"intent": None}
 
 
@@ -670,6 +692,36 @@ async def _handle_campus(state: AgentState) -> dict:
         "source": result.get("source") or (result.get("map_card") or {}).get("source"),
         "source_file": None,
         "topic": "campus",
+    }
+
+
+async def _handle_my_grades(state: AgentState) -> dict:
+    """내 성적 조회 — 마이페이지에 올린 수강 이력(DB)으로 직접 답한다. RAG도 LLM도 안 탄다.
+
+    성적 '제도'를 묻는 질문(학점포기·이의신청·학사경고)이 라우터를 통해 여기로 올 수 있다.
+    개인 이력으로는 답할 수 없는 질문이므로 grades 토픽 RAG로 넘긴다 — 막다른 길을 만들지 않는다.
+    학기 파싱은 '현재 질문' 기준이다. 다만 '1학년 1학기 성적' 뒤의 '2학기는?'처럼 학년이
+    생략된 후속은 기준을 잃으므로, 직전에도 성적을 물었을 때만 이전 질문을 함께 넘겨
+    학년(또는 년도)을 빌려 쓰게 한다. 직전 주제가 다르면 넘기지 않는다 — 무관한 질문의
+    학년이 섞이면 묻지 않은 학기를 답한다(graduation·schedule과 같은 이유).
+    """
+    _prev = state.get("prev_context") or {}
+    prev_topic = _prev.get("prev_topic")
+    prev_q = _prev.get("prev_question") if prev_topic == "my_grades" else None
+    answer, meta = await my_grades_service.answer(
+        question=state["question"], student_id=state["student_id"], db=state["db"],
+        prev_question=prev_q, prev_topic=prev_topic,
+    )
+    if meta.get("fallback"):
+        # 성적 규정 문서는 grades 토픽에 있다 — 전체 검색으로 풀지 않고 그 토픽으로 좁혀 넘긴다.
+        print(f"[Graph] my_grades → RAG 폴백: {meta['fallback']}")
+        return await _handle_rag_general({**state, "topic": "grades"})
+    await _log(state["db"], state["student_id"], "my_grades")
+    return {
+        "answer": answer,
+        "source": meta.get("source"),
+        "source_file": None,
+        "topic": "my_grades",
     }
 
 
@@ -1082,6 +1134,7 @@ _HANDLER_MAP = {
     "schedule":    "handle_schedule",
     "department":  "handle_department",
     "dining":      "handle_dining",
+    "my_grades":   "handle_my_grades",
     "rag":         "handle_rag_general",
     "general":     "handle_general",
 }
@@ -1101,6 +1154,8 @@ def _route_keyword(state: AgentState) -> str:
         return "campus"
     if it == "schedule":
         return "schedule"
+    if it == "my_grades":
+        return "my_grades"
     if it == "no_data":
         return "no_data"
     return "embed"
@@ -1158,6 +1213,7 @@ def _build_graph():
     g.add_node("handle_scholarship",_handle_scholarship)
     g.add_node("handle_department", _handle_department)
     g.add_node("handle_dining",     _handle_dining)
+    g.add_node("handle_my_grades",  _handle_my_grades)
     g.add_node("handle_rag_general",_handle_rag_general)
     g.add_node("handle_general",    _handle_general)
     g.add_node("handle_no_data",    _handle_no_data)
@@ -1166,10 +1222,11 @@ def _build_graph():
 
     g.add_conditional_edges("pre_check", _route_pre_check, _HANDLER_MAP)
     g.add_conditional_edges("keyword_classify", _route_keyword, {
-        "campus":   "handle_campus",
-        "schedule": "handle_schedule",
-        "no_data":  "handle_no_data",
-        "embed":    "chitchat_gate",
+        "campus":    "handle_campus",
+        "schedule":  "handle_schedule",
+        "my_grades": "handle_my_grades",
+        "no_data":   "handle_no_data",
+        "embed":     "chitchat_gate",
     })
     g.add_conditional_edges("chitchat_gate", _route_chitchat_gate, {
         "general":  "handle_general",
@@ -1183,14 +1240,15 @@ def _build_graph():
         "schedule":    "handle_schedule",
         "department":  "handle_department",
         "dining":      "handle_dining",
+        "my_grades":   "handle_my_grades",
         "rag":         "handle_rag_general",
         "general":     "handle_general",
     })
 
     for handler in [
         "handle_campus", "handle_graduation", "handle_schedule", "handle_scholarship",
-        "handle_department", "handle_dining", "handle_rag_general", "handle_general",
-        "handle_no_data",
+        "handle_department", "handle_dining", "handle_my_grades", "handle_rag_general",
+        "handle_general", "handle_no_data",
     ]:
         g.add_edge(handler, END)
 
