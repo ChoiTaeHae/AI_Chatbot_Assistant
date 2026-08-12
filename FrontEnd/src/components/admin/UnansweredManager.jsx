@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import {
-  fetchUnanswered, setUnansweredStatus, answerUnanswered,
-} from '../../api/admins/faq'
+import { fetchUnanswered, setUnansweredStatus } from '../../api/admins/faq'
+import UnansweredAnswerModal from './UnansweredAnswerModal'
+import { BTN, BTN_PAD } from './buttonStyles'
 
 /* 미답변 질문 → FAQ 전환
  *
@@ -38,8 +38,7 @@ export default function UnansweredManager({ onCountChange }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [msg, setMsg] = useState(null)
-  const [editing, setEditing] = useState(null)   // { id, question, answer, variants }
-  const [saving, setSaving] = useState(false)
+  const [answerTarget, setAnswerTarget] = useState(null)   // 답변 작성 중인 행
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -77,28 +76,9 @@ export default function UnansweredManager({ onCountChange }) {
     } catch (e) { setError(e.message) }
   }
 
-  async function submitAnswer() {
-    if (!editing.answer.trim()) { setError('답변 내용을 입력하세요.'); return }
-    setSaving(true); setError(null)
-    try {
-      // 한 줄 = 한 변형. 빈 줄은 버린다.
-      const variants = editing.variants.split('\n').map((s) => s.trim()).filter(Boolean)
-      const r = await answerUnanswered(editing.id, editing.answer.trim(), variants)
-      setEditing(null)
-      await load()
-      onCountChange?.()
-      flash(`FAQ로 등록했습니다. (질문 ${r.question_count}개 · 인덱스 ${r.reloaded}개 재적재)`)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const cardCls = 'bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)'
   const inputCls = 'w-full border border-(--border) rounded-xl text-(--text) bg-(--surface-card) outline-none focus:border-(--brand) transition'
   const inputStyle = { padding: '10px 12px', fontSize: '14px' }
-  const btnCls = 'rounded-xl text-xs font-bold transition'
 
   return (
     <div className="flex-1 flex flex-col" style={{ gap: '16px' }}>
@@ -112,9 +92,7 @@ export default function UnansweredManager({ onCountChange }) {
         <div className="flex flex-wrap" style={{ gap: '8px', marginTop: '14px' }}>
           {TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`${btnCls} border ${tab === t.id
-                ? 'bg-(--brand) text-white border-(--brand)'
-                : 'border-(--border) text-(--text-muted) hover:bg-(--surface-2)'}`}
+              className={tab === t.id ? BTN.tabOn : BTN.tabOff}
               style={{ padding: '8px 14px' }}>
               {t.label}
             </button>
@@ -174,28 +152,23 @@ export default function UnansweredManager({ onCountChange }) {
                     </div>
                   </div>
 
-                  <div className="shrink-0 flex" style={{ gap: '6px' }}>
+                  <div className="shrink-0 flex" style={{ gap: '2px' }}>
                     {tab === 'pending' && (
                       <>
                         <button
-                          onClick={() => setEditing({
-                            id: r.id, question: r.question, answer: '', variants: '',
-                          })}
-                          className={`${btnCls} bg-(--brand) text-white hover:opacity-90`}
-                          style={{ padding: '8px 12px' }}>
+                          onClick={() => setAnswerTarget(r)}
+                          className={BTN.ghostBrand} style={BTN_PAD}>
                           답변 작성
                         </button>
                         <button onClick={() => ignore(r.id)}
-                          className={`${btnCls} border border-(--border) text-(--text-muted) hover:bg-(--surface-2)`}
-                          style={{ padding: '8px 12px' }}>
+                          className={BTN.ghost} style={BTN_PAD}>
                           제외
                         </button>
                       </>
                     )}
                     {(tab === 'ignored' || tab === 'filtered') && (
                       <button onClick={() => restore(r.id)}
-                        className={`${btnCls} border border-(--border) text-(--text-muted) hover:bg-(--surface-2)`}
-                        style={{ padding: '8px 12px' }}>
+                        className={BTN.ghost} style={BTN_PAD}>
                         되돌리기
                       </button>
                     )}
@@ -212,59 +185,18 @@ export default function UnansweredManager({ onCountChange }) {
         )}
       </div>
 
-      {/* 답변 작성 — 저장하면 FAQ가 되므로 등록 전에 내용을 확인시킨다 */}
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center"
-             style={{ background: 'rgba(0,0,0,.45)', padding: '20px' }}>
-          <div className={cardCls} style={{
-            padding: '24px 26px', width: '100%', maxWidth: '620px',
-            maxHeight: '86vh', overflowY: 'auto',
-          }}>
-            <h3 className="font-black text-(--text)" style={{ fontSize: '15px' }}>답변 작성</h3>
-
-            <div className="rounded-xl" style={{
-              padding: '12px 14px', marginTop: '14px', background: 'var(--surface-2)',
-            }}>
-              <p className="text-xs text-(--text-muted)">학생 질문</p>
-              <p className="text-sm text-(--text)" style={{ marginTop: '4px' }}>{editing.question}</p>
-            </div>
-
-            <label className="flex flex-col" style={{ gap: '6px', marginTop: '16px' }}>
-              <span className="text-xs font-bold text-(--text-muted)">답변</span>
-              <textarea rows={6} className={inputCls} style={{ ...inputStyle, resize: 'vertical' }}
-                value={editing.answer}
-                onChange={(e) => setEditing({ ...editing, answer: e.target.value })}
-                placeholder="학생에게 그대로 나갈 문장입니다. 확인된 사실만 적어 주세요." />
-            </label>
-
-            <label className="flex flex-col" style={{ gap: '6px', marginTop: '14px' }}>
-              <span className="text-xs font-bold text-(--text-muted)">
-                질문 변형 <span className="font-normal text-(--text-faint)">(한 줄에 하나)</span>
-              </span>
-              <textarea rows={4} className={inputCls} style={{ ...inputStyle, resize: 'vertical' }}
-                value={editing.variants}
-                onChange={(e) => setEditing({ ...editing, variants: e.target.value })}
-                placeholder={'상담 어디서 해?\n심리상담 신청 방법\n학생상담센터 위치'} />
-              <span className="text-xs text-(--text-faint)" style={{ lineHeight: 1.5 }}>
-                학생은 등록된 문장 그대로 묻지 않습니다. 표현을 바꾼 질문을 2~3개 더 넣어야
-                다음에 다르게 물어도 같은 답변이 나갑니다.
-              </span>
-            </label>
-
-            <div className="flex justify-end" style={{ gap: '8px', marginTop: '20px' }}>
-              <button onClick={() => setEditing(null)} disabled={saving}
-                className={`${btnCls} border border-(--border) text-(--text-muted) hover:bg-(--surface-2)`}
-                style={{ padding: '10px 16px' }}>
-                취소
-              </button>
-              <button onClick={submitAnswer} disabled={saving}
-                className={`${btnCls} bg-(--brand) text-white hover:opacity-90`}
-                style={{ padding: '10px 16px' }}>
-                {saving ? '등록 중...' : 'FAQ로 등록'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* 답변 작성 — 헤더 알림 팝업과 같은 모달을 쓴다(폼이 갈라지지 않게) */}
+      {answerTarget && (
+        <UnansweredAnswerModal
+          row={answerTarget}
+          onClose={() => setAnswerTarget(null)}
+          onSaved={async (r) => {
+            setAnswerTarget(null)
+            await load()
+            onCountChange?.()
+            flash(`FAQ로 등록했습니다. (질문 ${r.question_count}개 · 인덱스 ${r.reloaded}개 재적재)`)
+          }}
+        />
       )}
     </div>
   )

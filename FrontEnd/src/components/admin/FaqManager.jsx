@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchFaqs, createFaq, updateFaq, deleteFaq, reloadFaqIndex } from '../../api/admins/faq'
 import UnansweredManager from './UnansweredManager'
+import { BTN, BTN_PAD, BTN_PAD_LG } from './buttonStyles'
 
 /* FAQ 관리
  *
@@ -135,9 +136,7 @@ export default function FaqManager({ tab = 'faqs', onTabChange, pendingCount = 0
             </p>
           </div>
           {tab === 'faqs' && (
-            <button onClick={openNew}
-                    className="bg-(--brand) text-white rounded-lg text-sm font-black hover:bg-(--brand-hover) transition shrink-0"
-                    style={{ padding: '10px 18px' }}>
+            <button onClick={openNew} className={`${BTN.primary} shrink-0`} style={BTN_PAD_LG}>
               + FAQ 추가
             </button>
           )}
@@ -146,16 +145,12 @@ export default function FaqManager({ tab = 'faqs', onTabChange, pendingCount = 0
             처리할 일이 있는지 한눈에 보여야 한다. */}
         <div className="flex" style={{ gap: '8px', marginTop: '14px' }}>
           <button onClick={() => setTab('faqs')}
-                  className={`rounded-lg text-sm font-bold transition border ${tab === 'faqs'
-                    ? 'bg-(--brand) text-white border-(--brand)'
-                    : 'border-(--border) text-(--text-muted) hover:bg-(--surface-2)'}`}
+                  className={tab === 'faqs' ? BTN.tabOn : BTN.tabOff}
                   style={{ padding: '8px 16px' }}>
             등록된 FAQ
           </button>
           <button onClick={() => setTab('unanswered')}
-                  className={`rounded-lg text-sm font-bold transition border flex items-center ${tab === 'unanswered'
-                    ? 'bg-(--brand) text-white border-(--brand)'
-                    : 'border-(--border) text-(--text-muted) hover:bg-(--surface-2)'}`}
+                  className={`${tab === 'unanswered' ? BTN.tabOn : BTN.tabOff} flex items-center`}
                   style={{ padding: '8px 16px', gap: '7px' }}>
             미답변 질문
             {pendingCount > 0 && (
@@ -173,7 +168,7 @@ export default function FaqManager({ tab = 'faqs', onTabChange, pendingCount = 0
                  className={inputCls} style={{ padding: '9px 12px', marginTop: '14px' }} />
         )}
         {msg && <p className="text-xs font-bold text-(--brand)" style={{ marginTop: '10px' }}>{msg}</p>}
-        {error && <p className="text-xs font-bold text-red-500" style={{ marginTop: '10px' }}>{error}</p>}
+        {error && <p className="text-xs font-bold" style={{ marginTop: '10px', color: 'var(--danger-text)' }}>{error}</p>}
 
         {/* 복구용 — 화면에서 저장하면 서버가 알아서 재적재하므로 평소엔 쓸 일이 없다.
             DB를 SQL로 직접 고쳤거나, 저장은 됐는데 재적재가 실패한 경우에만 필요하다.
@@ -237,18 +232,18 @@ export default function FaqManager({ tab = 'faqs', onTabChange, pendingCount = 0
                   {f.answer.length > 160 ? f.answer.slice(0, 160) + '…' : f.answer}
                 </p>
               </div>
-              <div className="flex items-center shrink-0" style={{ gap: '6px' }}>
-                <button onClick={() => toggleEnabled(f)}
-                        className="border border-(--border) rounded-lg text-xs font-bold text-(--text-muted) hover:bg-(--surface-2) transition"
-                        style={{ padding: '6px 10px' }}>
+              {/* 행 액션은 붙여서 한 덩어리로 보이게 한다(gap 2px). 떨어뜨리면 각자
+                  다른 것을 가리키는 것처럼 읽힌다. */}
+              <div className="flex items-center shrink-0" style={{ gap: '2px' }}>
+                <button onClick={() => toggleEnabled(f)} className={BTN.ghost} style={BTN_PAD}>
                   {f.enabled ? '비활성' : '활성'}
                 </button>
-                <button onClick={() => openEdit(f)}
-                        className="border border-(--brand-a20) rounded-lg text-xs font-bold text-(--brand) hover:bg-(--brand-a5) transition"
-                        style={{ padding: '6px 12px' }}>수정</button>
-                <button onClick={() => setDeleteTarget(f)}
-                        className="border border-(--border) rounded-lg text-xs font-bold text-red-500 hover:bg-red-50 transition"
-                        style={{ padding: '6px 12px' }}>삭제</button>
+                <button onClick={() => openEdit(f)} className={BTN.ghostBrand} style={BTN_PAD}>
+                  수정
+                </button>
+                <button onClick={() => setDeleteTarget(f)} className={BTN.ghostDanger} style={BTN_PAD}>
+                  삭제
+                </button>
               </div>
             </div>
           </div>
@@ -293,10 +288,10 @@ export default function FaqManager({ tab = 'faqs', onTabChange, pendingCount = 0
 
             <div className="border-t border-(--border) flex shrink-0" style={{ gap: '8px', padding: '14px 22px' }}>
               <button onClick={() => setEditing(null)} disabled={saving}
-                      className="flex-1 border border-(--border) rounded-lg text-sm font-bold text-(--text-muted) hover:bg-(--surface-2) transition disabled:opacity-50"
+                      className={`${BTN.tabOff} flex-1`}
                       style={{ padding: '11px' }}>취소</button>
               <button onClick={save} disabled={saving}
-                      className="flex-1 bg-(--brand) text-white rounded-lg text-sm font-black hover:bg-(--brand-hover) transition disabled:opacity-50"
+                      className={`${BTN.primary} flex-1`}
                       style={{ padding: '11px' }}>{saving ? '저장 중…' : '저장'}</button>
             </div>
           </div>
@@ -324,8 +319,10 @@ export default function FaqManager({ tab = 'faqs', onTabChange, pendingCount = 0
                       className="flex-1 text-sm font-bold text-(--text-muted) hover:bg-(--surface-2) transition"
                       style={{ padding: '13px' }}>취소</button>
               <button onClick={confirmDelete}
-                      className="flex-1 text-sm font-bold text-red-500 border-l border-(--border) hover:bg-red-50 transition"
-                      style={{ padding: '13px' }}>삭제</button>
+                      className="flex-1 text-sm font-bold border-l border-(--border) transition"
+                      style={{ padding: '13px', color: 'var(--danger-text)' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--danger-tint)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = '')}>삭제</button>
             </div>
           </div>
         </div>

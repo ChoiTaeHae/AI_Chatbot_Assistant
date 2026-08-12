@@ -14,6 +14,7 @@ import ScholarshipManager from '../components/admin/ScholarshipManager'
 import DepartmentManager from '../components/admin/DepartmentManager'
 import FaqManager from '../components/admin/FaqManager'
 import { fetchUnansweredCount } from '../api/admins/faq'
+import NotificationPanel from '../components/admin/NotificationPanel'
 import ThemeToggle from '../components/common/ThemeToggle'
 
 // 파일 관리 탭에서 숨길 topic — 장학금 파일은 '장학금 관리' 화면에서 전용 관리
@@ -109,7 +110,8 @@ function StatusBadge({ status, color }) {
 export default function AdminPage() {
   const [activeNav, setActiveNav] = useState('documents')
   const [unansweredCount, setUnansweredCount] = useState(0)   // 사이드바·종 배지
-  const [faqTab, setFaqTab] = useState('faqs')                // FAQ 화면의 탭 (종에서 전환)
+  const [faqTab, setFaqTab] = useState('faqs')                // FAQ 화면의 탭
+  const [notifOpen, setNotifOpen] = useState(false)           // 헤더 알림 팝업
   const [searchText, setSearchText] = useState('')
   const [docTitle, setDocTitle] = useState('')
   const [documents, setDocuments] = useState([])
@@ -190,6 +192,7 @@ export default function AdminPage() {
 
   const fileInputRef = useRef(null)
   const profileRef = useRef(null)
+  const notifRef = useRef(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const { user, clearUser } = useAuth()
   const navigate = useNavigate()
@@ -288,11 +291,17 @@ export default function AdminPage() {
     if (activeNav === 'topics') loadTopicList()
   }, [activeNav])
 
-  // 프로필 드롭다운 바깥 클릭 시 닫기
+  // 프로필·알림 드롭다운 바깥 클릭 시 닫기
   useEffect(() => {
     function handleClickOutside(e) {
       if (profileRef.current && !profileRef.current.contains(e.target)) {
         setProfileOpen(false)
+      }
+      // 답변 모달은 팝업 밖(포털 아닌 형제)에 그려지므로, 모달 안을 클릭했을 때
+      // 팝업이 닫히면 모달만 남아 맥락이 사라진다 → 모달이 열려 있으면 건드리지 않는다.
+      if (notifRef.current && !notifRef.current.contains(e.target)
+          && !document.querySelector('[data-answer-modal]')) {
+        setNotifOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -668,8 +677,9 @@ export default function AdminPage() {
           <div className="flex items-center shrink-0" style={{ gap: '16px' }}>
             {/* 알림 종 — 미답변 질문이 있을 때만 빨간 점이 붙는다.
                 누르면 FAQ 관리의 '미답변 질문' 탭으로 바로 들어간다. */}
+            <div className="relative" ref={notifRef}>
             <button
-              onClick={() => { setActiveNav('faqs'); setFaqTab('unanswered') }}
+              onClick={() => setNotifOpen(v => !v)}
               className="relative rounded-xl hover:bg-(--surface-2) transition"
               style={{ padding: '8px' }}
               title={unansweredCount > 0
@@ -693,6 +703,14 @@ export default function AdminPage() {
                       }} />
               )}
             </button>
+            {notifOpen && (
+              <NotificationPanel
+                onClose={() => setNotifOpen(false)}
+                onCountChange={loadUnansweredCount}
+                onOpenList={() => { setActiveNav('faqs'); setFaqTab('unanswered') }}
+              />
+            )}
+            </div>
             <ThemeToggle className="text-(--text-faint) hover:text-(--text-muted) transition" />
             {/* 프로필 드롭다운 */}
             <div className="relative" ref={profileRef}>

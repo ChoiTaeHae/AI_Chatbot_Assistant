@@ -400,7 +400,11 @@ def _build_answer(building: Building, room: Room | None, contacts: list[dict]) -
             f"- {c['name']}: {c['phone']}" if c.get('phone') else f"- {c['name']}"
             for c in contacts
         )
-        answer += f"\n\n📞 담당 부서\n{lines}"
+        # '담당 부서'만 적으면 번호가 왜 여기 붙었는지 알 수 없어 뜬금없이 읽힌다.
+        # 실측: '학생회관 어디야?'에 근로장학금·국가장학금 번호가 설명 없이 나왔다 —
+        # 위치를 물었는데 장학금 번호가 뜨니 관련 없는 정보로 보인다.
+        # 이 건물에서 그 업무를 처리한다는 관계를 한 줄로 밝혀 준다.
+        answer += f"\n\n📞 이 건물에서 처리하는 업무입니다. 문의는 아래로 해주세요.\n{lines}"
 
     return answer
 
