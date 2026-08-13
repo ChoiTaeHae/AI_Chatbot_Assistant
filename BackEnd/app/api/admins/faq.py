@@ -116,6 +116,18 @@ async def update_unanswered_status(
     return {"ok": True, "status": body.status}
 
 
+@router.delete("/faq/unanswered/{row_id}", summary="미답변 질문 삭제")
+async def delete_unanswered(row_id: int, db: AsyncSession = Depends(get_db)):
+    """되돌릴 수 없다. 평소 정리는 '제외'(PATCH status=ignored)를 쓴다 —
+    제외는 행을 남겨 같은 질문이 다시 목록에 올라오지 않게 막지만, 삭제는 행을 없애서
+    같은 질문이 들어오면 처음부터 다시 수집된다(faq_service.delete_question 참고).
+
+    답변을 기다리던 학생의 알림 구독도 CASCADE로 함께 사라진다."""
+    if not await faq_service.delete_question(db, row_id):
+        raise HTTPException(status_code=404, detail="미답변 질문을 찾을 수 없습니다.")
+    return {"deleted": row_id}
+
+
 @router.post("/faq/unanswered/{row_id}/answer", response_model=UnansweredAnswerResponse,
              summary="답변 작성 → FAQ 등록")
 async def answer_unanswered(

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchUnanswered, setUnansweredStatus } from '../../api/admins/faq'
+import { fetchUnanswered, setUnansweredStatus, deleteUnanswered } from '../../api/admins/faq'
 import UnansweredAnswerModal from './UnansweredAnswerModal'
 import { BTN, BTN_PAD } from './buttonStyles'
 
@@ -73,6 +73,24 @@ export default function UnansweredManager({ onCountChange }) {
       await load()
       onCountChange?.()
       flash('확인 대기로 되돌렸습니다.')
+    } catch (e) { setError(e.message) }
+  }
+
+  // 되돌릴 수 없어 확인을 한 번 받는다. '제외'와 결과가 정반대라 그 차이를 문구에 넣는다 —
+  // 제외인 줄 알고 삭제하면 같은 질문이 계속 다시 올라와 목록이 오히려 지저분해진다.
+  async function remove(row) {
+    const ok = window.confirm(
+      `이 질문을 완전히 삭제할까요?\n\n"${row.question}"\n\n` +
+      '· 되돌릴 수 없습니다.\n' +
+      '· 같은 질문이 다시 들어오면 처음부터 다시 수집됩니다.\n' +
+      '  (다시 올라오지 않게 하려면 "제외"를 쓰세요)'
+    )
+    if (!ok) return
+    try {
+      await deleteUnanswered(row.id)
+      await load()
+      onCountChange?.()
+      flash('삭제했습니다.')
     } catch (e) { setError(e.message) }
   }
 
@@ -176,6 +194,14 @@ export default function UnansweredManager({ onCountChange }) {
                       <span className="text-xs text-(--text-faint)" style={{ padding: '8px 4px' }}>
                         FAQ #{r.faq_id}
                       </span>
+                    )}
+                    {/* 삭제는 '답변 완료'에는 두지 않는다 — 그 행을 지워도 FAQ는 남아
+                        기록만 끊기고, 답변을 받은 학생의 알림까지 사라진다. */}
+                    {tab !== 'answered' && (
+                      <button onClick={() => remove(r)}
+                        className={BTN.ghostDanger} style={BTN_PAD}>
+                        삭제
+                      </button>
                     )}
                   </div>
                 </div>
