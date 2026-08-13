@@ -17,6 +17,18 @@ FAQ CRUD를 찾는다면 admin_service 쪽이다.
     LLM 선별(classify)은 수백 ms가 걸리므로 응답을 보낸 뒤 백그라운드에서 돌린다.
     선별이 실패하면 is_academic이 None으로 남고, 그 행은 목록에 그대로 보인다
     — 분류가 안 됐다고 질문이 사라지면 안 된다(놓치는 것보다 잡음이 낫다).
+
+트랜잭션 규칙 — 예외 없음
+    이 모듈의 쓰기 함수는 **자기 트랜잭션을 스스로 커밋한다.** 호출부는 커밋하지 않는다.
+    읽기 함수(list_*/count_*)는 아무것도 커밋하지 않는다.
+
+    한동안 record()만 커밋을 호출부에 맡겼는데, 그 이유("채팅 트랜잭션 한가운데라서")는
+    이미 사라진 상태였다 — chat_service는 assistant 메시지를 커밋한 뒤에 record()를 부르므로
+    record()가 여는 것은 새 트랜잭션이다. 규칙에 예외가 하나라도 있으면 다음 사람이
+    커밋을 빠뜨리거나 두 번 하게 되므로, 예외를 없애고 규칙을 한 줄로 만들었다.
+
+    부수 효과(FAQ 인덱스 재적재)도 같은 원칙을 따른다 — answer_to_faq()가 커밋 뒤에
+    직접 재적재한다. 호출부가 기억해서 해야 하는 일로 두면 언젠가 빠진다.
 """
 import asyncio
 import re
@@ -25,7 +37,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.DB_Table import Faq, FaqQuestion, UnansweredQuestion
+from app.models.DB_Table import Faq, FaqNotification, FaqQuestion, UnansweredQuestion
 from app.prompts import TRIAGE_PROMPT, TRIAGE_SYSTEM_PROMPT
 
 # '답을 못 찾았다'는 뜻으로 답변에 실제로 쓰이는 표현들.
@@ -102,6 +114,23 @@ def is_unanswered(answer: str, source: str | None) -> bool:
     return any(m in (answer or "") for m in _NOT_FOUND_MARKERS)
 
 
+def should_collect(answer: str, source: str | None, topic: str | None, question: str) -> bool:
+    """수집 대상인가 — record()가 실제로 행을 남길 조건과 같다.
+
+    record()가 내부에서 같은 검사를 또 하는데도 이 함수를 따로 두는 이유는,
+    호출부가 학생에게 "FAQ에 등록했어요"라고 **말하기 전에** 판정해야 하기 때문이다.
+    record()는 커밋 뒤(asst_msg.id가 필요해서)에 부르므로 그때는 이미 답변 문장이 확정돼 있다.
+
+    두 곳의 조건이 갈라지면 안내만 나가고 수집은 안 되거나(가장 나쁜 경우 — 지키지 못할
+    약속을 한다) 반대가 된다. 그래서 조건은 여기 한 벌만 두고 record()는 이걸 그대로 쓴다.
+    """
+    if topic in _SKIP_TOPICS:
+        return False
+    if len(_normalize(question)) < _MIN_LEN:
+        return False
+    return is_unanswered(answer, source)
+
+
 async def record(
     db: AsyncSession,
     question: str,
@@ -116,6 +145,8 @@ async def record(
     반환값은 행 id(백그라운드 선별에서 쓴다). 수집 대상이 아니면 None.
     이 함수는 학생 응답 경로에서 호출되므로 예외를 밖으로 내보내지 않는다 —
     수집이 실패해도 학생에게는 답변이 정상적으로 나가야 한다.
+
+    커밋은 여기서 한다(모듈 규칙). 호출부는 커밋할 필요도, 해서도 안 된다.
     """
     try:
         if topic in _SKIP_TOPICS:
@@ -146,11 +177,37 @@ async def record(
             .returning(UnansweredQuestion.id, UnansweredQuestion.occurrences)
         )
         row_id, occurrences = (await db.execute(stmt)).one()
-        await db.flush()
+
+        # 답변을 기다리는 학생으로 등록한다. 위 upsert가 같은 질문을 한 행으로 합치기 때문에
+        # unanswered_question.student_id에는 '맨 처음 물어본 한 명'만 남는다 —
+        # 나중에 같은 것을 물은 학생들은 그 컬럼만으로는 알림을 받을 수 없다.
+        # 이 행이 곧 "답변 등록되면 알려드릴게요"의 약속이다.
+        if student_id is not None:
+            await db.execute(
+                pg_insert(FaqNotification)
+                .values(unanswered_id=row_id, student_id=student_id)
+                # 같은 학생이 같은 질문을 반복해도 알림은 하나. 이미 답변을 받아 읽은 뒤라면
+                # DO NOTHING이 그 행을 그대로 두는데, 그래도 맞다 —
+                # answered 행은 위 upsert의 충돌 대상이 아니라 새 행이 생기기 때문이다.
+                .on_conflict_do_nothing(index_elements=["unanswered_id", "student_id"])
+            )
+
+        await db.commit()
         # 새로 만들어진 행일 때만 선별한다. 기존 행이면 이미 분류를 마쳤거나(is_academic 확정)
         # 분류에 실패한 것이라, 같은 질문으로 LLM을 다시 부를 이유가 없다.
+        #
+        # 커밋을 마친 뒤에 id를 돌려주는 것이 중요하다 — 백그라운드 선별(classify)은 별도
+        # 세션을 열어 이 행을 다시 읽는데, 커밋 전이면 그 세션에는 행이 보이지 않는다.
         return row_id if occurrences == 1 else None
     except Exception as e:
+        # 반드시 롤백해야 한다. 예외를 삼키기만 하면 세션이 '중단된 트랜잭션' 상태로 남아,
+        # 호출부가 바로 뒤에서 부르는 db.commit()이 InFailedSQLTransaction으로 터진다
+        # → 답변은 이미 커밋됐는데 학생에게는 500이 나가는, 가장 나쁜 형태의 실패가 된다.
+        # 이 시점에는 assistant 메시지가 이미 커밋된 뒤라 되돌릴 것도 없다(수집분만 버린다).
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         print(f"[FAQ] 미답변 기록 실패(무시): {type(e).__name__}: {e}")
         return None
 
@@ -258,12 +315,21 @@ async def answer_to_faq(db: AsyncSession, row_id: int, answer: str,
     질문 변형(extra_questions)을 함께 받는 이유 — 학생은 등록된 문장 그대로 묻지 않는다.
     원 질문 하나만 등록하면 표현이 조금만 달라져도 다시 못 찾는다.
 
-    인덱스 재적재는 호출부(API)에서 한다 — 여기서 하면 트랜잭션이 커밋되기 전에
-    인덱스가 새 FAQ를 읽으려다 못 읽는 순서 문제가 생긴다.
+    커밋과 FAQ 인덱스 재적재를 모두 여기서 끝낸다. 재적재를 빠뜨리면 표만 바뀌고 답변은
+    그대로여서 '고쳤는데 반영이 안 된다'가 되는데, 그걸 호출부가 기억해서 해야 하는 일로
+    두면 호출부가 하나 더 생기는 순간 빠진다. 순서(커밋 → 재적재)도 여기서 지킨다 —
+    커밋 전에 재적재하면 인덱스가 방금 만든 FAQ를 못 읽고 지나간다.
     """
     row = await db.get(UnansweredQuestion, row_id)
     if row is None:
         raise LookupError(f"미답변 질문을 찾을 수 없습니다: {row_id}")
+    # 이미 답변한 질문은 다시 받지 않는다. 저장 버튼을 두 번 누르거나 두 관리자가 같은 항목을
+    # 동시에 처리하면, 막지 않을 경우 같은 질문에 FAQ가 두 개 생긴다. FAQ는 매칭되면 LLM을
+    # 건너뛰고 그대로 나가므로 중복 등록은 '교정 여지 없는 확정 오답'을 만든다.
+    # 알림 쪽 피해도 있다 — is_read가 다시 false로 돌아가, 답을 이미 읽은 학생에게 빨간 점이
+    # 또 뜨고 그 링크는 새로 만들어진 다른 FAQ를 가리킨다.
+    if row.status == "answered":
+        raise ValueError(f"이미 답변이 등록된 질문입니다(FAQ #{row.faq_id}).")
 
     faq = Faq(answer=answer, category=row.topic, enabled=True)
     db.add(faq)
@@ -280,5 +346,81 @@ async def answer_to_faq(db: AsyncSession, row_id: int, answer: str,
 
     row.status = "answered"
     row.faq_id = faq.id
+
+    # 이 질문을 기다리던 학생 전원에게 알림을 켠다. 여기서 켜지 않으면 종에 아무것도 뜨지 않아
+    # 학생 입장에서는 답변이 등록됐는지 알 방법이 없다(같은 질문을 다시 쳐 보는 수밖에 없다).
+    # notified_at을 찍는 것이 곧 '알림 발생'이고, 그 전까지 구독 행은 화면에 보이지 않는다.
+    notified = (await db.execute(
+        update(FaqNotification)
+        .where(FaqNotification.unanswered_id == row_id)
+        .values(faq_id=faq.id, notified_at=func.now(), is_read=False)
+    )).rowcount
+
     await db.commit()
-    return {"faq_id": faq.id, "question_count": len(seen)}
+
+    # 재적재 실패는 저장 실패가 아니다. FAQ는 이미 커밋됐고 다음 기동 때 적재되므로,
+    # 여기서 예외를 올려 500을 내면 관리자는 저장이 안 된 줄 알고 다시 눌러 본다
+    # (그리고 이제 그건 409로 막힌다). reloaded=0으로 알리고 '수동 재적재'로 유도한다.
+    from app.services import faq_index
+    try:
+        await faq_index.warmup()
+        reloaded = len(faq_index._index)
+    except Exception as e:
+        print(f"[FAQ] 인덱스 재적재 실패: {type(e).__name__}: {e}")
+        reloaded = 0
+
+    return {"faq_id": faq.id, "question_count": len(seen),
+            "notified": notified, "reloaded": reloaded}
+
+
+# ── 학생 알림 ──────────────────────────────────────────────────
+# 관리자 쪽(list_questions/count_pending)과 대칭이지만 반드시 student_id로 잠근다.
+# 알림 id는 순차 정수라 남의 id를 찍어 보는 것이 쉽다 — 모든 질의의 WHERE에 본인 조건을
+# 함께 넣어, 남의 알림은 조회도 읽음 처리도 되지 않게 한다(404로 떨어진다).
+
+
+async def list_notifications(db: AsyncSession, student_id: int, limit: int = 50) -> list[dict]:
+    """내 알림 목록 — 답변이 등록된 것만. 최근 것부터.
+
+    답변 본문은 faq를 조인해 읽는다(복사해 두지 않는다). 관리자가 FAQ를 수정하면
+    학생이 여는 알림도 같이 최신 문장이 되어야 하기 때문이다.
+    """
+    rows = (await db.execute(
+        select(
+            FaqNotification.id, FaqNotification.is_read, FaqNotification.notified_at,
+            FaqNotification.faq_id, UnansweredQuestion.question, Faq.answer,
+        )
+        .join(UnansweredQuestion, UnansweredQuestion.id == FaqNotification.unanswered_id)
+        .join(Faq, Faq.id == FaqNotification.faq_id)
+        .where(FaqNotification.student_id == student_id,
+               FaqNotification.notified_at.isnot(None))
+        .order_by(FaqNotification.notified_at.desc())
+        .limit(limit)
+    )).all()
+    return [
+        {"id": r.id, "question": r.question, "answer": r.answer, "faq_id": r.faq_id,
+         "is_read": r.is_read, "notified_at": r.notified_at}
+        for r in rows
+    ]
+
+
+async def count_unread(db: AsyncSession, student_id: int) -> int:
+    """종 위 빨간 점의 근거."""
+    return (await db.execute(
+        select(func.count()).select_from(FaqNotification)
+        .where(FaqNotification.student_id == student_id,
+               FaqNotification.notified_at.isnot(None),
+               FaqNotification.is_read.is_(False))
+    )).scalar() or 0
+
+
+async def mark_read(db: AsyncSession, student_id: int, notif_id: int) -> bool:
+    """알림 하나를 읽음 처리. 본인 것이 아니면 아무 행도 바뀌지 않아 False."""
+    result = await db.execute(
+        update(FaqNotification)
+        .where(FaqNotification.id == notif_id,
+               FaqNotification.student_id == student_id)
+        .values(is_read=True)
+    )
+    await db.commit()
+    return result.rowcount > 0

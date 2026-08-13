@@ -6,6 +6,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.DB_Table import ChatFeedback, ChatMessage, ChatSession, RewriteLabel, Student
 from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest, RewriteFeedbackRequest
 
+# 답을 못 찾았을 때 답변 끝에 덧붙이는 안내. 화면 언어별 고정 문장이라 번역을 태우지 않는다
+# (번역을 거치면 표현이 매번 달라지는데, 이건 학생에게 하는 약속이라 흔들리면 안 된다).
+#
+# '등록했다'가 아니라 '전달했다'로 쓴 이유 — 관리자가 제외(ignored)하거나 LLM 선별이
+# 학사 무관으로 걸러 내면 답변이 오지 않을 수 있다. 모든 질문에 반드시 답이 온다고 읽히면
+# 지키지 못하는 약속이 된다.
+#
+# 세 언어가 같은 구분자로 시작한다 — 나중에 이 문구만 떼어 낼 때 언어를 몰라도 되게 하려고
+# 일부러 맞춘 것이다(_strip_faq_notice).
+_FAQ_NOTICE_MARK = "\n\n---\n\n📬 "
+_FAQ_PENDING_NOTICE = {
+    "ko": _FAQ_NOTICE_MARK + "이 질문을 담당자에게 전달했어요. 답변이 등록되면 알림으로 알려드릴게요.",
+    "en": _FAQ_NOTICE_MARK + "I've forwarded this question to our staff. You'll get a notification once an answer is posted.",
+    "zh": _FAQ_NOTICE_MARK + "已将此问题转交给负责老师。答复登记后会通过通知告知您。",
+}
+
+
+def _strip_faq_notice(content: str) -> str:
+    """저장된 답변에서 FAQ 접수 안내를 떼어 낸다(멀티턴 맥락으로 넘기기 전에 호출).
+
+    안내가 없으면 원문 그대로 돌려준다. 구분자를 그냥 자르기만 하면 되는 이유는
+    이 문구가 항상 답변 맨 끝에만 붙기 때문이다.
+    """
+    idx = (content or "").find(_FAQ_NOTICE_MARK)
+    return content if idx == -1 else content[:idx]
+
 
 class ChatService:
     async def create_chat_response(
@@ -92,7 +118,11 @@ class ChatService:
                 if prev_question:
                     prev_context = {
                         "prev_question": prev_question.content[:MAX_PREV_LENGTH],
-                        "prev_answer": prev_answer.content[:MAX_PREV_LENGTH],
+                        # FAQ 접수 안내는 떼고 넘긴다. 저장된 답변에는 남겨 두지만(대화를 다시
+                        # 열었을 때 그대로 보여야 한다) 검색어 재작성에 들어가면 안 된다 —
+                        # '담당자에게 전달', '알림' 같은 말이 다음 질문과 섞여 엉뚱한 검색어가
+                        # 만들어진다(파일 확인 버튼을 대화로 저장하지 않는 것과 같은 이유).
+                        "prev_answer": _strip_faq_notice(prev_answer.content)[:MAX_PREV_LENGTH],
                         "prev_topic": prev_answer.topic,
                     }
                 break
@@ -129,6 +159,20 @@ class ChatService:
         from app.services.translation_service import translate_answer
         localized_answer = await translate_answer(result.answer, request.lang)
 
+        # 답을 못 찾은 경우, 그냥 "찾지 못했어요"로 끝내지 않고 다음에 무슨 일이 생기는지
+        # 알려 준다. 안내 없이 끝나면 학생은 그 질문을 포기하거나 같은 것을 계속 다시 친다.
+        #
+        # 번역이 끝난 문장에 붙이는 이유 — 안내 문구는 화면 언어별로 미리 써 둔 고정 문장이라
+        # 번역을 거칠 필요가 없다. 번역 전에 붙이면 LLM이 이 문장까지 다시 번역하면서
+        # 표현이 매번 달라진다(약속하는 문장이라 흔들리면 안 된다).
+        from app.services import faq_service
+        collecting = faq_service.should_collect(
+            result.answer, getattr(result, "source", None),
+            getattr(result, "topic", None), request.question,
+        )
+        if collecting:
+            localized_answer += _FAQ_PENDING_NOTICE.get(request.lang or "ko", _FAQ_PENDING_NOTICE["ko"])
+
         asst_msg = ChatMessage(
             session_id=session.id,
             student_id=current_user.id,
@@ -157,8 +201,13 @@ class ChatService:
         #
         # 기록은 INSERT 한 번뿐이라 여기 두어도 되지만, LLM 선별은 수백 ms가 걸리므로
         # 응답을 보낸 뒤 백그라운드에서 돌린다(schedule_classify).
-        from app.services import faq_service
-        if faq_service.is_unanswered(result.answer, getattr(result, "source", None)):
+        #
+        # 조건은 위에서 이미 판정한 collecting을 그대로 쓴다. 여기서 다시 검사하면
+        # 안내는 나갔는데 수집은 안 되는 어긋남이 생길 수 있다 — 지키지 못할 약속이 된다.
+        #
+        # 커밋은 record()가 스스로 한다(faq_service의 트랜잭션 규칙). 여기서 또 부르면
+        # 아무 일도 하지 않는 빈 커밋이 되고, '누가 트랜잭션 주인인가'가 흐려진다.
+        if collecting:
             _uid = await faq_service.record(
                 db, request.question,
                 rewritten=getattr(result, "rewritten_query", None),
@@ -166,7 +215,6 @@ class ChatService:
                 student_id=current_user.id,
                 message_id=asst_msg.id,
             )
-            await db.commit()
             faq_service.schedule_classify(_uid)
 
         return ChatResponse(

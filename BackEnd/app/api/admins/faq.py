@@ -121,11 +121,10 @@ async def update_unanswered_status(
 async def answer_unanswered(
     row_id: int, body: UnansweredAnswerRequest, db: AsyncSession = Depends(get_db)
 ):
-    """답변을 FAQ로 만들고 인덱스를 재적재한다.
+    """답변을 FAQ로 만든다.
 
-    재적재를 서비스가 아니라 여기서 하는 이유 — 서비스 안에서 하면 트랜잭션이 커밋되기 전에
-    인덱스가 새 FAQ를 읽으려 해서 방금 만든 답변이 빠진 채로 적재된다.
-    커밋이 끝난 뒤(answer_to_faq 반환 후) 재적재해야 순서가 맞다.
+    커밋과 인덱스 재적재는 서비스가 끝낸다(faq_service의 트랜잭션 규칙 참고).
+    여기서는 입력 검증과 예외→상태코드 변환만 한다.
     """
     if not body.answer.strip():
         raise HTTPException(status_code=400, detail="답변 내용을 입력하세요.")
@@ -135,15 +134,10 @@ async def answer_unanswered(
         )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        # 이미 답변된 질문 — 저장 버튼 연타나 두 관리자의 동시 처리.
+        # 409를 쓰는 이유는 '요청이 잘못됐다'(400)가 아니라 '지금 상태와 맞지 않는다'이기
+        # 때문이다. 화면은 이 응답을 받으면 목록을 새로 읽어 이미 처리된 것을 보여 주면 된다.
+        raise HTTPException(status_code=409, detail=str(e))
 
-    from app.services import faq_index
-    try:
-        await faq_index.warmup()
-        reloaded = len(faq_index._index)
-    except Exception as e:
-        # 재적재가 실패해도 FAQ는 이미 저장됐다. 다음 기동 때 적재되므로 500으로 되돌리지
-        # 않고, 관리자가 'FAQ 인덱스 수동 재적재'로 다시 시도할 수 있게 0을 돌려준다.
-        print(f"[FAQ] 인덱스 재적재 실패: {type(e).__name__}: {e}")
-        reloaded = 0
-
-    return UnansweredAnswerResponse(reloaded=reloaded, **result)
+    return UnansweredAnswerResponse(**result)

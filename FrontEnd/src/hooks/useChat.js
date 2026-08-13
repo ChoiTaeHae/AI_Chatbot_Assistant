@@ -193,6 +193,26 @@ export function useChat(lang = 'ko') {
     }
   }, [lang])
 
+  /** 알림에서 고른 답변을 대화에 띄운다 (서버 호출 없음).
+   *
+   * 이미 확정된 문장이라 다시 물을 이유가 없다 — 같은 질문을 send()로 재전송하면 검색이
+   * 한 번 더 돌고, 그 사이 FAQ 인덱스가 아직 안 잡히면 또 "찾지 못했어요"가 나와서
+   * 알림을 눌렀는데 답이 없는 상황이 된다.
+   *
+   * DB에 남기지 않는 것은 의도다. 이건 새 대화가 아니라 '알림 열람'이라, 대화 기록에
+   * 끼워 넣으면 다음 질문의 '이전 질문'이 되어 검색어 재작성을 오염시킨다
+   * (파일 확인 버튼을 저장하지 않는 것과 같은 이유). 답변은 종 목록에 계속 남아 있으므로
+   * 화면을 새로 고쳐도 다시 열어 볼 수 있다.
+   */
+  const pushAnswer = useCallback((question, answer) => {
+    const now = Date.now()
+    setMessages((prev) => [
+      ...prev,
+      { id: now, role: 'user', content: question, time: getTime() },
+      { id: now + 1, role: 'ai', content: answer, time: getTime(), fromNotification: true },
+    ])
+  }, [])
+
   function clearPendingFile() {
     setPendingFile(null)
   }
@@ -205,5 +225,5 @@ export function useChat(lang = 'ko') {
     setViewKey((k) => k + 1)   // 새 대화 → 뷰 새로 마운트
   }
 
-  return { messages, isLoading, sessionId, send, confirmFile, checkGraduation, reset, loadSession, clearPendingFile, pendingFile, viewKey }
+  return { messages, isLoading, sessionId, send, confirmFile, checkGraduation, pushAnswer, reset, loadSession, clearPendingFile, pendingFile, viewKey }
 }
