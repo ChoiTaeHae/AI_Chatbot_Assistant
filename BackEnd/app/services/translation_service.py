@@ -36,6 +36,10 @@ _LANG_MAP = {"en": "en", "zh": "zh-CN"}
 # 번역할 내용이 없는 줄 — 표 구분행(|---|---|, |:--|--:|)과 수평선(---).
 _SEPARATOR_RE = re.compile(r"^[\s|:\-]+$")
 
+# 질문에 한글이 섞여 있는지. 화면 언어(lang)로 판정하면 안 된다 — 영어 화면을 켜 두고
+# 한국어로 묻는 학생이 있고, 그때 번역을 태우면 멀쩡한 한국어 질문이 한 번 더 뒤틀린다.
+_HANGUL_RE = re.compile(r"[가-힣]")
+
 # 한 요청에 실을 최대 줄 수. 답변은 보통 수십 줄이라 대개 1회로 끝나지만,
 # 아주 긴 답변에서 API의 세그먼트 상한에 걸리지 않도록 나눠 보낸다.
 _MAX_SEGMENTS = 100
@@ -71,6 +75,44 @@ def _translate_sync(lines: list[str], target_code: str) -> list[str]:
         )
         out.extend(t.translated_text for t in resp.translations)
     return out
+
+
+def _to_korean_sync(text: str) -> str:
+    client = _get_client()
+    parent = f"projects/{settings.GCP_PROJECT_ID}/locations/global"
+    resp = client.translate_text(
+        parent=parent,
+        contents=[text],
+        # source_language_code를 주지 않는다 → 자동 감지. 답변 번역과 달리 입력은 어떤
+        # 언어로 올지 모른다(영어·중국어·그 외).
+        target_language_code="ko",
+        mime_type="text/plain",
+    )
+    return resp.translations[0].translated_text
+
+
+async def translate_question_to_korean(question: str) -> str:
+    """검색·라우팅에 쓸 한국어 질의를 만든다. 실패하면 원문 그대로.
+
+    왜 필요한가 — 코퍼스도, 토픽 분류 문장도, 검색어 재작성 프롬프트도 전부 한국어다.
+    비한국어 질문을 그대로 넣으면 재작성이 그 언어로 나와(실측: "How do I apply for a
+    leave of absence?" → "How do I apply for a leave of absence") 한국어 문서를 찾지 못한다.
+    질문을 입구에서 한국어로 옮기면 라우팅·검색·리랭킹이 전부 한국어와 같은 조건이 된다.
+
+    한글이 하나라도 있으면 번역하지 않는다. 화면 언어가 영어라도 학생이 한국어로 물을 수
+    있고, 그때 굳이 번역을 태우면 멀쩡한 질문이 왕복하며 뜻이 틀어진다(그리고 호출도 낭비다).
+    """
+    if not question or not question.strip():
+        return question
+    if _HANGUL_RE.search(question):
+        return question
+    try:
+        loop = asyncio.get_event_loop()
+        out = await loop.run_in_executor(None, _to_korean_sync, question)
+        return out or question
+    except Exception as e:
+        print(f"[Translation] 질문 번역 실패 → 원문으로 검색: {type(e).__name__}: {e}")
+        return question
 
 
 async def translate_answer(text: str, lang: str | None) -> str:
