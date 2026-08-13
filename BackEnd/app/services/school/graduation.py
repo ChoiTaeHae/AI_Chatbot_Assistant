@@ -143,6 +143,27 @@ def _ensure_fallback_notice(answer: str, requested_year: int, actual_year: int,
             f"가장 가까운 {actual_year}학번 기준으로 안내해 드릴게요.\n\n{answer}")
 
 
+def _ensure_year_notice(answer: str, actual_year: int) -> str:
+    """어느 학번 기준으로 답했는지 반드시 남긴다(코드로 확정).
+
+    졸업요건은 학과×입학연도로 값이 갈린다(실측: AI·컴퓨터공학과 2024학번 전공65/교양37,
+    2025학번부터 전공62/교양34). 그런데 답변에 기준 연도가 없으면 학생은 그것이 자기 학번
+    기준이라고 읽는다 — 특히 '다른 학과'를 물으면 그 학과의 최신 연도로 답하도록 되어 있어
+    (_answer_dept_requirement 호출부 참고) 24학번 학생이 2025학번 요건을 자기 것으로 오해한다.
+
+    연도는 req_context에 '(NNNN학번 기준)'으로 이미 넣어 주는데도 LLM이 답변에서 빠뜨린다.
+    프롬프트가 연도 언급을 '필요할 때만'으로 열어 둔 탓인데, 그 조항은 LLM이 "요청한 연도가
+    없어 대신 안내한다"는 거짓 폴백 문구를 지어내던 문제를 막으려고 넣은 것이라 되돌리기 어렵다.
+    → 어느 연도로 답했는지는 코드가 이미 아는 사실이므로 LLM 재량에 맡기지 않는다
+      (_ensure_fallback_notice와 같은 방식).
+
+    이미 그 연도가 답변에 있으면(LLM이 밝혔거나 폴백 고지가 붙었으면) 덧붙이지 않는다.
+    """
+    if not answer or not actual_year or str(actual_year) in answer:
+        return answer
+    return f"{actual_year}학번 기준 졸업요건이에요.\n\n{answer}"
+
+
 def _named_unresolved_unit(question: str) -> bool:
     for m in _NAMED_UNIT_RE.finditer(question or ""):
         if m.group(1) not in _UNIT_GENERIC_PREFIX:
@@ -422,12 +443,20 @@ class GraduationService:
             dept_id = mentioned[0] if mentioned else student.dept_id
             dept_name = mentioned[1] if mentioned else my_dept_name
             dept_year = target_year
-            # 다른 학과를 '연도 명시 없이' 물으면 내 입학연도가 아니라 그 학과의 최신 요건 연도를
-            # 기준으로 삼는다. (내 2024학번을 남의 학과에 들이대면, 그 학과에 2024 요건이 없을 때
-            # "요청하신 2024년 없음 → 가장 가까운 연도로 대신 안내" 같은, 사용자가 묻지도 않은
-            # 혼란스러운 폴백 문구가 뜬다. 학생-없는 분기(line 277)와 동일하게 최신 연도로 맞춘다.)
-            if is_other and not mentioned_year:
-                dept_year = await self._latest_year(db, dept_id) or my_year
+            # 다른 학과를 '연도 명시 없이' 물어도 '내 입학연도' 기준으로 답한다.
+            #
+            # 전에는 그 학과의 최신 요건 연도를 썼다. 이유는 "내 2024학번을 남의 학과에
+            # 들이대면 그 학과에 2024 요건이 없을 때 '요청하신 2024년 없음 → 가장 가까운
+            # 연도로 대신 안내' 같은 혼란스러운 폴백 문구가 뜬다"였는데, 그 전제가 더 이상
+            # 성립하지 않는다 — 요건이 등록된 40개 학과가 모두 2020~2026을 빠짐없이 갖고 있어
+            # 폴백이 발생할 수 없다(실측: 연도 범위가 다른 학과 0개).
+            #
+            # 반면 최신 연도로 답할 때의 피해는 실제로 발생했다: 2024학번 학생이 다른 학과를
+            # 물으면 2025학번 요건(전공62/교양34)이 나오는데, 전과를 해도 졸업요건은 입학연도를
+            # 따라가므로 그 학생에게 해당하지 않는 숫자다(실측 제보).
+            #
+            # 학생 레코드가 없는 계정(관리자 등)은 학번 자체가 없어 위쪽 분기에서 여전히
+            # 최신 연도를 쓴다 — 거기서는 기준을 정할 다른 방법이 없다.
             return await self._answer_dept_requirement(question, dept_id, dept_name, dept_year, db)
 
         # 내 학과(또는 학과 미언급) → 유형 분류로 라우팅
@@ -530,6 +559,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
         result = _ensure_fallback_notice(result, admission_year, actual_year, is_fallback)
+        result = _ensure_year_notice(result, actual_year)
 
         # 파일 제안은 '완성된 답변' 기준(질문 기준은 신호가 약함). graduation은 현재 파일이 없어
         # 결과가 늘 비지만, 파일이 추가되면 자동으로 동작한다.
@@ -601,6 +631,7 @@ class GraduationService:
         result = await llm_service.answer(prompt, max_tokens=1024, temperature=0.0)
         result = clean_answer(result)
         result = _ensure_fallback_notice(result, admission_year, actual_year, is_fallback)
+        result = _ensure_year_notice(result, actual_year)
 
         # 파일 제안은 '완성된 답변' 기준. graduation은 현재 파일이 없어 결과가 늘 빈다.
         loop = asyncio.get_event_loop()

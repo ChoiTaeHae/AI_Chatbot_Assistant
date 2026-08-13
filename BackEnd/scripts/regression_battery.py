@@ -54,7 +54,9 @@ CASES = [
     ("2029학년도 간호학과 졸업요건", None, ["2029", "2026"], None, S),
     ("2028학번 간호학과 졸업요건", None, ["2028", "2026"], None, S),
     ("2022년 간호학과 졸업요건", None, ["2022"], None, S),
-    ("게임그래픽전공 졸업요건", None, ["2026"], None, S),
+    # 다른 학과를 연도 없이 물으면 '묻는 학생의 입학연도' 기준으로 답해야 한다.
+    # (전에는 그 학과의 최신 연도로 답해서 2024학번에게 2025 요건이 나갔다.)
+    ("게임그래픽전공 졸업요건", None, ["__MYYEAR__"], None, S),
     # ── 학과 없는 계정 ──
     ("내년에 졸업하려면 뭐 필요해?", None, ["소속 학과 정보가 없"], None, A),
     ("간호학과 졸업요건", None, ["학점"], None, A),
@@ -132,6 +134,10 @@ async def main():
             JOIN requirement_rule rr ON rr.set_id = rs.id
             WHERE s.id = :sid
         """), {"sid": S})).first()
+        # 테스트 학생의 입학연도. '다른 학과 졸업요건'은 그 학과의 최신 연도가 아니라
+        # 묻는 학생의 입학연도 기준으로 답한다(전과해도 졸업요건은 입학연도를 따라간다).
+        _myyear = (await _db.execute(_sql(
+            "SELECT LEFT(student_no, 4) FROM student WHERE id = :sid"), {"sid": S})).scalar()
 
     if _row:
         _dept, _maj, _lib, _tot = _row
@@ -142,6 +148,9 @@ async def main():
         print("[기대값] DB에서 요건을 찾지 못함 → '학점' 포함 여부만 확인")
 
     for _i, _c in enumerate(CASES):
+        if "__MYYEAR__" in _c[2] and _myyear:
+            CASES[_i] = (_c[0], _c[1], [str(_myyear)], _c[3], _c[4])
+            continue
         if "__TOTAL__" in _c[2]:
             CASES[_i] = (_c[0], _c[1], _expect, _c[3], _c[4])
 
