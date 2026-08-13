@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup, Tag
 
 MEAL_LIST_URL = "https://www.wsu.ac.kr/page/meal_list.jsp"
@@ -66,7 +67,21 @@ class RestaurantGuide:
 def _fetch(url: str) -> str:
     session = requests.Session()
     session.headers["User-Agent"] = _USER_AGENT
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    try:
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.exceptions.SSLError as e:
+        # 학교 서버가 인증서 체인을 온전히 보내지 않으면 검증이 통째로 실패한다.
+        # 실측(2026-08-12): wsu.ac.kr 인증서가 8/4에 갱신되면서 중간 인증서
+        # (Sectigo Public Server Authentication CA DV R36)가 함께 설치되지 않아
+        # 'unable to get local issuer certificate'로 모든 크롤이 막혔다. 서버가 잎 인증서
+        # 하나(1800바이트)만 보낸다. 브라우저는 중간 인증서를 스스로 받아오지만(AIA) requests는 안 한다.
+        #
+        # 공개된 식단·안내 표를 읽기만 하는 경로라, 검증을 건너뛰고 한 번 더 시도한다.
+        # 폴백이라 평상시 검증은 그대로 유지되고, 학교가 체인을 바로잡으면 위 첫 시도가
+        # 성공하므로 이 코드를 되돌릴 필요가 없다.
+        print(f"[Dining] 인증서 검증 실패 → 검증 없이 재시도: {url} ({e.__class__.__name__})")
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, verify=False)
     response.raise_for_status()
     return response.content.decode("utf-8", errors="replace")
 
