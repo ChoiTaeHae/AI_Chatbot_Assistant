@@ -15,6 +15,7 @@ from app.api.dining import router as dining_router
 from app.api.schedule import router as schedule_router
 from app.api.scholarship import router as scholarship_router
 from app.api.me import router as me_router
+from app.api.notifications import router as notifications_router
 import asyncio
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
@@ -495,6 +496,7 @@ def create_app() -> FastAPI:
     app.include_router(schedule_router, prefix="/api",   tags=["학사일정"])
     app.include_router(scholarship_router, prefix="/api", tags=["장학금"])
     app.include_router(me_router,     prefix="/api",        tags=["마이페이지"])
+    app.include_router(notifications_router, prefix="/api", tags=["알림"])
     app.include_router(admins_router, prefix="/api/admins", tags=["관리자"])
 
     @app.get("/health", tags=["상태확인"])

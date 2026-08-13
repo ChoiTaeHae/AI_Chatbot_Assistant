@@ -357,3 +357,4 @@ class UnansweredAnswerResponse(BaseModel):
     faq_id: int
     question_count: int
     reloaded: int                            # 재적재된 FAQ 질문 수
+    notified: int = 0                        # 알림을 받은 학생 수(이 질문을 기다리던 인원)

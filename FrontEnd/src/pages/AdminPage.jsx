@@ -612,7 +612,7 @@ export default function AdminPage() {
         {/* 로고 */}
         <div className="flex items-center border-b border-(--border)" style={{ gap: '10px', padding: '20px' }}>
           <MascotAvatar className="h-10 w-10 object-contain" />
-          <span className="text-xl font-black text-(--brand)">SOL챗</span>
+          <span className="text-xl font-black text-(--brand)">AI SOL</span>
         </div>
 
         {/* 네비게이션 */}
@@ -2061,7 +2061,7 @@ export default function AdminPage() {
                           return (
                             <div key={msg.id || i} style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: '3px' }}>
                               <div className="flex items-center gap-1.5" style={{ flexDirection: isUser ? 'row-reverse' : 'row' }}>
-                                <span className="text-xs font-bold text-(--text-faint)">{isUser ? '학생' : 'SOL챗'}</span>
+                                <span className="text-xs font-bold text-(--text-faint)">{isUser ? '학생' : 'AI SOL'}</span>
                                 {!isUser && intent && (
                                   <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${intent.color}`}>{intent.label}</span>
                                 )}
