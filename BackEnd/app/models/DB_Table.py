@@ -541,3 +541,39 @@ class UnansweredQuestion(Base):
               postgresql_where=text("status <> 'answered'")),
         Index("ix_unanswered_status_created", "status", "created_at"),
     )
+
+
+# ==========================================
+# 26. 답변 알림 (faq_notification)
+# ==========================================
+# "답변이 등록되면 알려드릴게요"를 지키기 위한 구독 행. 학생이 답을 못 받은 순간 한 행이
+# 생기고, 관리자가 답변을 등록하면 그 질문을 구독한 모든 학생의 행에 notified_at이 찍힌다.
+#
+# 왜 unanswered_question.student_id로 충분하지 않은가
+#   그 컬럼에는 '맨 처음 물어본 한 명'만 남는다. record()가 같은 질문을 한 행으로 합치면서
+#   occurrences만 올리기 때문이다. 5명이 같은 것을 물었는데 1명만 알림을 받으면
+#   나머지 4명에게는 "알려드릴게요"가 거짓말이 된다 → 구독을 따로 쌓는다.
+#
+# 상태를 세 컬럼이 아니라 두 값의 조합으로 표현한다
+#   notified_at IS NULL              → 아직 답변 전(구독만 걸린 상태). 종에 표시되지 않는다.
+#   notified_at 있고 is_read=false   → 읽지 않은 알림. 빨간 점의 근거.
+#   notified_at 있고 is_read=true    → 학생이 확인함. 목록에는 남되 점은 사라진다.
+class FaqNotification(Base):
+    __tablename__ = "faq_notification"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    unanswered_id = Column(Integer, ForeignKey("unanswered_question.id", ondelete="CASCADE"), nullable=False)
+    student_id    = Column(Integer, ForeignKey("student.id", ondelete="CASCADE"), nullable=False)
+    # 답변이 등록되면 채워진다. 답변 본문은 faq를 조인해서 읽는다 —
+    # 여기에 복사해 두면 관리자가 FAQ를 고쳐도 학생이 보는 알림은 옛 문장으로 남는다.
+    faq_id        = Column(Integer, ForeignKey("faq.id", ondelete="CASCADE"), nullable=True)
+    notified_at   = Column(DateTime(timezone=True), nullable=True)
+    is_read       = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        # 같은 학생이 같은 질문을 여러 번 물어도 알림은 하나다.
+        Index("uq_faq_notification", "unanswered_id", "student_id", unique=True),
+        # 종 배지 조회 경로(내 것 중 안 읽은 것)를 그대로 태운다.
+        Index("ix_faq_notification_student", "student_id", "is_read"),
+    )

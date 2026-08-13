@@ -612,7 +612,7 @@ export default function AdminPage() {
         {/* 로고 */}
         <div className="flex items-center border-b border-(--border)" style={{ gap: '10px', padding: '20px' }}>
           <MascotAvatar className="h-10 w-10 object-contain" />
-          <span className="text-xl font-black text-(--brand)">SOL로몬</span>
+          <span className="text-xl font-black text-(--brand)">AI SOL</span>
         </div>
 
         {/* 네비게이션 */}
@@ -643,7 +643,7 @@ export default function AdminPage() {
         {/* 하단 마스코트 카드 */}
         <div className="m-3 p-3 rounded-2xl bg-(--brand-tint) border border-(--brand-a10)">
           <MascotAvatar className="h-14 w-14 object-contain mx-auto" />
-          <p className="text-xs text-center text-(--text-muted) mt-2 font-medium">AI 어시스턴트가<br />문서를 분석하고 답변을 제공합니다.</p>
+          <p className="text-xs text-center text-(--text-muted) mt-2 font-medium">AI 캠퍼스 코치가<br />문서를 분석하고 답변을 제공합니다.</p>
           <button
             onClick={() => navigate('/chat')}
             className="mt-2 w-full flex items-center justify-center gap-1.5 bg-(--surface-card) border border-(--brand-a20) text-(--brand) text-xs font-bold py-2 rounded-xl hover:bg-(--brand-a5) transition"
@@ -651,7 +651,7 @@ export default function AdminPage() {
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
             </svg>
-            AI 어시스턴트 열기
+            AI 캠퍼스 코치 열기
           </button>
         </div>
 
@@ -737,7 +737,7 @@ export default function AdminPage() {
                 <div className="absolute right-0 top-full mt-2 w-52 bg-(--surface-card) rounded-2xl shadow-lg border border-(--border) overflow-hidden z-50">
                   
 
-                  {/* AI 어시스턴트로 이동 */}
+                  {/* AI 캠퍼스 코치로 이동 */}
                   <button
                     onClick={() => { setProfileOpen(false); navigate('/chat') }}
                     className="w-full flex items-center text-sm text-(--text-muted) hover:bg-(--brand-a5) hover:text-(--brand) transition"
@@ -746,7 +746,7 @@ export default function AdminPage() {
                     <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
                     </svg>
-                    AI 어시스턴트 열기
+                    AI 캠퍼스 코치 열기
                   </button>
 
                   {/* 로그아웃 */}
@@ -2061,7 +2061,7 @@ export default function AdminPage() {
                           return (
                             <div key={msg.id || i} style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: '3px' }}>
                               <div className="flex items-center gap-1.5" style={{ flexDirection: isUser ? 'row-reverse' : 'row' }}>
-                                <span className="text-xs font-bold text-(--text-faint)">{isUser ? '학생' : 'SOL로몬'}</span>
+                                <span className="text-xs font-bold text-(--text-faint)">{isUser ? '학생' : 'AI SOL'}</span>
                                 {!isUser && intent && (
                                   <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${intent.color}`}>{intent.label}</span>
                                 )}

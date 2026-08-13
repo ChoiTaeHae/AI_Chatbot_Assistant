@@ -5,6 +5,7 @@ import ChatInput from '../components/chat/ChatInput'
 import Sidebar from '../components/chat/Sidebar'
 import ScholarshipModal from '../components/chat/ScholarshipModal'
 import ScholarshipSurveyModal from '../components/chat/ScholarshipSurveyModal'
+import NotificationBell from '../components/chat/NotificationBell'
 import MascotAvatar from '../components/common/MascotAvatar'
 import ThemeToggle from '../components/common/ThemeToggle'
 import { logout } from '../api/auth'
@@ -19,7 +20,7 @@ const LANGUAGES = [
 ]
 
 const T = {
-  ko: { title: 'AI 어시스턴트', admin: '관리자 페이지', mypage: '마이페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기' },
+  ko: { title: 'AI 캠퍼스 코치', admin: '관리자 페이지', mypage: '마이페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기' },
   en: { title: 'AI Assistant',   admin: 'Admin Page',    mypage: 'My Page',  logout: 'Logout',   grad: '🎓 My Graduation Status', menu: 'Open menu' },
   zh: { title: 'AI助手',          admin: '管理员页面',      mypage: '我的页面', logout: '退出登录',  grad: '🎓 我的毕业进度', menu: '打开菜单' },
 }
@@ -27,7 +28,7 @@ const T = {
 export default function ChatPage() {
   const isMobile = useIsMobile()
   const [lang, setLang] = useState('ko')
-  const { messages, isLoading, send, confirmFile, checkGraduation, reset, loadSession, sessionId, clearPendingFile, pendingFile, viewKey } = useChat(lang)
+  const { messages, isLoading, send, confirmFile, checkGraduation, pushAnswer, reset, loadSession, sessionId, clearPendingFile, pendingFile, viewKey } = useChat(lang)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   // 모바일 드로어는 데스크톱 접기 상태와 별개로 둔다 — 한 상태로 묶으면 폰에서 열었다
@@ -161,6 +162,10 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+
+            {/* 알림 종 — 답을 못 받았던 내 질문에 답변이 등록되면 빨간 점이 붙는다.
+                누르면 목록이 열리고, 고른 항목의 답변이 아래 대화에 그대로 나타난다. */}
+            <NotificationBell lang={lang} onOpenAnswer={(n) => pushAnswer(n.question, n.answer)} />
 
             {/* 다크모드 토글 */}
             <ThemeToggle className="inline-flex items-center justify-center h-9 w-9 rounded-lg text-white hover:bg-white/10 transition" />

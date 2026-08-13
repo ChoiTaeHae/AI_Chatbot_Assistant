@@ -230,7 +230,6 @@ export default function DepartmentManager() {
             <div className="border border-dashed border-(--border) rounded-xl overflow-hidden">
               <div className="flex items-center gap-2 bg-(--surface-2)" style={{ padding: '10px 12px' }}>
                 <span className="text-sm font-black text-(--text-muted)">소속 미지정 학과</span>
-                <span className="text-[11px] text-(--text-faint)">단과대학이 지정되지 않은 학과 {unassigned.length}</span>
               </div>
               <div>{unassigned.map((d) => <DeptRow key={d.id} d={d} />)}</div>
             </div>
