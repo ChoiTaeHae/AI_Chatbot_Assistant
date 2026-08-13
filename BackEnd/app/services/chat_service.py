@@ -127,11 +127,21 @@ class ChatService:
                     }
                 break
 
+        # 검색·라우팅은 한국어를 전제로 한다 — 코퍼스도, 토픽 분류 문장도, 검색어 재작성
+        # 프롬프트도 전부 한국어다. 비한국어 질문을 그대로 넣으면 재작성이 그 언어로 나와
+        # 한국어 문서를 찾지 못한다(실측 기준선: KO 7/7 · EN 3/7 · ZH 4/7).
+        # 입구에서 한국어로 옮기면 그 뒤 단계는 한국어 질문과 같은 조건이 된다.
+        #
+        # 저장·표시에는 쓰지 않는다. chat_message에는 학생이 실제로 친 원문이 남아야 하고,
+        # 미답변 수집도 원문으로 한다(관리자가 무엇을 물었는지 그대로 봐야 한다).
+        from app.services.translation_service import translate_question_to_korean
+        search_question = await translate_question_to_korean(request.question)
+
         # 순환 import 방지를 위해 런타임에 가져온다.
         from app.agents.agent_graph import agent_graph
 
         result = await agent_graph.run(
-            question=request.question,
+            question=search_question,
             student_id=current_user.id,
             db=db,
             pending_file=request.pending_file,

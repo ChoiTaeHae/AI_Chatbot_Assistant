@@ -54,6 +54,12 @@ export async function fetchUnansweredCount() {
   return _json(await authFetch(`${BASE}/faq/unanswered/count`), '미답변 건수 조회 실패')
 }
 
+/** 되돌릴 수 없는 삭제. 평소 정리는 setUnansweredStatus(id, 'ignored')를 쓴다 —
+ *  제외는 행을 남겨 같은 질문이 다시 올라오지 않게 막지만, 삭제는 처음부터 다시 수집된다. */
+export async function deleteUnanswered(id) {
+  return _json(await authFetch(`${BASE}/faq/unanswered/${id}`, { method: 'DELETE' }), '삭제 실패')
+}
+
 export async function setUnansweredStatus(id, status) {
   return _json(await authFetch(`${BASE}/faq/unanswered/${id}`, {
     method: 'PATCH', headers: JSON_HEAD, body: JSON.stringify({ status }),
