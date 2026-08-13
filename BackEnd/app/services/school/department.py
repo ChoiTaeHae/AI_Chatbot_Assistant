@@ -131,6 +131,16 @@ def _josa(word: str, with_batchim: str, without_batchim: str) -> str:
 _HOMEPAGE_GUIDE = "교육과정·입학·취업 등 자세한 소개는 학과 홈페이지에서 확인하실 수 있습니다."
 
 
+def _bullets(names: list[str]) -> str:
+    """이름 목록을 줄바꿈 불릿으로. 쉼표로 잇지 않는 이유가 두 가지 있다.
+
+    ① 학과명 자체에 쉼표가 들어간다 — '글로벌외식, 조리경영전공'은 한 학과인데
+       쉼표로 이어 붙이면 두 학과처럼 보인다(실측: 외식조리대학 글로벌조리학부).
+    ② 12개가 한 줄로 붙으면 읽히지 않는다(실측: 보건복지대학 직속 학과).
+    """
+    return "\n".join(f"- {n}" for n in names)
+
+
 async def _department_card(db: AsyncSession, dept_id: int, name: str) -> tuple[str, dict]:
     info = _DEPT_INFO.get(dept_id, {})
     college, division = info.get("college"), info.get("division")
@@ -156,8 +166,7 @@ async def _department_card(db: AsyncSession, dept_id: int, name: str) -> tuple[s
         answer = f"**{name}** 안내입니다. 소속 단과대학 정보는 등록되어 있지 않습니다."
 
     if siblings:
-        last = siblings[-1]
-        answer += f"\n\n같은 학부에 {', '.join(siblings)}{_josa(last, '이', '가')} 있습니다."
+        answer += f"\n\n같은 학부에 이런 학과·전공이 있습니다.\n{_bullets(siblings)}"
     if info.get("phone"):
         answer += f"\n\n학과 사무실: {info['phone']}"
     answer += f"\n\n{_HOMEPAGE_GUIDE}"
@@ -185,14 +194,14 @@ async def _division_card(db: AsyncSession, division_id: int, name: str) -> tuple
     answer = (f"**{name}**{_josa(name, '은', '는')} {college} 소속 학부입니다."
               if college else f"**{name}** 안내입니다.")
     if members:
-        answer += f"\n\n소속 전공: {', '.join(members)}"
+        answer += f"\n\n소속 학과·전공 {len(members)}개입니다.\n{_bullets(members)}"
     answer += "\n\n각 전공의 자세한 소개는 학과 홈페이지에서 확인하실 수 있습니다."
 
     return answer, {
         "kind": "division",
         "title": name,
         "subtitle": college or "학부",
-        "items_label": "소속 전공",
+        "items_label": "소속 학과·전공",
         "items": members,
         "phone": None,
         "homepage_url": None,
@@ -200,33 +209,48 @@ async def _division_card(db: AsyncSession, division_id: int, name: str) -> tuple
 
 
 async def _college_card(db: AsyncSession, college_id: int, name: str) -> tuple[str, dict]:
-    divisions = sorted(
-        d.name for d in (await db.execute(
-            select(Division).where(Division.college_id == college_id)
-        )).scalars()
-    )
-    direct = sorted(
-        d.name for d in (await db.execute(
-            select(Department).where(
-                Department.college_id == college_id, Department.division_id.is_(None)
-            )
-        )).scalars()
-    )
-    members = divisions + direct
+    """단과대학 안내 — '어느 학부에 어느 학과가 있는지' 구조 그대로 보여준다.
 
-    answer = f"**{name}** 소속 학부/학과입니다."
-    if divisions:
-        answer += f"\n\n학부: {', '.join(divisions)}"
+    예전에는 학부 목록 한 줄, 학과 목록 한 줄로 각각 나열했는데 그러면 소속 관계가
+    통째로 사라진다(실측: '보건복지대학 소개해줘' → 학부 1개 + 학과 12개가 따로 놀았다).
+    학부별로 묶어 내면 학생이 찾는 '이 학과가 어디 소속인지'가 한눈에 들어온다.
+    """
+    divisions = (await db.execute(
+        select(Division).where(Division.college_id == college_id).order_by(Division.name)
+    )).scalars().all()
+    div_ids = {d.id for d in divisions}
+
+    # 학과의 college_id가 비어 있어도 소속 학부가 이 단과대면 포함한다 — 한쪽만 채워진
+    # 행이 실제로 있어서, college_id만 보면 학부 소속 학과가 통째로 빠진다.
+    depts = [
+        d for d in (await db.execute(select(Department))).scalars()
+        if d.college_id == college_id or d.division_id in div_ids
+    ]
+
+    groups = [(dv.name, sorted(d.name for d in depts if d.division_id == dv.id))
+              for dv in divisions]
+    direct = sorted(d.name for d in depts if d.division_id is None)
+    total = sum(len(m) for _n, m in groups) + len(direct)
+
+    lines = [f"**{name}**에는 학부 {len(divisions)}개와 학과 {total}개가 있습니다."
+             if divisions else f"**{name}**에는 학과 {total}개가 있습니다."]
+    for dv_name, members in groups:
+        lines.append(f"\n**{dv_name}**")
+        lines.append(_bullets(members) if members else "- (등록된 학과 없음)")
     if direct:
-        answer += f"\n\n학과: {', '.join(direct)}"
-    answer += "\n\n궁금한 학과 이름을 말씀해 주시면 소속과 홈페이지를 안내해 드릴게요."
+        # 학부가 하나도 없는 단과대는 굳이 '학부에 속하지 않은'이라고 구분할 게 없다
+        lines.append("\n**학부에 속하지 않은 학과**" if divisions else "")
+        lines.append(_bullets(direct))
+    lines.append("\n궁금한 학과 이름을 말씀해 주시면 소속과 홈페이지를 안내해 드릴게요.")
 
-    return answer, {
+    return "\n".join(x for x in lines if x != ""), {
         "kind": "college",
+        # 카드 칩은 잎(학과)만 담는다 — 학부명을 섞으면 층위가 다른 게 나란히 붙는다.
+        # 구조는 본문이 보여주므로, 카드는 '학과 색인' 역할만 한다.
         "title": name,
-        "subtitle": "단과대학",
-        "items_label": "소속 학부·학과",
-        "items": members,
+        "subtitle": f"단과대학 · 학과 {total}개",
+        "items_label": "소속 학과",
+        "items": [m for _n, ms in groups for m in ms] + direct,
         "phone": None,
         "homepage_url": None,
     }
