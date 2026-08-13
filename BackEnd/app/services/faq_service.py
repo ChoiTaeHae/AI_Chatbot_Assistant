@@ -308,6 +308,31 @@ async def set_status(db: AsyncSession, row_id: int, status: str) -> bool:
     return result.rowcount > 0
 
 
+async def delete_question(db: AsyncSession, row_id: int) -> bool:
+    """미답변 질문을 실제로 지운다. 없는 id면 False.
+
+    '제외(ignored)'와 무엇이 다른가 — 겹쳐 보이지만 반대로 동작한다.
+      제외: 행을 남긴다. 부분 유니크 인덱스가 answered가 아닌 행 하나만 허용하므로,
+            같은 질문이 또 들어오면 이 행의 occurrences만 오른다. 즉 '다시는 목록에
+            올라오지 않는다'는 뜻이고, 무엇을 왜 걸렀는지도 남는다.
+      삭제: 행을 없앤다. 같은 질문이 다시 들어오면 새 행으로 처음부터 수집되고
+            LLM 선별도 다시 돈다. 반복되는 무의미 입력에 쓰면 오히려 계속 쌓인다.
+
+    그래서 기본 손잡이는 제외이고, 삭제는 '기록에 남기면 곤란한 것'을 위한 것이다
+    (학번·연락처가 그대로 적힌 질문, 시험 삼아 넣은 입력 등).
+
+    faq_notification은 FK가 CASCADE라 함께 지워진다 — 답변을 기다리던 학생의 구독도
+    사라진다는 뜻이다. 아직 답이 없는 질문이라 학생 화면에서 없어지는 것은 없지만,
+    '알려주겠다'던 약속은 조용히 취소된다.
+    """
+    row = await db.get(UnansweredQuestion, row_id)
+    if row is None:
+        return False
+    await db.delete(row)
+    await db.commit()
+    return True
+
+
 async def answer_to_faq(db: AsyncSession, row_id: int, answer: str,
                         extra_questions: list[str] | None = None) -> dict:
     """관리자가 작성한 답변을 FAQ로 만들고 원 질문을 answered로 닫는다.

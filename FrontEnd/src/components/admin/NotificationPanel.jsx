@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchUnanswered, setUnansweredStatus } from '../../api/admins/faq'
+import { fetchUnanswered, setUnansweredStatus, deleteUnanswered } from '../../api/admins/faq'
 import UnansweredAnswerModal from './UnansweredAnswerModal'
 import { BTN, BTN_PAD } from './buttonStyles'
 
@@ -49,6 +49,23 @@ export default function NotificationPanel({ onClose, onCountChange, onOpenList }
   async function ignore(id) {
     try {
       await setUnansweredStatus(id, 'ignored')
+      await load()
+      onCountChange?.()
+    } catch (e) { setError(e.message) }
+  }
+
+  // 되돌릴 수 없어 확인을 받는다. 문구는 목록 화면과 같은 내용을 쓴다 —
+  // 같은 동작인데 화면마다 설명이 다르면 어느 쪽이 맞는지 알 수 없다.
+  async function remove(row) {
+    const ok = window.confirm(
+      `이 질문을 완전히 삭제할까요?\n\n"${row.question}"\n\n` +
+      '· 되돌릴 수 없습니다.\n' +
+      '· 같은 질문이 다시 들어오면 처음부터 다시 수집됩니다.\n' +
+      '  (다시 올라오지 않게 하려면 "제외"를 쓰세요)'
+    )
+    if (!ok) return
+    try {
+      await deleteUnanswered(row.id)
       await load()
       onCountChange?.()
     } catch (e) { setError(e.message) }
@@ -113,6 +130,9 @@ export default function NotificationPanel({ onClose, onCountChange, onOpenList }
                   </button>
                   <button onClick={() => ignore(r.id)} className={BTN.ghost} style={BTN_PAD}>
                     제외
+                  </button>
+                  <button onClick={() => remove(r)} className={BTN.ghostDanger} style={BTN_PAD}>
+                    삭제
                   </button>
                 </div>
               </div>
