@@ -5,6 +5,18 @@ import MascotAvatar from '../common/MascotAvatar'
 import ScheduleCard from './ScheduleCard'
 import WeatherCard from './WeatherCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
+
+// 개발용 도구(재작성 라벨 패널·답변 평가 버튼)를 화면에 띄울지.
+//
+// 왜 import.meta.env.DEV만으로는 부족한가 — 그 값은 Vite가 정하는 것이라
+// `npm run dev`면 무조건 true다. 시연은 dev 서버로 띄우는데 그때도 개발용 UI가
+// 그대로 보여서, 발표 중 "이 버튼은 뭐냐"는 질문을 받게 된다.
+// → .env.local에 VITE_SHOW_DEV_TOOLS=false 한 줄로 끌 수 있게 한다.
+//   (기본값은 켜짐. 평소 개발에서는 지금까지와 동작이 같다)
+//
+// 복사 버튼은 이 스위치에 넣지 않는다 — 개발용이 아니라 학생이 실제로 쓰는 기능이다.
+const SHOW_DEV_TOOLS =
+  import.meta.env.DEV && import.meta.env.VITE_SHOW_DEV_TOOLS !== 'false'
 import { useAuth } from '../../store/AuthContext'
 import useIsMobile from '../../hooks/useIsMobile'
 
@@ -35,141 +47,6 @@ async function downloadFileWithAuth(url, filename) {
   }
 }
 
-// ── [DEV-ONLY] 피드백 상세 입력 모달 ──────────────────────────────────────────
-function FeedbackModal({ type, onSubmit, onClose }) {
-  const [rating, setRating] = useState(null)
-  const [hoverRating, setHoverRating] = useState(null)
-  const [comment, setComment] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setSubmitting(true)
-    await onSubmit(type === 'like', rating, comment.trim() || null)
-    setSubmitting(false)
-  }
-
-  const isLike = type === 'like'
-  const accentColor = isLike ? 'var(--brand)' : '#e53e3e'
-
-  return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(0,0,0,0.35)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '16px',   // 좁은 폰(320px)에서 카드가 화면 끝에 닿지 않게
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          background: 'var(--surface-card)', borderRadius: '16px', padding: '24px 28px',
-          width: '100%', maxWidth: '340px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-          position: 'relative',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* 상단 라벨 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-          <span style={{ fontSize: '20px' }}>{isLike ? '👍' : '👎'}</span>
-          <span style={{ fontWeight: 700, fontSize: '15px', color: accentColor }}>
-            {isLike ? '도움이 됐나요?' : '어떤 점이 아쉬웠나요?'}
-          </span>
-          <span
-            style={{
-              marginLeft: 'auto', fontSize: '10px', fontWeight: 600,
-              background: '#fef3c7', color: '#92400e',
-              padding: '2px 7px', borderRadius: '999px', letterSpacing: '0.05em',
-            }}
-          >
-            DEV ONLY
-          </span>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          {/* 별점 */}
-          <div style={{ marginBottom: '14px' }}>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-              평점 <span style={{ color: 'var(--text-faint)' }}>(선택)</span>
-            </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {[1, 2, 3, 4, 5].map(n => (
-                <button
-                  key={n}
-                  type="button"
-                  onMouseEnter={() => setHoverRating(n)}
-                  onMouseLeave={() => setHoverRating(null)}
-                  onClick={() => setRating(rating === n ? null : n)}
-                  style={{
-                    fontSize: '24px', background: 'none', border: 'none',
-                    cursor: 'pointer', padding: '0',
-                    color: n <= (hoverRating ?? rating ?? 0) ? '#f59e0b' : '#d1d5db',
-                    transition: 'color 0.1s',
-                  }}
-                >
-                  ★
-                </button>
-              ))}
-              {rating && (
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '4px' }}>
-                  {rating}점
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* 코멘트 */}
-          <div style={{ marginBottom: '18px' }}>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-              의견 <span style={{ color: 'var(--text-faint)' }}>(선택)</span>
-            </div>
-            <textarea
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              placeholder="자유롭게 입력해 주세요"
-              rows={3}
-              style={{
-                width: '100%', resize: 'none', padding: '10px 12px',
-                borderRadius: '10px', border: '1px solid var(--border)',
-                fontSize: '13px', outline: 'none', boxSizing: 'border-box',
-                fontFamily: 'inherit', color: 'var(--text-body)', background: 'var(--surface-2)',
-              }}
-            />
-          </div>
-
-          {/* 버튼 */}
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--border)',
-                background: 'var(--surface-2)', color: 'var(--text-muted)', fontSize: '13px',
-                cursor: 'pointer', fontWeight: 500,
-              }}
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              style={{
-                padding: '8px 18px', borderRadius: '8px', border: 'none',
-                background: accentColor, color: '#fff', fontSize: '13px',
-                cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 600,
-                opacity: submitting ? 0.7 : 1,
-              }}
-            >
-              {submitting ? '저장 중...' : '저장'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-// ── [DEV-ONLY] ────────────────────────────────────────────────────────────────
 
 // ── [DEV-ONLY] rewrite 피드백 패널 (파인튜닝 라벨 수집) ─────────────────────────
 // 배포 시: 아래 컴포넌트 + isUser 렌더부(import.meta.env.DEV 블록)만 제거하면 됨.
@@ -235,28 +112,25 @@ function RewriteFeedbackPanel({ question, rewrite, messageId }) {
 
 function MessageActions({ messageId, content }) {
   const [feedback, setFeedback] = useState(null) // null | 'like' | 'dislike'
-  const [modalType, setModalType] = useState(null) // null | 'like' | 'dislike'
   const [copied, setCopied] = useState(false)
 
-  function handleFeedbackClick(type) {
+  // 클릭 즉시 저장한다. 예전에는 점수·상세사유를 받는 모달을 띄웠는데,
+  // 학생 입장에서는 좋았다·아쉬웠다를 누르려다 입력 창이 뜼면 그대로 닫고 말아
+  // 오히려 피드백이 덜 모인다. 좀 더 자세한 의견은 미답변 수집과 관리자 화면으로 받는다.
+  async function handleFeedbackClick(type) {
     if (!messageId) return
     if (feedback === type) {
       // 이미 선택된 버튼 재클릭 → UI만 취소 (DB는 마지막 저장값 유지)
       setFeedback(null)
       return
     }
-    setModalType(type)
-  }
-
-  async function handleModalSubmit(isHelpful, rating, comment) {
-    const type = isHelpful ? 'like' : 'dislike'
+    setFeedback(type)          // 누른 보람을 즉시 보여 준다
     try {
-      await sendFeedback(messageId, isHelpful, rating, comment)
-      setFeedback(type)
+      await sendFeedback(messageId, type === 'like', null, null)
     } catch {
-      // 실패 시 아무것도 안 함
+      // 저장에 실패해도 되돌리지 않는다 — 피드백은 부가 기능이라
+      // 버튼이 되돌아가면 학생은 고장으로 받아들인다.
     }
-    setModalType(null)
   }
 
   function handleCopy() {
@@ -267,13 +141,6 @@ function MessageActions({ messageId, content }) {
 
   return (
     <>
-      {modalType && (
-        <FeedbackModal
-          type={modalType}
-          onSubmit={handleModalSubmit}
-          onClose={() => setModalType(null)}
-        />
-      )}
       <div className="flex items-center gap-3 text-(--text-faint)" style={{ marginTop: '12px' }}>
         {/* 복사 */}
         <button type="button" onClick={handleCopy} className="hover:text-(--text-muted) transition" title="복사">
@@ -383,7 +250,7 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
           </div>
           <span className="text-xs text-(--text-faint)" style={{ marginTop: '4px' }}>{message.time}</span>
           {/* [DEV-ONLY] rewrite 피드백 패널 — 배포 시 이 블록 제거 */}
-          {import.meta.env.DEV && message.rewrittenQuery && (
+          {SHOW_DEV_TOOLS && message.rewrittenQuery && (
             <RewriteFeedbackPanel
               question={message.content}
               rewrite={message.rewrittenQuery}

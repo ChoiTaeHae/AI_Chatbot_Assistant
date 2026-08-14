@@ -24,8 +24,22 @@ function quietProxy(proxy) {
   })
 }
 
+// 개발용 UI(재작성 라벨 패널 · 답변 평가 버튼)를 화면에 띄울지.
+//
+// .env.local을 쓰지 않는 이유 — docker-compose가 FrontEnd/src와 이 파일만 컨테이너에
+// 마운트해서, 호스트에 .env.local을 만들어도 컨테이너 안에는 존재하지 않는다(실측).
+// 이미 마운트된 이 파일에 두면 값을 바꾸고 컨테이너만 재시작하면 반영된다.
+//
+// 시연·발표 전에는 false. 평소 개발에서는 true로 두고 라벨을 수집한다.
+// 복사 버튼은 이 스위치와 무관하다 — 개발용이 아니라 학생이 실제로 쓰는 기능이다.
+// 프로덕션 빌드에서는 이 값과 관계없이 꺼진다(MessageBubble이 import.meta.env.DEV도 함께 본다).
+const SHOW_DEV_TOOLS = false
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    'import.meta.env.VITE_SHOW_DEV_TOOLS': JSON.stringify(String(SHOW_DEV_TOOLS)),
+  },
   server: {
     host: '0.0.0.0',
     // Windows 호스트를 컨테이너에 바인드 마운트하면 inotify 이벤트가 넘어오지 않는다.
