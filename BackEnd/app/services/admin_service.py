@@ -137,6 +137,15 @@ class AdminService:
         topic_labels = {row.name: row.label for row in topic_label_rows}
         topic_labels.setdefault("general", "일반")
 
+        # 지금 쓰지 않는 옛 topic은 제외한다.
+        #
+        # chat_log에는 예전 이름으로 남은 기록이 섞여 있다(실측 12종 216건: cafeteria,
+        # facility_usage, Facility_Rental, academic_status, 앞에 공백이 붙은 ' drop_out',
+        # 대소문자만 다른 'Cafeteria' 등). 예전에는 라벨을 못 찾으면 intent 문자열을 그대로
+        # 썼기 때문에, 한글 라벨 사이에 영문 옛 이름이 그대로 노출됐다.
+        #
+        # 지우지 않고 걸러만 내는 이유 — chat_log는 실제 사용 기록이라 통계의 근거다.
+        # 행을 지우면 '전체 질문 수'가 줄어 다른 지표와 어긋난다. 화면에서만 뺀다.
         topic_rows = await db.execute(
             select(ChatLog.intent, func.count(ChatLog.id).label("cnt"))
             .where(ChatLog.intent.isnot(None))
@@ -147,9 +156,10 @@ class AdminService:
             TopicCount(
                 intent=row.intent,
                 count=row.cnt,
-                label=topic_labels.get(row.intent, row.intent),
+                label=topic_labels[row.intent],
             )
             for row in topic_rows
+            if row.intent in topic_labels
         ]
 
         return ChatStatsResponse(

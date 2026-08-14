@@ -822,8 +822,10 @@ export default function AdminPage() {
                 ))}
               </div>
 
-              {/* 그래프 행 */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* 그래프 행 — items-start로 stretch를 끈다.
+                  grid 기본값(stretch)이면 오른쪽 주제 목록(20여 줄) 높이에 왼쪽 막대그래프가
+                  끌려가 카드 아래가 통째로 빈다. 각자 제 높이를 갖게 한다. */}
+              <div className="grid grid-cols-2 gap-4 items-start">
 
                 {/* 일별 질문 수 바 차트 */}
                 <div className="bg-(--surface-card) rounded-2xl shadow-sm border border-(--border)" style={{ padding: '24px 28px' }}>
@@ -834,14 +836,14 @@ export default function AdminPage() {
                     const data = chatStats.daily_counts
                     const max = Math.max(...data.map(d => d.count), 1)
                     return (
-                      <div style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-end', justifyContent: 'space-between', height: '130px', gap: '10px', padding: '0 4px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'flex-end', justifyContent: 'space-between', height: '170px', gap: '10px', padding: '0 4px' }}>
                         {data.map(d => (
                           <div key={d.date} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: '5px' }}>
                             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', minHeight: '16px' }}>{d.count > 0 ? d.count : ''}</span>
                             <div style={{
                               width: '100%',
                               borderRadius: '5px 5px 0 0',
-                              height: `${Math.max((d.count / max) * 88, d.count > 0 ? 6 : 2)}px`,
+                              height: `${Math.max((d.count / max) * 126, d.count > 0 ? 6 : 2)}px`,
                               background: d.count > 0 ? 'var(--brand)' : 'var(--border)',
                               transition: 'height 0.3s',
                             }} />
@@ -884,7 +886,7 @@ export default function AdminPage() {
                           <text x={cx} y={cy - 7} textAnchor="middle" fontSize="17" fontWeight="900" fill="var(--text)">{total}</text>
                           <text x={cx} y={cy + 11} textAnchor="middle" fontSize="10" fill="var(--text-faint)">전체</text>
                         </svg>
-                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '7px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '7px', maxHeight: '190px', overflowY: 'auto', paddingRight: '4px' }}>
                           {segments.map((s, i) => (
                             <div key={i} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'center', justifyContent: 'space-between' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>

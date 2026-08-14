@@ -54,6 +54,30 @@ _NOT_FOUND_MARKERS = (
 # 여기까지 오면 '학사 질문이 아니다'가 확정이다 — LLM을 부를 필요도 없다.
 _SKIP_TOPICS = {"general"}
 
+# 마커를 찾을 범위 — 첫 문단에서 잘라 볼 최대 길이(아주 긴 한 줄 답변 방어).
+_HEAD_SCAN_CHARS = 200
+
+
+def _lead(answer: str) -> str:
+    """답변의 '첫 문단' — 못 찾음 판정은 여기서만 한다.
+
+    답변 전체나 앞 N자를 훑으면 멀쩡한 답변이 잡힌다. 답을 다 해 놓고 곁가지 하나가
+    빠졌다고 덧붙인 줄에 마커가 들어가기 때문이다(실측: 제증명 발급 답변 782자 —
+    "제증명 발급 방법은 다음과 같습니다:"로 시작해 발급 방법 4가지를 다 안내한 뒤,
+    네 번째 줄에 "※ 세부 발급절차·소요시간이 명시되어 있지 않음"이 붙어 97자 위치에서
+    걸렸다. 학생에게 완전한 답변을 주고서 "담당자에게 전달했어요"가 함께 나갔다).
+
+    반대로 진짜 미답변은 첫 문장에서 못 찾았다고 말한다. 코드가 만드는 안내문도,
+    LLM이 쓰는 문장도 그렇다:
+      · "죄송해요, 해당 내용에 대한 자료를 찾지 못했어요…"
+      · "졸업사정에 대한 질문은 제공된 문서에서 확인되지 않습니다…" (뒤에 다른 정보가
+        붙어도 물어본 것에는 답하지 못한 것이므로 수집 대상이 맞다)
+    """
+    for line in (answer or "").split("\n"):
+        if line.strip():
+            return line[:_HEAD_SCAN_CHARS]
+    return ""
+
 _MIN_LEN = 3          # 이보다 짧은 질문은 의미를 판정할 수 없다
 _MAX_KEEP = 500       # normalized 컬럼 길이 상한
 
@@ -111,7 +135,10 @@ def is_unanswered(answer: str, source: str | None) -> bool:
     """
     if source == "faq":
         return False
-    return any(m in (answer or "") for m in _NOT_FOUND_MARKERS)
+    # 판정은 첫 문단에서만 한다(_lead 설명 참고). 답변 전체를 훑으면 답을 다 해 놓고
+    # 덧붙인 단서 한 줄에 걸려, 완전한 답변에도 "담당자에게 전달했어요"가 함께 나간다.
+    lead = _lead(answer)
+    return any(m in lead for m in _NOT_FOUND_MARKERS)
 
 
 def should_collect(answer: str, source: str | None, topic: str | None, question: str) -> bool:
