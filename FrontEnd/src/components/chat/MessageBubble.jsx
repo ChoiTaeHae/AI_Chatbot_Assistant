@@ -414,16 +414,39 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
               '| 분야 | 동아리명 |' 이 그대로 본문에 찍힌다(실측: 동아리 답변에서 파이프 노출).
               SYSTEM_PROMPT 5번이 "복잡한 수치·날짜·절차는 마크다운 표를 적극 활용"하라고
               지시하고 있어, 이 플러그인이 없으면 어느 답변에서든 같은 증상이 날 수 있었다. */}
+          {/* singleTilde: false — GFM 기본값은 물결표 하나로도 취소선이 된다. 한국식 시각 표기가
+              물결표를 붙여 쓰기 때문에 한 문단에 시간 범위가 둘 이상이면 그 사이가 통째로 취소선이
+              됐다(실측: 주차 요금 안내의 '06:00~24:00 … 09:00~18:00'). 취소선은 '~~둘~~'로만 받는다. */}
           <ReactMarkdown
             className="prose prose-slate max-w-none text-(--text)"
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
             components={{
-              a: ({ href, children }) => (
-                <a href={href} target="_blank" rel="noopener noreferrer"
-                  className="text-(--brand) underline underline-offset-2 hover:text-(--brand-hover) transition">
-                  {children}
-                </a>
-              ),
+              // GFM 자동 링크는 주소 끝의 문장부호는 떼어내지만 한글은 글자로 보아 주소에 포함한다.
+              // 조사가 붙는 한국어 본문에서는 링크가 매번 깨진다(실측: 제증명 발급 안내의
+              // '(http://wsu.webminwon.kr)에 접속하여' → 주소가 '...kr)에'로 잡혀 열리지 않음).
+              // react-markdown이 주소를 퍼센트 인코딩해 넘기므로('에' → %EC%97%90) 먼저 되돌린 뒤
+              // 꼬리를 뗀다. 떼어낸 글자는 링크 밖에 그대로 찍어 밑줄이 조사까지 덮지 않게 한다.
+              a: ({ href, children }) => {
+                let url = typeof href === 'string' ? href : ''
+                try { url = decodeURIComponent(url) } catch { /* 깨진 인코딩이면 원본 유지 */ }
+                const before = url
+                url = url.replace(/[가-힣ㄱ-ㅎㅏ-ㅣ]+$/, '')
+                if (url.endsWith(')') && !url.includes('(')) url = url.slice(0, -1)
+                const tail = before.slice(url.length)
+
+                const label = Array.isArray(children) ? children.join('') : children
+                const hasTail = tail && typeof label === 'string' && label.endsWith(tail)
+
+                return (
+                  <>
+                    <a href={url || href} target="_blank" rel="noopener noreferrer"
+                      className="text-(--brand) underline underline-offset-2 hover:text-(--brand-hover) transition">
+                      {hasTail ? label.slice(0, label.length - tail.length) : children}
+                    </a>
+                    {hasTail ? tail : null}
+                  </>
+                )
+              },
               ul: ({ children }) => (
                 <ul style={{ listStyleType: 'disc', paddingLeft: '1.25rem', margin: '8px 0' }}>
                   {children}
