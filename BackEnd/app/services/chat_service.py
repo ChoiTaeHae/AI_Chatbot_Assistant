@@ -85,6 +85,7 @@ class ChatService:
                 map_card=result.map_card,
                 dept_card=result.dept_card,
                 scholarship_card=getattr(result, "scholarship_card", None),
+                weather_card=getattr(result, "weather_card", None),
                 pending_context=result.pending_context,
             )
 
@@ -160,6 +161,7 @@ class ChatService:
                 "schedule_card": getattr(result, "schedule_card", None),
                 "dept_card": result.dept_card,
                 "scholarship_card": getattr(result, "scholarship_card", None),
+                "weather_card": getattr(result, "weather_card", None),
                 "file_offer": result.file_offer,
             }.items() if v
         } or None
@@ -237,6 +239,7 @@ class ChatService:
             schedule_card=getattr(result, "schedule_card", None),
             dept_card=result.dept_card,
             scholarship_card=getattr(result, "scholarship_card", None),
+            weather_card=getattr(result, "weather_card", None),
             pending_context=result.pending_context,
             rewritten_query=getattr(result, "rewritten_query", None),
         )

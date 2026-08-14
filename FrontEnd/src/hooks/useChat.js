@@ -55,6 +55,7 @@ export function useChat(lang = 'ko') {
         scheduleCard: data.schedule_card || null,
         deptCard: data.dept_card || null,
         scholarshipCard: data.scholarship_card || null,
+        weatherCard: data.weather_card || null,
       }
       // [DEV-ONLY] rewrite가 있으면 사용자 메시지에 붙여 rewrite 피드백 패널 표시
       setMessages((prev) => {
@@ -122,6 +123,7 @@ export function useChat(lang = 'ko') {
         scheduleCard: data.schedule_card || null,
         deptCard: data.dept_card || null,
         scholarshipCard: data.scholarship_card || null,
+        weatherCard: data.weather_card || null,
       }
       setMessages((prev) => [...prev, aiMsg])
     } catch (err) {
@@ -183,6 +185,7 @@ export function useChat(lang = 'ko') {
           scheduleCard: cm.schedule_card || null,
           deptCard: cm.dept_card || null,
           scholarshipCard: cm.scholarship_card || null,
+          weatherCard: cm.weather_card || null,
           fileOffer: cm.file_offer || null,
         }
       }))
