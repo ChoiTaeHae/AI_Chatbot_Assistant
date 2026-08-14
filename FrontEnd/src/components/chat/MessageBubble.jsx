@@ -423,17 +423,27 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
               // GFM 자동 링크는 주소 끝의 문장부호는 떼어내지만 한글은 글자로 보아 주소에 포함한다.
               // 조사가 붙는 한국어 본문에서는 링크가 매번 깨진다(실측: 제증명 발급 안내의
               // '(http://wsu.webminwon.kr)에 접속하여' → 주소가 '...kr)에'로 잡혀 열리지 않음).
-              // 주소 끝의 한글과 짝 없는 닫는 괄호를 떼어낸다 — 보이는 글자는 그대로 두고 이동 대상만 고친다.
+              // react-markdown이 주소를 퍼센트 인코딩해 넘기므로('에' → %EC%97%90) 먼저 되돌린 뒤
+              // 꼬리를 뗀다. 떼어낸 글자는 링크 밖에 그대로 찍어 밑줄이 조사까지 덮지 않게 한다.
               a: ({ href, children }) => {
-                let url = typeof href === 'string' ? href.replace(/[가-힣]+$/, '') : href
-                if (typeof url === 'string' && url.endsWith(')') && !url.includes('(')) {
-                  url = url.slice(0, -1)
-                }
+                let url = typeof href === 'string' ? href : ''
+                try { url = decodeURIComponent(url) } catch { /* 깨진 인코딩이면 원본 유지 */ }
+                const before = url
+                url = url.replace(/[가-힣ㄱ-ㅎㅏ-ㅣ]+$/, '')
+                if (url.endsWith(')') && !url.includes('(')) url = url.slice(0, -1)
+                const tail = before.slice(url.length)
+
+                const label = Array.isArray(children) ? children.join('') : children
+                const hasTail = tail && typeof label === 'string' && label.endsWith(tail)
+
                 return (
-                  <a href={url} target="_blank" rel="noopener noreferrer"
-                    className="text-(--brand) underline underline-offset-2 hover:text-(--brand-hover) transition">
-                    {children}
-                  </a>
+                  <>
+                    <a href={url || href} target="_blank" rel="noopener noreferrer"
+                      className="text-(--brand) underline underline-offset-2 hover:text-(--brand-hover) transition">
+                      {hasTail ? label.slice(0, label.length - tail.length) : children}
+                    </a>
+                    {hasTail ? tail : null}
+                  </>
                 )
               },
               ul: ({ children }) => (
