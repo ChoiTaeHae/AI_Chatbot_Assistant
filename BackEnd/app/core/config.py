@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Kakao Map
     KAKAO_API_KEY: str = ""
 
+    # OpenWeatherMap — 캠퍼스 날씨 조회. 비워 두면 날씨 질문에 안내 문구만 나가고
+    # 다른 기능에는 영향이 없다(키가 없다고 기동이 막히지 않게 기본값을 둔다).
+    OPENWEATHER_API_KEY: str = ""
+
     # LLM
     # 답변 생성 백엔드: "local"(로컬 Bllossom GGUF) | "vertex"(Vertex AI Gemini)
     LLM_PROVIDER: str = "local"

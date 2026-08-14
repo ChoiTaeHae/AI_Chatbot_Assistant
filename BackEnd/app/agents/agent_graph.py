@@ -841,6 +841,35 @@ async def _handle_dining(state: AgentState) -> dict:
     }
 
 
+async def _handle_weather(state: AgentState) -> dict:
+    """캠퍼스 날씨 — 외부 API(OpenWeatherMap) 직접 조회.
+
+    학식(dining)과 달리 실패해도 RAG로 넘기지 않는다. 날씨는 학사 문서에 없는 데이터라
+    RAG로 내려보내도 답이 나올 수 없고, 오히려 무관한 문서를 근거로 그럴듯한 오답을
+    만들 위험만 생긴다(근거약함 게이트가 엉뚱한 FAQ를 물어온 전례가 있다).
+    → 서비스가 만든 안내 문구를 그대로 내보내고 거기서 끝낸다.
+
+    LLM을 태우지 않는 것도 같은 이유다. 기온·강수확률은 숫자를 그대로 보여 주는 것이
+    가장 정확하고, 문장을 다시 만들게 하면 실행할 때마다 표현이 흔들리고 값이 바뀔 여지가
+    생긴다(졸업요건을 temperature=0으로 고정한 것과 같은 판단).
+    """
+    from app.services.school.weather import answer_weather_question, build_weather_card
+
+    await _log(state["db"], state["student_id"], "weather")
+    answer, ok = answer_weather_question(state["question"])
+    if not ok:
+        print("[Graph] 날씨 조회 실패 → 안내 문구로 종료(RAG 폴백 없음)")
+        return {"answer": answer, "source": "weather", "source_file": None, "topic": "weather"}
+    # 카드는 덧붙이는 것이라 실패해도 답변에는 영향이 없다(build_weather_card가 None을 준다).
+    return {
+        "answer": answer,
+        "source": "weather",
+        "source_file": None,
+        "topic": "weather",
+        "weather_card": build_weather_card(),
+    }
+
+
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
     # 졸업 분기(학과 감지·유형 분류)는 반드시 '현재 질문' 기준이어야 한다.
@@ -1134,6 +1163,7 @@ _HANDLER_MAP = {
     "schedule":    "handle_schedule",
     "department":  "handle_department",
     "dining":      "handle_dining",
+    "weather":     "handle_weather",
     "my_grades":   "handle_my_grades",
     "rag":         "handle_rag_general",
     "general":     "handle_general",
@@ -1213,6 +1243,7 @@ def _build_graph():
     g.add_node("handle_scholarship",_handle_scholarship)
     g.add_node("handle_department", _handle_department)
     g.add_node("handle_dining",     _handle_dining)
+    g.add_node("handle_weather",    _handle_weather)
     g.add_node("handle_my_grades",  _handle_my_grades)
     g.add_node("handle_rag_general",_handle_rag_general)
     g.add_node("handle_general",    _handle_general)
@@ -1240,6 +1271,7 @@ def _build_graph():
         "schedule":    "handle_schedule",
         "department":  "handle_department",
         "dining":      "handle_dining",
+        "weather":     "handle_weather",
         "my_grades":   "handle_my_grades",
         "rag":         "handle_rag_general",
         "general":     "handle_general",
@@ -1247,7 +1279,7 @@ def _build_graph():
 
     for handler in [
         "handle_campus", "handle_graduation", "handle_schedule", "handle_scholarship",
-        "handle_department", "handle_dining", "handle_my_grades", "handle_rag_general",
+        "handle_department", "handle_dining", "handle_weather", "handle_my_grades", "handle_rag_general",
         "handle_general", "handle_no_data",
     ]:
         g.add_edge(handler, END)
@@ -1266,6 +1298,7 @@ class AgentResult:
     schedule_card: dict | None = None
     dept_card: dict | None = None
     scholarship_card: dict | None = None
+    weather_card: dict | None = None
     pending_context: dict | None = None
     intent: str | None = None
     topic: str | None = None
@@ -1307,6 +1340,7 @@ class AgentGraph:
             "schedule_card": None,
             "dept_card": None,
             "scholarship_card": None,
+            "weather_card": None,
             "next_pending_context": None,
             "source": None,
             "source_file": None,
@@ -1325,6 +1359,7 @@ class AgentGraph:
             schedule_card=result.get("schedule_card"),
             dept_card=result.get("dept_card"),
             scholarship_card=result.get("scholarship_card"),
+            weather_card=result.get("weather_card"),
             pending_context=result.get("next_pending_context"),
             intent=result.get("intent"),
             topic=result.get("topic"),

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import MascotAvatar from '../common/MascotAvatar'
 import ScheduleCard from './ScheduleCard'
+import WeatherCard from './WeatherCard'
 import { sendFeedback, sendRewriteFeedback } from '../../api/chat'
 import { useAuth } from '../../store/AuthContext'
 import useIsMobile from '../../hooks/useIsMobile'
@@ -567,6 +568,9 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
 
           {/* 학사일정 미니 달력 카드 (일정이 걸친 주만) */}
           {message.scheduleCard && <ScheduleCard card={message.scheduleCard} lang={lang} />}
+
+          {/* 날씨 카드 — 텍스트 답변에 덧붙는다. 카드가 없어도 답변은 그대로 나간다 */}
+          {message.weatherCard && <WeatherCard card={message.weatherCard} lang={lang} />}
 
           {/* 맞춤 장학금 설문 제안 — 예 누르면 설문 모달, 아니오 누르면 숨김 */}
           {message.scholarshipCard?.survey && (

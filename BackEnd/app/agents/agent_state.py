@@ -26,6 +26,7 @@ class AgentState(TypedDict):
     schedule_card: dict | None       # 학사일정 미니 달력 카드 { today, events: [...] }
     dept_card: dict | None   # 학과/학부/단과대 안내 카드 (말풍선 안 렌더)
     scholarship_card: dict | None   # 장학·근로 카테고리 카드 { items: [{kind, scope, count}] }
+    weather_card: dict | None       # 캠퍼스 날씨 카드 { temp, emoji, pm10, hourly[], tomorrow, ... }
     next_pending_context: dict | None
     source: str | None
     source_file: str | None

@@ -20,6 +20,7 @@ class ChatResponse(BaseModel):
     schedule_card: dict | None = None   # { today, events: [{event, start_date, end_date}] } 학사일정 미니 달력
     dept_card: dict | None = None       # { kind, title, subtitle, items_label, items, homepage_url } 학과/학부/단과대 안내
     scholarship_card: dict | None = None # { items: [{kind, scope, count}] } 장학·근로 큰 분류 카드 (클릭 시 둘러보기 모달 필터 오픈)
+    weather_card: dict | None = None    # { place, emoji, temp, feels_like, temp_min/max, humidity, wind, pm10, pm25, sunrise, sunset, hourly[], tomorrow } 캠퍼스 날씨
     pending_context: dict | None = None # { type: "scholarship" } 멀티턴 대화 상태 유지용
     rewritten_query: str | None = None  # 검색용 재작성 질문 (개발용 rewrite 피드백 패널에서 사용, 변경 없으면 null)
 
