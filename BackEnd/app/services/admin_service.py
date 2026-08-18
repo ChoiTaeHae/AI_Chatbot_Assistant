@@ -697,8 +697,10 @@ class AdminService:
         result = await db.execute(select(Topic).order_by(Topic.id))
         return result.scalars().all()
 
+    # department가 빠져 있었다 — 실제로 쓰이는 핸들러(college_department 토픽)인데 목록에 없어
+    # 어드민이 학과 관련 토픽을 새로 만들려 하면 거부됐다.
     _VALID_HANDLER_TYPES = {"rag", "campus", "graduation", "scholarship", "schedule",
-                            "general", "dining", "my_grades"}
+                            "general", "dining", "department", "my_grades"}
 
     async def create_topic(self, db: AsyncSession, body: TopicCreateRequest) -> Topic:
         # 이름·라벨 앞뒤 공백 제거 — ' graduate_school'처럼 공백 낀 채 저장돼 topic 매칭이

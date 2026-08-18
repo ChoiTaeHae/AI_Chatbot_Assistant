@@ -6,11 +6,11 @@ import useIsMobile from '../../hooks/useIsMobile'
 
 const T = {
   ko: { greeting: '안녕하세요! 무엇을 도와드릴까요? 👋', subtitle: '학사 관련 질문을 입력하면 AI가 답변해드립니다.', grad: '내 졸업 현황',
-        chips: ['휴학 어떻게 신청해?', '학생회관 어디야?', '증명서 어떻게 발급받아?'] },
+        chips: ['휴학 어떻게 신청해?', '장학금 추천해줘', '증명서 어떻게 발급받아?'] },
   en: { greeting: 'Hello! How can I help you? 👋',       subtitle: 'Ask any academic questions and the AI will answer.', grad: 'My Graduation Status',
-        chips: ['How do I apply for a leave of absence?', 'Where is the Student Union?', 'How do I get an official certificate?'] },
-  zh: { greeting: '你好！有什么可以帮您？👋',                subtitle: '请输入与学业相관的问题，AI将为您解答。', grad: '我的毕业进度',
-        chips: ['如何申请休学？', '学生会馆在哪里？', '如何申请开具证明？'] },
+        chips: ['How do I apply for a leave of absence?', 'Recommend scholarships for me', 'How do I get an official certificate?'] },
+  zh: { greeting: '你好！有什么可以帮您？👋',                subtitle: '请输入与学业相关的问题，AI将为您解答。', grad: '我的毕业进度',
+        chips: ['如何申请休学？', '推荐适合我的奖学金', '如何申请开具证明？'] },
 }
 
 export default function ChatWindow({ messages, isLoading, lang = 'ko', onClearPendingFile, pendingFile, onConfirmFile, onCheckGraduation, onSendQuestion, onStartSurvey }) {

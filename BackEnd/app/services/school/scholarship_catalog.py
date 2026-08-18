@@ -383,8 +383,13 @@ async def match_scholarships(
         if r.req_min_gpa is not None and (gpa is None or gpa < r.req_min_gpa):
             continue
         # 학년 요건(다중) — 하나라도 충족하면 통과. 비면 무관.
+        # 학년을 안 골랐으면(None) 학년 요건은 따지지 않는다 — MatchRequest 주석대로 'None=무관'.
+        # 그동안은 _grade_ok가 None에 전부 False를 돌려줘, 학년 요건이 붙은 장학금이 통째로
+        # 사라졌다(실측: grade_year=3이면 3건, None이면 0건). 나이·전공계열·학과가 이미
+        # '값이 없으면 통과'인데 학년만 반대로 동작해 일관성도 깨져 있었다.
         grades = [g for g in (r.req_grade or "").split(",") if g]
-        if grades and not any(_grade_ok(g, grade_year, semester, transfer) for g in grades):
+        if grades and grade_year is not None and not any(
+                _grade_ok(g, grade_year, semester, transfer) for g in grades):
             continue
         if not _income_ok(r.req_income, income):
             continue   # 학생 지원구간이 요건 초과 → 대상 아님
@@ -415,11 +420,17 @@ async def match_scholarships(
         _required = [k for on, k in _req_flags if on]
         if _required and not r.req_flags_preferential and not any(answers.get(k) for k in _required):
             continue
-        # '성적 우수'는 태그 필터(양방향): 체크하면 성적우수 태그만, 체크 안 하면 성적우수 태그는 제외.
-        if bool(r.req_excellent) != want_excellent:
-            continue
-        # 관심 유형(카테고리) — 고른 게 있으면 그 카테고리만 남긴다.
-        if want_cats and (r.category or "기타") not in want_cats:
+        # 관심 유형은 고른 칩끼리 OR로 묶는다 — 모달 안내문("고른 유형만 결과에 나와요")대로다.
+        # 예전엔 '성적 우수'(태그)와 카테고리를 AND로 걸어, 둘을 함께 고르면 교집합이 없어
+        # 0건이 됐다(실측: 성적우수+학업지원금+취창업+주거복지 → 각각 4·3·2·0건인데 합치면 0).
+        # 학생은 '이 중 아무거나'를 고른 것이지 '전부 해당하는 것'을 고른 게 아니다.
+        if want_excellent or want_cats:
+            if not ((want_excellent and bool(r.req_excellent))
+                    or (want_cats and (r.category or "기타") in want_cats)):
+                continue
+        elif bool(r.req_excellent):
+            # 아무것도 안 고르면 전체를 보여주되 '성적우수 전용'은 뺀다 — 성적을 안 물어봤는데
+            # 성적우수 장학금이 섞여 나오면 받을 수 있는 것처럼 오해된다(학생 피드백).
             continue
         matched.append(r)
 
