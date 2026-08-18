@@ -18,6 +18,18 @@ from app.models.DB_Table import College, Division, Department, ScholarshipCatalo
 from app.services.school import department as dept_chat   # reset_cache()
 
 
+def _reset_caches() -> None:
+    """학과 구조가 바뀌면 이 데이터를 캐시하는 곳을 전부 비운다.
+
+    챗봇 학과 안내(department)와 졸업 핸들러(graduation)가 서로 다른 캐시를 따로 들고 있다.
+    한쪽만 비우면 '학과 소개는 새 편제, 졸업 답변은 옛 편제'로 갈린다.
+    graduation은 import가 무거워(LLM·RAG 서비스를 끌고 온다) 함수 안에서 늦게 부른다.
+    """
+    from app.services.school import graduation as grad_chat
+    dept_chat.reset_cache()
+    grad_chat.reset_cache()
+
+
 # ─────────────────────────────── 조회 (트리) ───────────────────────────────
 
 def _dept_dict(d: Department, counts: dict[int, int]) -> dict:
@@ -93,7 +105,7 @@ async def create_college(db: AsyncSession, name: str) -> int:
     db.add(c)
     await db.commit()
     await db.refresh(c)
-    dept_chat.reset_cache()
+    _reset_caches()
     return c.id
 
 
@@ -109,7 +121,7 @@ async def update_college(db: AsyncSession, cid: int, name: str) -> bool:
         raise ValueError("이미 있는 단과대학입니다.")
     c.name = name
     await db.commit()
-    dept_chat.reset_cache()
+    _reset_caches()
     return True
 
 
@@ -123,7 +135,7 @@ async def delete_college(db: AsyncSession, cid: int) -> bool:
         raise ValueError("하위 학부·학과가 있어 삭제할 수 없습니다. 먼저 옮기거나 삭제하세요.")
     await db.delete(c)
     await db.commit()
-    dept_chat.reset_cache()
+    _reset_caches()
     return True
 
 
@@ -144,7 +156,7 @@ async def create_division(db: AsyncSession, name: str, college_id: int) -> int:
     db.add(dv)
     await db.commit()
     await db.refresh(dv)
-    dept_chat.reset_cache()
+    _reset_caches()
     return dv.id
 
 
@@ -170,7 +182,7 @@ async def update_division(db: AsyncSession, did: int, name: str, college_id: int
         for d in (await db.execute(select(Department).where(Department.division_id == did))).scalars():
             d.college_id = college_id
     await db.commit()
-    dept_chat.reset_cache()
+    _reset_caches()
     return True
 
 
@@ -183,7 +195,7 @@ async def delete_division(db: AsyncSession, did: int) -> bool:
         raise ValueError("소속 학과가 있어 삭제할 수 없습니다. 먼저 옮기거나 삭제하세요.")
     await db.delete(dv)
     await db.commit()
-    dept_chat.reset_cache()
+    _reset_caches()
     return True
 
 
@@ -237,7 +249,7 @@ async def create_department(db: AsyncSession, data: dict) -> int:
     db.add(d)
     await db.commit()
     await db.refresh(d)
-    dept_chat.reset_cache()
+    _reset_caches()
     return d.id
 
 
@@ -266,7 +278,7 @@ async def update_department(db: AsyncSession, did: int, data: dict):
         renamed = await _sync_scholarship_departments(db, old_name, new_name)
 
     await db.commit()
-    dept_chat.reset_cache()
+    _reset_caches()
     return {"renamed_scholarships": renamed}
 
 
@@ -280,5 +292,5 @@ async def delete_department(db: AsyncSession, did: int) -> bool:
     except IntegrityError:
         await db.rollback()
         raise ValueError("이 학과를 참조하는 학생·요건 데이터가 있어 삭제할 수 없습니다.")
-    dept_chat.reset_cache()
+    _reset_caches()
     return True

@@ -362,7 +362,11 @@ async def _pre_check(state: AgentState) -> dict:
     prev_topic = _prev.get("prev_topic", "") or ""
     _SCH_KW = ("장학금", "국장", "국가장학", "학자금")
     faq_q = None
-    if q and any(k in q for k in _SCH_KW):
+    if q and _is_scholarship_browse(q):
+        # '무슨 장학금 있어?'·'추천해줘'는 정의 FAQ가 아니라 설문·카테고리 카드가 답이다.
+        # 여기서 걸러 두지 않으면 임베딩이 '장학금'만 보고 정의 FAQ를 물어온다.
+        print(f"[Graph] 장학금 목록·추천 질문 → 검수 FAQ 건너뜀: '{q[:40]}'")
+    elif q and any(k in q for k in _SCH_KW):
         faq_q = q
     elif q and (prev_topic == "scholarship" or any(k in prev_q for k in _SCH_KW)):
         # 후속 질문 — 직전이 장학금 맥락(직전 답변 topic 또는 직전 질문 키워드)이면 '국가장학금' 붙여 보강.
@@ -944,6 +948,22 @@ async def _handle_schedule(state: AgentState) -> dict:
 _SCHOLARSHIP_ABBR = {"국장": "국가장학금"}   # 학생 약어 → 정식 명칭 (매칭률↑)
 _SCHOLARSHIP_FAQ_THRESHOLD = 0.81
 
+# '목록·추천·내 자격'을 묻는 질문은 검수 FAQ의 몫이 아니다 — 맞춤 설문과 카테고리 카드가 답이다.
+# 문제: '장학금'이라는 단어가 임베딩을 지배해서, 무슨 장학금이 있냐고 물어도 국가장학금 '정의'
+# FAQ가 0.82~0.87로 걸린다. 그래서 서로 다른 질문에 똑같은 정의 문단이 나갔다(실측:
+# '국가장학금 추천해줘' 0.870 / '장학금 뭐 있어?' 0.853 / '내가 받을 수 있는 장학금' 0.835 —
+# 셋 다 같은 답). 임계값을 올려 막으려면 0.88 이상이어야 하는데 그러면 정상 매칭까지 죽는다.
+# → 점수가 아니라 '질문의 성격'으로 가른다. 목록·추천 의도어가 있으면 FAQ를 건너뛴다.
+_SCHOLARSHIP_BROWSE_RE = re.compile(
+    r"추천|뭐\s*있|뭐가\s*있|무엇이\s*있|어떤\s*게?\s*있|어떤\s*것?\s*있|종류|목록|"
+    r"받을\s*수\s*있|받을수있|내가\s*받|나\s*받|찾아\s*줘|찾아줘"
+)
+
+
+def _is_scholarship_browse(question: str) -> bool:
+    """장학금 '목록·추천' 질문인가 — 검수 FAQ 대신 맞춤 설문·카테고리 카드로 보낼 질문."""
+    return bool(_SCHOLARSHIP_BROWSE_RE.search(question or ""))
+
 
 def _lookup_scholarship_faq(question: str) -> str | None:
     q = question
@@ -969,8 +989,11 @@ async def _handle_scholarship(state: AgentState) -> dict:
     """
     await _log(state["db"], state["student_id"], "scholarship")
     # 1) 검수 Q&A 우선 (질문 임베딩 → Qdrant 코사인 검색 → 원문 답변)
+    #    단 '목록·추천' 질문은 건너뛴다 — 정의 FAQ가 0.85 안팎으로 걸려 설문 제안을 가로챈다.
     loop = asyncio.get_event_loop()
-    verbatim = await loop.run_in_executor(None, _lookup_scholarship_faq, state["question"])
+    verbatim = None
+    if not _is_scholarship_browse(state["question"]):
+        verbatim = await loop.run_in_executor(None, _lookup_scholarship_faq, state["question"])
     if verbatim:
         return {
             "answer": verbatim,

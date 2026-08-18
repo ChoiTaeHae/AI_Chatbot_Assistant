@@ -45,6 +45,20 @@ def _norm(s: str) -> str:
     return _NORM_RE.sub("", s or "").lower()
 
 
+def reset_cache() -> None:
+    """어드민에서 학과·학부·단과대를 고쳤을 때 캐시 무효화 (department.reset_cache와 짝).
+
+    이 캐시는 첫 졸업 질문 때 1회 로드되고 그 뒤로는 갱신되지 않는다. 그동안 학과 관리
+    화면은 챗봇 학과 안내 캐시만 비워서, 학부를 새로 만들어도 졸업 답변은 서버를 다시
+    띄우기 전까지 옛 편제로 답했다(실측: 재활학부 신설 후 재시작 전까지 반영 안 됨).
+    """
+    global _DEPT_CACHE, _DIVISION_CACHE, _COLLEGE_CACHE
+    _DEPT_CACHE = None
+    _DIVISION_CACHE = None
+    _COLLEGE_CACHE = None
+    print("[Graduation] 학과·학부·단과대 캐시 무효화 — 다음 질문에서 다시 로드")
+
+
 def detect_department(question: str) -> tuple[int, str] | None:
     """질문에서 학과명/별칭을 탐지해 (dept_id, name) 반환. 가장 긴 매칭 우선(부분매칭 오탐 방지).
     캐시 미로드 또는 미매칭이면 None → 호출부에서 '내 학과'로 폴백."""
