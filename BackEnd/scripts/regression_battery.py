@@ -21,8 +21,12 @@ from app.agents.agent_graph import agent_graph
 from app.server import _load_topics, _load_search_synonyms
 
 NOT_FOUND = ("찾지 못", "찾을 수 없", "제공된 문서에", "관련 자료가 없")
-S = 14   # 박민수(학생, dept 7)
-A = 5    # admin(학과 없음)
+S = 14   # 테스트 학생
+A = 5    # admin 계정
+# '학과가 없는 계정' 전용 자리표시자. 해당 계정을 main()에서 DB로 찾아 넣는다.
+# 예전엔 A(=5)를 학과 없는 계정으로 하드코딩했는데, 공용 DB에서 그 계정에 학과가
+# 생기면서 멀쩡한 기능이 실패로 찍혔다. 계정이 하나도 없으면 이 케이스는 건너뛴다.
+NODEPT = -1
 
 CASES = [
     # ── 병합 앵커(문서 뒤쪽 정답) ──
@@ -58,7 +62,7 @@ CASES = [
     # (전에는 그 학과의 최신 연도로 답해서 2024학번에게 2025 요건이 나갔다.)
     ("게임그래픽전공 졸업요건", None, ["__MYYEAR__"], None, S),
     # ── 학과 없는 계정 ──
-    ("내년에 졸업하려면 뭐 필요해?", None, ["소속 학과 정보가 없"], None, A),
+    ("내년에 졸업하려면 뭐 필요해?", None, ["소속 학과 정보가 없"], None, NODEPT),
     ("간호학과 졸업요건", None, ["학점"], None, A),
     ("내년에 졸업하려면 뭐 필요해?", None, ["__TOTAL__"], None, S),
     # ── facility_rental (맥락 포함) ──
@@ -78,7 +82,10 @@ CASES = [
     ("휴학 어떻게 신청해?", "leave", ["휴학"], None, S),
     ("복학 절차 알려줘", "return_to_school", ["복학"], None, S),
     ("수강정정 기간 알려줘", "schedule", ["8월"], None, S),
-    ("이번학기 주요 일정", "schedule", ["수강신청"], None, S),
+    # 특정 일정명을 하드코딩하면 그 일정이 지나는 순간 실패한다(실측: '수강신청'을
+    # 기대했는데 학부 수강신청이 8/12로 지나가 8월 하순엔 목록에 없었다).
+    # DB에서 '다가오는 첫 일정'을 읽어 주입한다.
+    ("이번학기 주요 일정", "schedule", ["__NEXTEVENT__"], None, S),
     ("학군단 지원 자격이 뭐야", "rotc", ["자격"], None, S),
     ("성적 이의신청 어떻게 해?", "grades", ["교수"], None, S),
     ("전과 신청 자격 알려줘", "major_change", ["재학"], None, S),
@@ -139,6 +146,17 @@ async def main():
         _myyear = (await _db.execute(_sql(
             "SELECT LEFT(student_no, 4) FROM student WHERE id = :sid"), {"sid": S})).scalar()
 
+        # 학과가 없는 계정 (없으면 해당 케이스를 건너뛴다)
+        _nodept = (await _db.execute(_sql(
+            "SELECT id FROM student WHERE dept_id IS NULL ORDER BY id LIMIT 1"))).scalar()
+
+        # 다가오는 첫 학부 일정 — 날짜가 지나도 깨지지 않도록 매 실행마다 다시 읽는다.
+        _next_event = (await _db.execute(_sql("""
+            SELECT event FROM academic_schedule
+            WHERE track = '학부' AND start_date >= CURRENT_DATE
+            ORDER BY start_date LIMIT 1
+        """))).scalar()
+
     if _row:
         _dept, _maj, _lib, _tot = _row
         _expect = [str(int(_maj)), str(int(_lib)), str(int(_tot))]
@@ -147,14 +165,32 @@ async def main():
         _expect = ["학점"]          # 요건 미등록이면 형식만 확인
         print("[기대값] DB에서 요건을 찾지 못함 → '학점' 포함 여부만 확인")
 
-    for _i, _c in enumerate(CASES):
-        if "__MYYEAR__" in _c[2] and _myyear:
-            CASES[_i] = (_c[0], _c[1], [str(_myyear)], _c[3], _c[4])
-            continue
-        if "__TOTAL__" in _c[2]:
-            CASES[_i] = (_c[0], _c[1], _expect, _c[3], _c[4])
+    if _nodept:
+        print(f"[기대값] 학과 없는 계정 = student {_nodept}")
+    else:
+        print("[건너뜀] 학과 없는 계정이 DB에 없어 '소속 학과 없음' 케이스를 제외한다")
+    if _next_event:
+        print(f"[기대값] 다가오는 첫 학부 일정 — {_next_event}")
 
-    print("READY\n")
+    _resolved = []
+    for _c in CASES:
+        if "__MYYEAR__" in _c[2] and _myyear:
+            _resolved.append((_c[0], _c[1], [str(_myyear)], _c[3], _c[4])); continue
+        if "__TOTAL__" in _c[2]:
+            _resolved.append((_c[0], _c[1], _expect, _c[3], _c[4])); continue
+        if "__NEXTEVENT__" in _c[2]:
+            if not _next_event:
+                print("[건너뜀] 다가오는 학부 일정이 없어 '이번학기 주요 일정' 케이스를 제외한다")
+                continue
+            _resolved.append((_c[0], _c[1], [_next_event], _c[3], _c[4])); continue
+        if _c[4] == NODEPT:
+            if not _nodept:
+                continue                       # 위에서 안내 출력함
+            _resolved.append((_c[0], _c[1], _c[2], _c[3], _nodept)); continue
+        _resolved.append(_c)
+    CASES[:] = _resolved
+
+    print(f"READY — {len(CASES)}개 케이스\n")
 
     ok = bad = 0
     fails = []
