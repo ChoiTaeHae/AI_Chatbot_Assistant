@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin
 
-import requests
 from bs4 import BeautifulSoup, Tag
 
 REQUEST_TIMEOUT_SECONDS = 15
@@ -50,17 +49,11 @@ class CrawledPage:
 
 
 def fetch_page_html(url: str) -> str:
-    response = requests.get(
-        url,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0 Safari/537.36"
-            )
-        },
-    )
+    # 학교 서버가 중간 인증서를 함께 보내지 않아 기본 검증이 실패한다.
+    # app.core.http_client 가 빠진 중간 인증서를 채운 번들로 요청한다(검증 유지).
+    from app.core.http_client import get as _get
+
+    response = _get(url, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
     response.encoding = response.apparent_encoding or response.encoding
     return response.text

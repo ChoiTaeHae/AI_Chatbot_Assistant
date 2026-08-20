@@ -65,10 +65,14 @@ class RestaurantGuide:
 
 
 def _fetch(url: str) -> str:
+    # 2026-08-20: 빠진 중간 인증서를 채운 번들을 쓰도록 바꿨다(app.core.http_client).
+    # 아래 verify=False 폴백은 체인이 또 바뀔 때를 위해 남겨 둔다.
+    from app.core.http_client import ca_bundle
+
     session = requests.Session()
     session.headers["User-Agent"] = _USER_AGENT
     try:
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, verify=ca_bundle())
     except requests.exceptions.SSLError as e:
         # 학교 서버가 인증서 체인을 온전히 보내지 않으면 검증이 통째로 실패한다.
         # 실측(2026-08-12): wsu.ac.kr 인증서가 8/4에 갱신되면서 중간 인증서
