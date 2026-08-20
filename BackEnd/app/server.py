@@ -465,6 +465,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # 학교 서버가 중간 인증서를 안 보내는 문제(app.core.http_client 참고)를 프로세스 전체에
+    # 적용한다. 헬퍼를 거치지 않고 requests·urllib 를 직접 쓰는 코드나 라이브러리 내부
+    # 요청도 이 한 줄로 함께 살아난다.
+    from app.core.http_client import install as _install_ca
+    _install_ca()
+
     # API 문서는 기본 비활성(settings.ENABLE_DOCS=false). 인터넷 공개 시 /docs·/redoc·
     # /openapi.json 으로 API 구조 전체가 노출되는 것을 막는다. 세 개를 모두 꺼야 한다
     # (하나만 열려 있어도 openapi 스키마로 전체 구조가 샌다).

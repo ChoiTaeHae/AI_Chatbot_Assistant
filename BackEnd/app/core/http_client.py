@@ -21,6 +21,13 @@
 
     학교가 서버 설정을 바로잡으면 이 번들이 있어도 정상 동작하므로
     되돌릴 필요가 없다.
+
+    쓰는 법
+      get()          requests 로 가져올 때
+      ssl_context()  urllib.request.urlopen(context=...) 로 가져올 때
+      install()      서버 기동 때 한 번 — 이 둘을 안 거치는 코드(직접 requests.get 하는
+                     곳, 서드파티 라이브러리 내부 요청)까지 환경변수로 함께 덮는다.
+                     app.server.create_app() 에서 부르고 있다.
 """
 from __future__ import annotations
 
@@ -64,6 +71,23 @@ def ssl_context():
     """urllib.request.urlopen(context=...) 용. requests 가 아닌 경로에서 쓴다."""
     import ssl
     return ssl.create_default_context(cafile=ca_bundle())
+
+
+def install() -> None:
+    """보정 번들을 프로세스 전체의 기본 CA 로 심는다. 서버 기동 때 한 번 부른다.
+
+    get()·ssl_context() 를 거치지 않는 코드까지 한꺼번에 살리기 위한 것이다.
+    requests 는 REQUESTS_CA_BUNDLE, urllib·ssl 은 SSL_CERT_FILE 을 기본값으로 읽으므로
+    (requests 는 요청마다, ssl 은 create_default_context 마다 다시 읽는다)
+    나중에 임포트되는 모듈이나 서드파티 라이브러리의 요청에도 그대로 적용된다.
+    학교 서버 말고 다른 사이트 요청은 certifi 번들 부분이 그대로 처리하므로 영향이 없다.
+
+    이미 환경변수가 지정돼 있으면 건드리지 않는다 — 배포 환경이 사내 CA 등을 넘겼을 때
+    그쪽이 우선이다. verify=... 를 명시한 호출(get() 포함)도 환경변수보다 우선한다.
+    """
+    path = ca_bundle()
+    for key in ("REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE"):
+        os.environ.setdefault(key, path)
 
 
 def get(url: str, *, timeout: int = 20, headers: dict | None = None,
