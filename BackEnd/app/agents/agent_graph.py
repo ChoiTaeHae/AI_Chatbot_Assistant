@@ -901,17 +901,16 @@ async def _handle_weather(state: AgentState) -> dict:
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
 
-    # 게스트: 개인 판정은 못 하지만 졸업 '규정'은 문서에 있다(topic=graduation, 63청크).
-    # my_grades처럼 로그인 안내로 끝내면, 학번과 무관한 "졸업 신청 언제야?" 같은 질문까지
-    # 막힌다. 문서로 답할 수 있는 만큼 답하고 개인 판정만 로그인으로 안내한다.
-    if state.get("student_id") is None:
-        out = await _handle_rag_general({**state, "topic": "graduation"})
-        out["answer"] = (out.get("answer") or "").rstrip() + (
-            "\n\n---\n\n🔒 **로그인하시면 본인의 학번·학과 기준으로 "
-            "남은 학점과 부족한 요건까지 계산해서 알려드려요.**"
-        )
-        out["login_required"] = True
-        return out
+    # 게스트: 개인 판정은 못 하지만 졸업 '규정'과 '학과별 요건'은 답할 수 있다.
+    # 요건은 학과×입학연도 기준이라 본인 이수현황이 필요 없고, graduation_service가
+    # 학생 레코드 없는 호출을 이미 처리한다(학과 감지 → requirement_set 조회 →
+    # 연도 미언급 시 그 학과 최신 연도). 그래서 로그인 사용자와 같은 경로로 보낸다.
+    #
+    # 예전에는 여기서 곧장 RAG로 내려보냈는데, 그러면 학과 별칭 해석과 학점 표 조회를
+    # 통째로 건너뛴다. 학점 표는 문서가 아니라 DB(requirement_rule)에 있어 RAG로는
+    # 닿지 못한다 — 실측: 로그인 시 정상 인식되는 '컴퓨터정보보안학과 졸업요건'이
+    # 비로그인에서는 "정보가 명시되어 있지 않습니다"로 나갔다.
+    is_guest = state.get("student_id") is None
 
     # 졸업 분기(학과 감지·유형 분류)는 반드시 '현재 질문' 기준이어야 한다.
     # enriched(이전 주제 프리픽스)를 넘기면 "간호학과 졸업요건" 뒤 "내 학과 졸업요건"이
@@ -920,12 +919,21 @@ async def _handle_graduation(state: AgentState) -> dict:
         question=state["question"], student_id=state["student_id"], db=state["db"]
     )
     answer = _append_contact_info(answer, metadata)
-    return _with_file_offer({
+    if is_guest:
+        # 답은 그대로 주고, 개인 기준 계산이 더 있다는 것만 덧붙인다.
+        answer = answer.rstrip() + (
+            "\n\n---\n\n🔒 **로그인하시면 본인의 학번·학과 기준으로 "
+            "남은 학점과 부족한 요건까지 계산해서 알려드려요.**"
+        )
+    out = _with_file_offer({
         "answer": answer,
         "source": metadata.get("source"),
         "source_file": metadata.get("source_file"),
         "topic": metadata.get("topic") or "graduation",
     }, "graduation", state["question"])
+    if is_guest:
+        out["login_required"] = True
+    return out
 
 
 # 달력은 '언제'를 묻는 질문에만 답이 된다. 이벤트어(계절학기·공휴일 등)가 들어 있다는 이유로
