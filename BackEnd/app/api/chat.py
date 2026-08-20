@@ -26,9 +26,17 @@ async def chat(
         return await chat_service.create_chat_response(request, db, current_user)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
+    except Exception:
+        # 내부 예외 문구를 그대로 내보내지 않는다. 이 엔드포인트는 비로그인으로도
+        # 열려 있어 응답이 누구에게나 보인다. 실측(2026-08-19): Vertex 404 메시지가
+        # GCP 프로젝트 ID를 그대로 노출했다. DB 오류면 테이블·컬럼명이, Qdrant 오류면
+        # 클러스터 주소가 같은 경로로 새어 나간다.
+        # 원인 추적에 필요한 전문은 아래 print_exc()로 서버 로그에만 남긴다.
         traceback.print_exc()
-        raise HTTPException(status_code=503, detail=f"AI 서비스 오류: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail="AI 서비스에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        )
 
 
 @router.get("/chat/sessions", summary="내 최근 대화 목록 (사이드바)")
@@ -75,9 +83,9 @@ async def chat_feedback(
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"피드백 저장 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="피드백을 저장하지 못했습니다.")
 
 
 @router.post("/chat/rewrite-feedback", summary="[개발용] rewrite 피드백 (파인튜닝 라벨)")
@@ -88,6 +96,6 @@ async def rewrite_feedback(
 ):
     try:
         return await chat_service.save_rewrite_feedback(request, db, current_user)
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"rewrite 피드백 저장 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="피드백을 저장하지 못했습니다.")
