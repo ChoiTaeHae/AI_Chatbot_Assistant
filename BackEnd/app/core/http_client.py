@@ -60,6 +60,12 @@ def ca_bundle() -> str:
     return path
 
 
+def ssl_context():
+    """urllib.request.urlopen(context=...) 용. requests 가 아닌 경로에서 쓴다."""
+    import ssl
+    return ssl.create_default_context(cafile=ca_bundle())
+
+
 def get(url: str, *, timeout: int = 20, headers: dict | None = None,
         allow_insecure_fallback: bool = True, **kw) -> requests.Response:
     """보정된 번들로 GET. 그래도 검증이 실패하면(체인이 또 바뀐 경우) 경고 후 재시도.

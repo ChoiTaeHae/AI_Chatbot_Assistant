@@ -275,8 +275,12 @@ class OcrProcessor:
     def _ocr_url(self, url: str) -> str:
         """URL에서 이미지를 다운로드하고 Surya OCR 처리"""
         try:
+            # 학교 서버가 중간 인증서를 안 보내므로 보정 번들로 만든 컨텍스트를 쓴다.
+            # (안 그러면 wsu.ac.kr 이미지에서 CERTIFICATE_VERIFY_FAILED 로 떨어진다)
+            from app.core.http_client import ssl_context
+
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=ssl_context()) as resp:
                 img_bytes = resp.read()
             img = Image.open(BytesIO(img_bytes)).convert("RGB")
             results = self._run_ocr([img])
