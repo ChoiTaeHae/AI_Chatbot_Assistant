@@ -179,12 +179,8 @@ gcp-sa.json
 **/gcp-sa.json
 # HuggingFace 모델 캐시 (BGE-M3 등, 수 GB)
 hf_cache/
-
-# ===== 배포용 데이터 (154MB — git에 넣지 않는다) =====
-# 데이터만 제외한다. deploy/ 전체를 막으면 docker-compose.yml·설치 문서까지
-# 추적되지 않으므로 폴더 단위로 무시하지 말 것.
+deploy/
 deploy/data/
 BackEnd/scripts/_deploy_data/
-# 설치 안내서 PDF 는 예외 — 위 *.pdf 규칙(학사 문서용)에 걸리는데,
-# 이 파일은 수령자에게 전달하는 산출물이라 저장소에 있어야 한다.
+
 !deploy/*.pdf
