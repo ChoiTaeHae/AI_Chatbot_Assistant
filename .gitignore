@@ -179,3 +179,8 @@ gcp-sa.json
 **/gcp-sa.json
 # HuggingFace 모델 캐시 (BGE-M3 등, 수 GB)
 hf_cache/
+deploy/
+deploy/data/
+BackEnd/scripts/_deploy_data/
+
+!deploy/*.pdf

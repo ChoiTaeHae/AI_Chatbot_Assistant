@@ -1,0 +1,93 @@
+# 2조 SOL로몬 — 배포용 구성
+#
+# 개발용 docker-compose.yml 과 달리 PostgreSQL 과 Qdrant 를 함께 띄운다.
+# 외부 서버 없이 이 파일 하나로 전체 시스템이 독립 실행된다.
+#
+# 사용법 (프로젝트 루트에서):
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   docker compose -f deploy/docker-compose.yml exec backend python3 -m scripts.import_deploy_data
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-chatbot}
+      POSTGRES_DB: school_chatbot
+      # LANG 은 지정하지 않는다. postgres:16 이미지에 ko_KR.utf8 로케일이 없어
+      # initdb 가 "invalid locale settings" 로 실패한다(실측).
+      # 기본 인코딩이 UTF8 이라 한글 저장·조회에는 문제가 없다.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d school_chatbot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  qdrant:
+    # qdrant-client 1.18 과 맞춘다. 메이저가 같고 마이너 차이가 1을 넘으면
+    # 클라이언트가 호환성 경고를 낸다.
+    image: qdrant/qdrant:v1.18.0
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    ports:
+      - "6333:6333"
+    restart: unless-stopped
+
+  backend:
+    build: ../BackEnd
+    ports:
+      - "8000:8000"
+    # 개발용 compose 와 달리 dns: 를 지정하지 않는다.
+    # 커스텀 DNS를 주면 Docker 내장 DNS(127.0.0.11)가 대체돼 컨테이너 이름
+    # (postgres, qdrant)을 해석하지 못한다 — 실측으로 확인됨.
+    # huggingface.co 해석이 실패하는 환경이라면 Docker Desktop 의
+    # Settings → Docker Engine 에 "dns": ["8.8.8.8"] 을 넣어 해결한다.
+    env_file:
+      - ../BackEnd/.env
+    volumes:
+      - ../BackEnd/llm:/app/llm
+      - ../BackEnd/documents:/app/documents
+      - ../BackEnd/app:/app/app
+      - ../BackEnd/scripts:/app/scripts
+      - ../models:/app/models
+      # 배포 데이터 (seed.sql · qdrant_points.jsonl · 첨부파일)
+      - ./data:/app/deploy_data:ro
+      - hf_cache:/root/.cache/huggingface
+    environment:
+      - RERANKER_MODEL_PATH=/app/models/bge-reranker-v2-m3-ko
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  frontend:
+    build: ../FrontEnd
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../FrontEnd/src:/app/src
+      - ../FrontEnd/vite.config.js:/app/vite.config.js
+    environment:
+      - VITE_USE_POLLING=1
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  qdrant_storage:
+  hf_cache:
