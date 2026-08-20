@@ -156,18 +156,6 @@ export default function LoginPage() {
           <div className="h-px flex-1 bg-(--border)" />
         </div>
 
-        {/* SSO 버튼 */}
-        <button
-          type="button"
-          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-(--border) bg-(--surface-card) text-base font-black text-(--text) transition hover:bg-(--surface-2)"
-          style={{ height: 'clamp(46px, 6.4vh, 56px)' }}
-        >
-          <svg className="h-5 w-5 shrink-0 text-(--brand)" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2.25 5 5.1v5.92c0 4.45 2.85 8.45 7 9.88 4.15-1.43 7-5.43 7-9.88V5.1l-7-2.85Zm2.9 7.85-3.45 4.35a1 1 0 0 1-1.52.05l-1.8-1.9 1.45-1.38 1 1.05 2.75-3.47 1.57 1.3Z" />
-          </svg>
-          통합인증(SSO) 로그인
-        </button>
-
         {/* 로그인 없이 둘러보기 — 학사 규정·일정·학식·위치·학과·서식은 로그인 없이도 쓸 수 있다.
             성적·졸업요건처럼 학번이 있어야 답할 수 있는 것만 그때 로그인을 안내한다. */}
         <button

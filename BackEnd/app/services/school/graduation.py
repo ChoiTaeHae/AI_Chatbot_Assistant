@@ -785,7 +785,7 @@ class GraduationService:
                 metadata["files_to_offer"] = [Path(f).stem for f in files]
                 stems = "\n".join(f"- {Path(f).stem}" for f in files)
                 return (
-                    "질문하신 내용은 챗봇이 정리해 둔 자료에는 없지만, 관련 안내 파일이 준비되어 있어요.\n\n"
+                    "질문하신 내용은 코파일럿이 정리해 둔 자료에는 없지만, 관련 안내 파일이 준비되어 있어요.\n\n"
                     f"{stems}\n\n파일 드릴까요?",
                     metadata,
                 )
