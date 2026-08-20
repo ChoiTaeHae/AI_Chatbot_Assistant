@@ -104,7 +104,7 @@ export default function UnansweredManager({ onCountChange }) {
           바깥에 이미 제목이 있다. 상태 필터와 안내 한 줄만 남긴다. */}
       <div className={cardCls} style={{ padding: '18px 22px' }}>
         <p className="text-xs text-(--text-faint)" style={{ lineHeight: 1.6 }}>
-          챗봇이 답하지 못한 질문입니다. 답변을 저장하면 곧바로 FAQ가 되어 다음 학생부터 적용됩니다.
+          코파일럿이 답하지 못한 질문입니다. 답변을 저장하면 곧바로 FAQ가 되어 다음 학생부터 적용됩니다.
         </p>
 
         <div className="flex flex-wrap" style={{ gap: '8px', marginTop: '14px' }}>

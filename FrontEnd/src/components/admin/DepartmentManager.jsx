@@ -151,7 +151,7 @@ export default function DepartmentManager() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-black text-(--text)">학과 관리</h2>
-          <p className="text-xs text-(--text-faint) mt-0.5">단과대학·학부·학과를 관리해요. 여기서 바꾸면 챗봇 <b>학과 소개</b>와 장학금 <b>대상 학과</b>에 바로 반영됩니다.</p>
+          <p className="text-xs text-(--text-faint) mt-0.5">단과대학·학부·학과를 관리해요. 여기서 바꾸면 코파일럿 <b>학과 소개</b>와 장학금 <b>대상 학과</b>에 바로 반영됩니다.</p>
         </div>
         <button onClick={() => openCollege('add')} className="flex items-center bg-(--brand) text-white text-sm font-bold hover:bg-(--brand-hover) transition rounded-xl" style={{ gap: '6px', padding: '9px 16px' }}>
           {plusIcon}단과대학 추가
@@ -286,7 +286,7 @@ export default function DepartmentManager() {
                     </label>
                   </div>
                   <label className="flex flex-col gap-1">
-                    <span className={labelCls}>별칭·약칭 <span className="font-normal text-(--text-faint)">(쉼표로 구분 · 챗봇 검색용, 예: 컴공, 컴퓨터공학)</span></span>
+                    <span className={labelCls}>별칭·약칭 <span className="font-normal text-(--text-faint)">(쉼표로 구분 · 코파일럿 검색용, 예: 컴공, 컴퓨터공학)</span></span>
                     <textarea className={inputCls} style={{ padding: '8px 10px', minHeight: '54px', resize: 'vertical' }} value={modal.data.aliases} onChange={(e) => setD('aliases', e.target.value)} placeholder="컴공, 컴퓨터공학" />
                   </label>
                   <label className="flex flex-col gap-1">
