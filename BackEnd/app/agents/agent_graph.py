@@ -699,6 +699,25 @@ async def _handle_campus(state: AgentState) -> dict:
     }
 
 
+# ── 게스트(비로그인) 안내 ────────────────────────────────────────────────
+# 개인 데이터가 있어야 답할 수 있는 질문에 쓴다. "안 됩니다"로 끝내지 않고
+# 로그인하면 무엇을 받을 수 있는지 알려 준다 — 막다른 길을 만들지 않는다는 원칙은
+# 게스트에게도 같다. login_required는 프론트가 로그인 버튼을 붙이는 신호다.
+def _login_required(what: str, topic: str) -> dict:
+    return {
+        "answer": (
+            f"{what}은(는) 로그인한 학생의 학번·학과 정보를 기준으로 계산해서 알려드려요.\n\n"
+            "**로그인하시면 바로 확인하실 수 있습니다.**\n\n"
+            "로그인 없이도 학사 규정, 학사일정, 학식, 캠퍼스 위치, 학과 안내, "
+            "각종 신청서 서식은 그대로 이용하실 수 있어요."
+        ),
+        "source": None,
+        "source_file": None,
+        "topic": topic,
+        "login_required": True,
+    }
+
+
 async def _handle_my_grades(state: AgentState) -> dict:
     """내 성적 조회 — 마이페이지에 올린 수강 이력(DB)으로 직접 답한다. RAG도 LLM도 안 탄다.
 
@@ -709,6 +728,11 @@ async def _handle_my_grades(state: AgentState) -> dict:
     학년(또는 년도)을 빌려 쓰게 한다. 직전 주제가 다르면 넘기지 않는다 — 무관한 질문의
     학년이 섞이면 묻지 않은 학기를 답한다(graduation·schedule과 같은 이유).
     """
+    # 게스트는 올린 수강 이력이 없다 — 여기서 막지 않으면 빈 이력으로 "기록이 없다"는
+    # 답이 나가, 로그인만 하면 되는 상황인데 기능 자체가 없는 것처럼 읽힌다.
+    if state.get("student_id") is None:
+        return _login_required("성적과 수강 이력", "my_grades")
+
     _prev = state.get("prev_context") or {}
     prev_topic = _prev.get("prev_topic")
     prev_q = _prev.get("prev_question") if prev_topic == "my_grades" else None
@@ -876,6 +900,19 @@ async def _handle_weather(state: AgentState) -> dict:
 
 async def _handle_graduation(state: AgentState) -> dict:
     await _log(state["db"], state["student_id"], "graduation")
+
+    # 게스트: 개인 판정은 못 하지만 졸업 '규정'은 문서에 있다(topic=graduation, 63청크).
+    # my_grades처럼 로그인 안내로 끝내면, 학번과 무관한 "졸업 신청 언제야?" 같은 질문까지
+    # 막힌다. 문서로 답할 수 있는 만큼 답하고 개인 판정만 로그인으로 안내한다.
+    if state.get("student_id") is None:
+        out = await _handle_rag_general({**state, "topic": "graduation"})
+        out["answer"] = (out.get("answer") or "").rstrip() + (
+            "\n\n---\n\n🔒 **로그인하시면 본인의 학번·학과 기준으로 "
+            "남은 학점과 부족한 요건까지 계산해서 알려드려요.**"
+        )
+        out["login_required"] = True
+        return out
+
     # 졸업 분기(학과 감지·유형 분류)는 반드시 '현재 질문' 기준이어야 한다.
     # enriched(이전 주제 프리픽스)를 넘기면 "간호학과 졸업요건" 뒤 "내 학과 졸업요건"이
     # 프리픽스의 '간호학과'를 학과로 오인 → 다른 학과 요건이 나오는 치명적 버그.
@@ -1003,6 +1040,12 @@ async def _handle_scholarship(state: AgentState) -> dict:
             "topic": "scholarship",
         }
     # 2) 매칭 없으면 맞춤 설문 제안
+    #    게스트에게는 설문을 제안하지 않는다 — 설문 결과를 거를 학번·학과·학점이 없고,
+    #    제안을 눌러도 장학금 API가 로그인을 요구해 막다른 길이 된다.
+    #    검수 Q&A(위 1번)는 개인 정보와 무관하므로 게스트도 그대로 받는다.
+    if state.get("student_id") is None:
+        return _login_required("나에게 맞는 장학금 추천", "scholarship")
+
     answer = (
         "장학금 종류나 찾으시는 장학금은 사이드바의 ‘장학금 둘러보기’에서 "
         "전체 목록을 확인하실 수 있어요.\n\n"
@@ -1328,6 +1371,7 @@ class AgentResult:
     source: str | None = None
     source_file: str | None = None
     rewritten_query: str | None = None
+    login_required: bool = False   # 게스트가 개인 데이터 기능을 물었다 → 프론트가 로그인 버튼 표시
 
 
 class AgentGraph:
@@ -1337,7 +1381,7 @@ class AgentGraph:
     async def run(
         self,
         question: str,
-        student_id: int,
+        student_id: int | None,   # None = 게스트(비로그인)
         db: AsyncSession,
         pending_file: dict | None = None,
         pending_context: dict | None = None,
@@ -1369,6 +1413,7 @@ class AgentGraph:
             "source_file": None,
             "topic": None,
             "rewritten_query": None,
+            "login_required": False,
             "done": False,
         }
 
@@ -1389,6 +1434,7 @@ class AgentGraph:
             source=result.get("source"),
             source_file=result.get("source_file"),
             rewritten_query=result.get("rewritten_query"),
+            login_required=bool(result.get("login_required")),
         )
 
 

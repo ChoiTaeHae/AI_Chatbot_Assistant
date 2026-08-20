@@ -22,6 +22,14 @@ _FAQ_PENDING_NOTICE = {
     "zh": _FAQ_NOTICE_MARK + "已将此问题转交给负责老师。答复登记后会通过通知告知您。",
 }
 
+# 게스트용 — 담당자 전달도, 알림도 약속하지 않는다. 둘 다 학번이 있어야 성립하기 때문이다.
+# 대신 로그인하면 무엇이 달라지는지만 알려 준다(막다른 길로 끝내지 않는다).
+_FAQ_GUEST_HINT = {
+    "ko": _FAQ_NOTICE_MARK + "로그인하시면 이런 질문을 담당자에게 전달하고, 답변이 등록될 때 알림으로 알려드려요.",
+    "en": _FAQ_NOTICE_MARK + "Sign in and we'll forward questions like this to our staff, then notify you when an answer is posted.",
+    "zh": _FAQ_NOTICE_MARK + "登录后可将此类问题转交给负责老师，答复登记后会通过通知告知您。",
+}
+
 
 def _strip_faq_notice(content: str) -> str:
     """저장된 답변에서 FAQ 접수 안내를 떼어 낸다(멀티턴 맥락으로 넘기기 전에 호출).
@@ -38,25 +46,35 @@ class ChatService:
         self,
         request: ChatRequest,
         db: AsyncSession,
-        current_user: Student,
+        current_user: Student | None,
     ) -> ChatResponse:
+        """current_user=None 이면 게스트(비로그인).
+
+        게스트는 대화를 저장하지 않는다 — chat_session·chat_message가 student_id를 필수로
+        받기도 하지만, 그보다 로그인하지 않은 사람의 대화를 남길 이유가 없다. 대신 멀티턴
+        맥락은 프론트가 직전 1턴을 요청에 실어 보내는 것으로 잇는다.
+        개인 데이터가 필요한 질문(성적·졸업요건·장학금 설문)은 각 핸들러가 로그인 안내로 돌려준다.
+        """
+        is_guest = current_user is None
+        student_id = None if is_guest else current_user.id
         session = None
 
-        if request.session_id:
-            session = await db.get(ChatSession, request.session_id)
-            if session and session.student_id != current_user.id:
-                raise PermissionError("해당 세션에 접근할 수 없습니다.")
-            if not session:
-                session = None
+        if not is_guest:
+            if request.session_id:
+                session = await db.get(ChatSession, request.session_id)
+                if session and session.student_id != current_user.id:
+                    raise PermissionError("해당 세션에 접근할 수 없습니다.")
+                if not session:
+                    session = None
 
-        if not request.session_id or session is None:
-            session = ChatSession(
-                student_id=current_user.id,
-                title=request.question[:100],
-            )
-            db.add(session)
+            if not request.session_id or session is None:
+                session = ChatSession(
+                    student_id=current_user.id,
+                    title=request.question[:100],
+                )
+                db.add(session)
 
-        await db.flush()
+            await db.flush()
 
         # 파일 제안 '예/아니오' 버튼은 대화가 아니라 버튼 동작이다. 이 턴을 대화 메시지로
         # 저장하면 '네'가 다음 질문의 '이전 질문'이 되어 검색어 재작성을 오염시킨다
@@ -67,18 +85,19 @@ class ChatService:
             from app.agents.agent_graph import agent_graph
             result = await agent_graph.run(
                 question=request.question,
-                student_id=current_user.id,
+                student_id=student_id,
                 db=db,
                 pending_file=request.pending_file,
                 pending_context=request.pending_context,
                 prev_context=None,
                 file_confirm=request.file_confirm,
             )
-            await db.commit()   # 세션 생성분만 커밋 (메시지는 저장 안 함)
+            if not is_guest:
+                await db.commit()   # 세션 생성분만 커밋 (메시지는 저장 안 함)
             from app.services.translation_service import translate_answer
             return ChatResponse(
                 answer=await translate_answer(result.answer, request.lang),
-                session_id=session.id,
+                session_id=session.id if session else None,
                 message_id=None,
                 file_offer=result.file_offer,
                 file_download=result.file_download,
@@ -89,14 +108,16 @@ class ChatService:
                 pending_context=result.pending_context,
             )
 
-        user_msg = ChatMessage(
-            session_id=session.id,
-            student_id=current_user.id,
-            role="user",
-            content=request.question,
-        )
-        db.add(user_msg)
-        await db.flush()
+        user_msg = None
+        if not is_guest:
+            user_msg = ChatMessage(
+                session_id=session.id,
+                student_id=current_user.id,
+                role="user",
+                content=request.question,
+            )
+            db.add(user_msg)
+            await db.flush()
 
         # 이전 대화 1세트 조회 (멀티턴 맥락 유지용)
         # 잡담(topic=general)은 건너뛰고 그 이전의 진짜 주제를 찾는다 — "안녕" 한마디로
@@ -104,12 +125,29 @@ class ChatService:
         MAX_PREV_LENGTH = 200
         MAX_LOOKBACK = 20
         prev_context = None
-        recent_msgs = (await db.execute(
-            select(ChatMessage)
-            .where(ChatMessage.session_id == session.id, ChatMessage.id != user_msg.id)
-            .order_by(ChatMessage.id.desc())
-            .limit(MAX_LOOKBACK)
-        )).scalars().all()
+
+        # 게스트는 저장된 대화가 없으므로 프론트가 보낸 직전 1턴을 그대로 쓴다.
+        # 로그인 사용자에게는 이 값을 절대 쓰지 않는다 — DB 기록이 더 정확하고,
+        # 클라이언트가 보낸 값으로 맥락을 덮어쓰게 두면 남의 맥락을 주입할 수 있다.
+        if is_guest:
+            # 길이는 여기서 자른다. 스키마에서 막지 않는 이유는 위 주석 참고
+            # (긴 답변 하나로 질문 전체가 422로 실패하는 것을 막기 위해).
+            _ptopic = (request.prev_topic or "")[:50]
+            if request.prev_question and _ptopic and _ptopic != "general":
+                prev_context = {
+                    "prev_question": request.prev_question[:MAX_PREV_LENGTH],
+                    "prev_answer": _strip_faq_notice(request.prev_answer or "")[:MAX_PREV_LENGTH],
+                    "prev_topic": _ptopic,
+                }
+            recent_msgs = []
+        else:
+            recent_msgs = (await db.execute(
+                select(ChatMessage)
+                .where(ChatMessage.session_id == session.id, ChatMessage.id != user_msg.id)
+                .order_by(ChatMessage.id.desc())
+                .limit(MAX_LOOKBACK)
+            )).scalars().all()
+
         for i, msg in enumerate(recent_msgs):
             if msg.role == "assistant" and msg.topic and msg.topic != "general":
                 prev_answer = msg
@@ -143,7 +181,7 @@ class ChatService:
 
         result = await agent_graph.run(
             question=search_question,
-            student_id=current_user.id,
+            student_id=student_id,
             db=db,
             pending_file=request.pending_file,
             pending_context=request.pending_context,
@@ -152,7 +190,8 @@ class ChatService:
         )
 
         # RAG 경로에서 질문이 재작성됐으면 원본 질문(user_msg) 행에 기록 (파인튜닝 데이터용)
-        user_msg.rewritten_query = getattr(result, "rewritten_query", None)
+        if user_msg is not None:
+            user_msg.rewritten_query = getattr(result, "rewritten_query", None)
 
         # 답변에 딸린 카드(지도·학사일정·학과·파일제안) — 있는 것만 저장해 과거 대화 복원 시 되살린다.
         card_meta = {
@@ -178,30 +217,41 @@ class ChatService:
         # 번역을 거칠 필요가 없다. 번역 전에 붙이면 LLM이 이 문장까지 다시 번역하면서
         # 표현이 매번 달라진다(약속하는 문장이라 흔들리면 안 된다).
         from app.services import faq_service
-        collecting = faq_service.should_collect(
+        unanswered = faq_service.should_collect(
             result.answer, getattr(result, "source", None),
             getattr(result, "topic", None), request.question,
         )
+
+        # 게스트는 수집하지 않는다. 이 기능의 핵심은 '답변이 등록되면 알려 준다'인데
+        # 알림은 학번에 붙어 나가므로 비로그인에게는 도착할 방법이 없다. 수집만 하고
+        # 알림을 못 보내면 관리자는 답을 썼는데 물어본 사람은 영영 모르는 상태가 된다.
+        # 이미 등록된 FAQ를 answer로 돌려주는 것은 이와 별개로 게스트도 그대로 받는다.
+        collecting = unanswered and not is_guest
         if collecting:
             localized_answer += _FAQ_PENDING_NOTICE.get(request.lang or "ko", _FAQ_PENDING_NOTICE["ko"])
+        elif unanswered and is_guest:
+            # 약속은 하지 않되, 로그인하면 무엇이 달라지는지는 알려 준다.
+            localized_answer += _FAQ_GUEST_HINT.get(request.lang or "ko", _FAQ_GUEST_HINT["ko"])
 
-        asst_msg = ChatMessage(
-            session_id=session.id,
-            student_id=current_user.id,
-            role="assistant",
-            content=localized_answer,
-            intent=getattr(result, "intent", None),
-            topic=getattr(result, "topic", None),
-            source=getattr(result, "source", None),
-            source_file=getattr(result, "source_file", None),
-            card_meta=card_meta,
-        )
-        db.add(asst_msg)
+        asst_msg = None
+        if not is_guest:
+            asst_msg = ChatMessage(
+                session_id=session.id,
+                student_id=current_user.id,
+                role="assistant",
+                content=localized_answer,
+                intent=getattr(result, "intent", None),
+                topic=getattr(result, "topic", None),
+                source=getattr(result, "source", None),
+                source_file=getattr(result, "source_file", None),
+                card_meta=card_meta,
+            )
+            db.add(asst_msg)
 
-        session.last_message_at = datetime.now(timezone.utc)
+            session.last_message_at = datetime.now(timezone.utc)
 
-        await db.commit()
-        await db.refresh(asst_msg)
+            await db.commit()
+            await db.refresh(asst_msg)
 
         # 답하지 못한 질문은 관리자 검토 목록으로 넘긴다(FAQ 후보).
         # 커밋 뒤에 기록하는 이유는 asst_msg.id를 함께 남기기 위해서다 — 관리자가 목록에서
@@ -219,20 +269,23 @@ class ChatService:
         #
         # 커밋은 record()가 스스로 한다(faq_service의 트랜잭션 규칙). 여기서 또 부르면
         # 아무 일도 하지 않는 빈 커밋이 되고, '누가 트랜잭션 주인인가'가 흐려진다.
+        #
+        # collecting에는 이미 'not is_guest'가 들어 있다(위 판정 참고) — 게스트 질문은
+        # 수집하지 않으므로 여기서 student_id가 None인 경우는 생기지 않는다.
         if collecting:
             _uid = await faq_service.record(
                 db, request.question,
                 rewritten=getattr(result, "rewritten_query", None),
                 topic=getattr(result, "topic", None),
-                student_id=current_user.id,
-                message_id=asst_msg.id,
+                student_id=student_id,
+                message_id=asst_msg.id if asst_msg else None,
             )
             faq_service.schedule_classify(_uid)
 
         return ChatResponse(
             answer=localized_answer,   # 저장한 번역본과 동일 (번역 1회)
-            session_id=session.id,
-            message_id=asst_msg.id,
+            session_id=session.id if session else None,
+            message_id=asst_msg.id if asst_msg else None,
             file_offer=result.file_offer,
             file_download=result.file_download,
             map_card=result.map_card,
@@ -242,6 +295,8 @@ class ChatService:
             weather_card=getattr(result, "weather_card", None),
             pending_context=result.pending_context,
             rewritten_query=getattr(result, "rewritten_query", None),
+            login_required=bool(getattr(result, "login_required", False)),
+            topic=getattr(result, "topic", None),
         )
 
     async def get_my_sessions(self, db: AsyncSession, current_user: Student) -> list[dict]:

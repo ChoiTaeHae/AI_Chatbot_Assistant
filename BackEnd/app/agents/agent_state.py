@@ -5,7 +5,7 @@ from typing_extensions import TypedDict
 class AgentState(TypedDict):
     # 입력
     question: str
-    student_id: int
+    student_id: int | None   # None = 게스트(비로그인). 개인 데이터 핸들러는 이걸 보고 로그인 안내를 낸다
     db: Any
     pending_file: dict | None
     pending_context: dict | None
@@ -33,4 +33,5 @@ class AgentState(TypedDict):
     topic: str | None
     rewritten_query: str | None  # RAG 경로에서 생성된 검색용 재작성 질문 (파인튜닝 로깅용)
     weak_evidence: bool      # RAG가 어휘 매칭으로 겨우 건진 결과 (호출부가 답을 신뢰할지 판단)
+    login_required: bool     # 게스트가 개인 데이터 기능을 물었다 (프론트가 로그인 버튼을 붙인다)
     done: bool               # pre_check에서 이미 처리 완료된 경우

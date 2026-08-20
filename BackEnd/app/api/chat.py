@@ -5,18 +5,22 @@ import traceback
 from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest, RewriteFeedbackRequest
 from app.core.Database import get_db
 from app.core.deps import get_current_user
-from app.core.rate_limit import chat_rate_limit
+from app.core.rate_limit import chat_rate_limit_optional
 from app.models.DB_Table import Student
 from app.services.chat_service import chat_service
 
 router = APIRouter()
 
 
-@router.post("/chat", response_model=ChatResponse, summary="AI 챗봇 질문")
+# 채팅만 비로그인을 허용한다. 학사 문서·일정·학식·지도는 누가 물어도 답이 같으므로
+# 로그인을 요구할 이유가 없다. 개인 데이터가 필요한 질문(성적·졸업요건·장학금 설문)은
+# 핸들러에서 로그인 안내로 돌려준다 — 라우터에서 통째로 막으면 나머지까지 못 쓴다.
+# 아래 세션·피드백 엔드포인트는 그대로 로그인 필수(저장된 개인 대화를 다루므로).
+@router.post("/chat", response_model=ChatResponse, summary="AI 챗봇 질문 (비로그인 가능)")
 async def chat(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: Student = Depends(chat_rate_limit),
+    current_user: Student | None = Depends(chat_rate_limit_optional),
 ):
     try:
         return await chat_service.create_chat_response(request, db, current_user)

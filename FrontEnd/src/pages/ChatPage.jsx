@@ -8,6 +8,7 @@ import ScholarshipSurveyModal from '../components/chat/ScholarshipSurveyModal'
 import NotificationBell from '../components/chat/NotificationBell'
 import MascotAvatar from '../components/common/MascotAvatar'
 import ThemeToggle from '../components/common/ThemeToggle'
+import LoginPromptModal from '../components/common/LoginPromptModal'
 import { logout } from '../api/auth'
 import { useAuth } from '../store/AuthContext'
 import { useChat } from '../hooks/useChat'
@@ -20,9 +21,12 @@ const LANGUAGES = [
 ]
 
 const T = {
-  ko: { title: 'AI 캠퍼스 코치', admin: '관리자 페이지', mypage: '마이페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기' },
-  en: { title: 'AI Assistant',   admin: 'Admin Page',    mypage: 'My Page',  logout: 'Logout',   grad: '🎓 My Graduation Status', menu: 'Open menu' },
-  zh: { title: 'AI助手',          admin: '管理员页面',      mypage: '我的页面', logout: '退出登录',  grad: '🎓 我的毕业进度', menu: '打开菜单' },
+  ko: { title: 'AI 캠퍼스 코치', admin: '관리자 페이지', mypage: '마이페이지', logout: '로그아웃', grad: '🎓 내 졸업 현황', menu: '메뉴 열기',
+        login: '로그인', guest: '둘러보는 중', fGrad: '내 졸업 현황', fSurvey: '장학금 맞춤 추천' },
+  en: { title: 'AI Assistant',   admin: 'Admin Page',    mypage: 'My Page',  logout: 'Logout',   grad: '🎓 My Graduation Status', menu: 'Open menu',
+        login: 'Sign in', guest: 'Browsing', fGrad: 'My graduation status', fSurvey: 'Scholarship recommendations' },
+  zh: { title: 'AI助手',          admin: '管理员页面',      mypage: '我的页面', logout: '退出登录',  grad: '🎓 我的毕业进度', menu: '打开菜单',
+        login: '登录', guest: '浏览中', fGrad: '我的毕业进度', fSurvey: '奖学金推荐' },
 }
 
 export default function ChatPage() {
@@ -45,8 +49,14 @@ export default function ChatPage() {
   const openScholarship = (opts = null) => setScholarship(opts || { scope: '교내' })
   const [sessionsRefresh, setSessionsRefresh] = useState(0)
   const profileRef = useRef(null)
-  const { user, clearUser } = useAuth()
+  const { user, clearUser, isGuest, requireLogin } = useAuth()
   const navigate = useNavigate()
+
+  /** 게스트면 로그인 안내를 띄우고 원래 동작은 하지 않는다. 로그인 상태면 그대로 실행. */
+  const guarded = (feature, fn) => () => {
+    if (isGuest) { requireLogin(feature); return }
+    fn()
+  }
 
   async function handleLogout() {
     await logout()
@@ -96,7 +106,7 @@ export default function ChatPage() {
           className={`hidden md:block shrink-0 overflow-hidden transition-all duration-300 ${sidebarOpen ? 'w-[264px]' : 'w-0'}`}
           style={{ marginRight: sidebarOpen ? '24px' : '0' }}
         >
-          <Sidebar lang={lang} role={user?.role} onNewChat={reset} onSelectSession={loadSession} activeSessionId={sessionId} onSessionDeleted={reset} refreshTrigger={sessionsRefresh} onOpenScholarship={openScholarship} />
+          <Sidebar lang={lang} role={user?.role} onNewChat={reset} onSelectSession={loadSession} activeSessionId={sessionId} onSessionDeleted={reset} refreshTrigger={sessionsRefresh} onOpenScholarship={openScholarship} isGuest={isGuest} onRequireLogin={requireLogin} />
         </div>
 
         {/* 사이드바 — 모바일(md 미만)은 화면 위로 덮는 드로어.
@@ -125,6 +135,8 @@ export default function ChatPage() {
                 onSessionDeleted={reset}
                 refreshTrigger={sessionsRefresh}
                 onOpenScholarship={(opts) => { closeNav(); openScholarship(opts) }}
+                isGuest={isGuest}
+                onRequireLogin={(f) => { closeNav(); requireLogin(f) }}
               />
             </div>
           </div>
@@ -165,7 +177,10 @@ export default function ChatPage() {
 
             {/* 알림 종 — 답을 못 받았던 내 질문에 답변이 등록되면 빨간 점이 붙는다.
                 누르면 목록이 열리고, 고른 항목의 답변이 아래 대화에 그대로 나타난다. */}
-            <NotificationBell lang={lang} onOpenAnswer={(n) => pushAnswer(n.question, n.answer)} />
+            {/* 알림은 학번에 붙어 나간다 — 게스트에겐 받을 알림이 없고 API도 401이라 숨긴다 */}
+            {!isGuest && (
+              <NotificationBell lang={lang} onOpenAnswer={(n) => pushAnswer(n.question, n.answer)} />
+            )}
 
             {/* 다크모드 토글 */}
             <ThemeToggle className="inline-flex items-center justify-center h-9 w-9 rounded-lg text-white hover:bg-white/10 transition" />
@@ -184,7 +199,20 @@ export default function ChatPage() {
               ))}
             </select>
 
-            {/* 프로필 드롭다운 */}
+            {/* 게스트: 프로필 대신 로그인 버튼. 드롭다운에 넣을 것(마이페이지·로그아웃)이 없다 */}
+            {isGuest ? (
+              <button
+                onClick={() => navigate('/login')}
+                className="flex items-center gap-2 rounded-xl bg-white/15 text-white font-bold hover:bg-white/25 transition"
+                style={{ padding: '8px 14px', fontSize: '14px' }}
+              >
+                <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+                </svg>
+                {T[lang].login}
+              </button>
+            ) : (
+            /* 프로필 드롭다운 */
             <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setDropdownOpen(v => !v)}
@@ -247,6 +275,7 @@ export default function ChatPage() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </header>
 
@@ -259,9 +288,9 @@ export default function ChatPage() {
             onClearPendingFile={clearPendingFile}
             pendingFile={pendingFile}
             onConfirmFile={confirmFile}
-            onCheckGraduation={checkGraduation}
+            onCheckGraduation={guarded(T[lang].fGrad, checkGraduation)}
             onSendQuestion={send}
-            onStartSurvey={() => setSurvey(true)}
+            onStartSurvey={guarded(T[lang].fSurvey, () => setSurvey(true))}
           />
           <ChatInput onSend={send} disabled={isLoading} lang={lang} />
         </div>
@@ -290,6 +319,10 @@ export default function ChatPage() {
           onClose={() => { setScholarship(null); setSurvey(false) }}
         />
       )}
+
+      {/* 게스트가 로그인 필요한 기능을 눌렀을 때 뜨는 안내. 여기 두는 이유는 lang이 이 화면에
+          있어서다 — 다른 화면은 전부 로그인 필수라 게스트가 닿을 일이 없다. */}
+      <LoginPromptModal lang={lang} />
     </main>
   )
 }

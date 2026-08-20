@@ -2,6 +2,7 @@
 
 채팅 흐름과 별개인 명시적 데이터 조회 (학식 위젯과 같은 패턴).
 어드민용 CRUD는 /api/admins/schedule 에 따로 있고, 여기는 조회 전용이다.
+학사일정은 학번과 무관하게 같은 내용이라 비로그인도 조회할 수 있다(학식과 같은 판단).
 """
 from datetime import date, timedelta
 
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user_optional, get_db
 from app.models.DB_Table import AcademicSchedule, Student
 from app.services.school.schedule import _today
 
@@ -33,7 +34,7 @@ async def schedule_month(
     year: int,
     month: int,
     track: str = "학부",
-    current_user: Student = Depends(get_current_user),
+    current_user: Student | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
     """해당 월에 '걸치는' 일정 전부 (달력 점 표시용).
@@ -53,7 +54,7 @@ async def schedule_month(
 async def schedule_upcoming(
     limit: int = 3,
     track: str = "학부",
-    current_user: Student = Depends(get_current_user),
+    current_user: Student | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
     """오늘 기준 진행 중 + 다가오는 일정 (시작일 순)."""
