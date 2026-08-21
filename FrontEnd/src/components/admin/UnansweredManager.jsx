@@ -79,11 +79,20 @@ export default function UnansweredManager({ onCountChange }) {
   // 되돌릴 수 없어 확인을 한 번 받는다. '제외'와 결과가 정반대라 그 차이를 문구에 넣는다 —
   // 제외인 줄 알고 삭제하면 같은 질문이 계속 다시 올라와 목록이 오히려 지저분해진다.
   async function remove(row) {
+    const head = `이 질문을 완전히 삭제할까요?\n\n"${row.question}"\n\n`
     const ok = window.confirm(
-      `이 질문을 완전히 삭제할까요?\n\n"${row.question}"\n\n` +
-      '· 되돌릴 수 없습니다.\n' +
-      '· 같은 질문이 다시 들어오면 처음부터 다시 수집됩니다.\n' +
-      '  (다시 올라오지 않게 하려면 "제외"를 쓰세요)'
+      tab === 'answered'
+        ? head +
+          '· 되돌릴 수 없습니다.\n' +
+          `· FAQ${row.faq_id ? ` #${row.faq_id}` : ''}는 그대로 남습니다. 이 행만 사라져\n` +
+          '  그 FAQ가 어느 질문에서 나왔는지 기록이 끊깁니다.\n' +
+          '· 답변을 기다리던 학생의 알림이 함께 사라집니다.\n' +
+          '  (아직 안 읽었다면 답변이 등록된 사실을 영영 모릅니다)\n' +
+          '· 같은 질문이 다시 들어오면 처음부터 다시 수집됩니다.'
+        : head +
+          '· 되돌릴 수 없습니다.\n' +
+          '· 같은 질문이 다시 들어오면 처음부터 다시 수집됩니다.\n' +
+          '  (다시 올라오지 않게 하려면 "제외"를 쓰세요)'
     )
     if (!ok) return
     try {
@@ -195,14 +204,16 @@ export default function UnansweredManager({ onCountChange }) {
                         FAQ #{r.faq_id}
                       </span>
                     )}
-                    {/* 삭제는 '답변 완료'에는 두지 않는다 — 그 행을 지워도 FAQ는 남아
-                        기록만 끊기고, 답변을 받은 학생의 알림까지 사라진다. */}
-                    {tab !== 'answered' && (
-                      <button onClick={() => remove(r)}
-                        className={BTN.ghostDanger} style={BTN_PAD}>
-                        삭제
-                      </button>
-                    )}
+                    {/* '답변 완료'의 삭제는 다른 탭과 지우는 대상이 다르다 —
+                        FAQ는 남고 이 행만 사라져 FAQ가 어느 질문에서 나왔는지 기록이 끊긴다.
+                        게다가 faq_notification이 CASCADE(DB_Table.py)로 함께 지워져,
+                        답변을 받은 학생의 종에 떠 있던 알림까지 없어진다 — 확인 대기는 아직
+                        notified_at이 없어 학생 화면에서 사라지는 것이 없다는 점이 다르다.
+                        그래서 막는 대신 remove()가 탭별로 다른 확인 문구를 띄운다. */}
+                    <button onClick={() => remove(r)}
+                      className={BTN.ghostDanger} style={BTN_PAD}>
+                      삭제
+                    </button>
                   </div>
                 </div>
               </div>
