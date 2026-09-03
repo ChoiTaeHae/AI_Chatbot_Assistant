@@ -6,15 +6,18 @@ const T = {
   ko: { newChat: '새 대화', meal: '학생식당', recent: '최근 대화', all: '전체', empty: '아직 대화가 없어요', noMeal: '이번 주 학식 정보가 없어요', credit: '학점 진행률', toGrad: '졸업까지', earned: '총 이수',
         detail: '자세히', collapse: '접기', sample: ' · 예시', unit: '학점', met: '충족', totalLabel: '총 이수학점',
         shortMsg: (n) => `${n}학점 부족`, remainMsg: (n) => `졸업까지 ${n}학점 남음`, classOf: (yy) => `${yy}학번`,
-        note: '※ 학점 기준이에요. 졸업시험·영어인증 등은 별도로 확인하세요.' },
+        note: '※ 학점 기준이에요. 졸업시험·영어인증 등은 별도로 확인하세요.',
+        scholarshipFeature: '장학금 맞춤 추천', guestRecent: '로그인하시면 대화가 저장되어\n나중에 다시 볼 수 있어요', guestLogin: '로그인하기' },
   en: { newChat: 'New chat', meal: 'Cafeteria', recent: 'Recent', all: 'All', empty: 'No conversations yet', noMeal: 'No menu this week', credit: 'Credit Progress', toGrad: 'To graduate', earned: 'Earned',
         detail: 'Details', collapse: 'Collapse', sample: ' · sample', unit: ' credits', met: 'Met', totalLabel: 'Total earned',
         shortMsg: (n) => `${n} credits short`, remainMsg: (n) => `${n} credits left to graduate`, classOf: (yy) => `Class of '${yy}`,
-        note: '※ Credits only. Check graduation exam / English certification separately.' },
+        note: '※ Credits only. Check graduation exam / English certification separately.',
+        scholarshipFeature: 'Scholarship recommendations', guestRecent: 'Sign in to save your chats\nand come back to them later', guestLogin: 'Sign in' },
   zh: { newChat: '新对话', meal: '学生食堂', recent: '最近对话', all: '全部', empty: '还没有对话', noMeal: '本周暂无菜单', credit: '学分进度', toGrad: '距毕业', earned: '已修',
         detail: '详情', collapse: '收起', sample: ' · 示例', unit: '学分', met: '已满足', totalLabel: '总修学分',
         shortMsg: (n) => `还差${n}学分`, remainMsg: (n) => `距毕业还剩${n}学分`, classOf: (yy) => `${yy}级`,
-        note: '※ 仅按学分计算。毕业考试、英语认证等请另行确认。' },
+        note: '※ 仅按学分计算。毕业考试、英语认证等请另行确认。',
+        scholarshipFeature: '奖学金推荐', guestRecent: '登录后可保存对话记录，\n之后随时查看', guestLogin: '去登录' },
 }
 
 // 관리자 페이지 Topic 관리에 등록된 실제 20개 topic (2026-07-14 기준)
@@ -121,7 +124,7 @@ const RECENT_ROW_H = 36
 // 소수(.6)로 잡아 마지막 줄이 반쯤 잘려 보이게 → '아래 더 있다'는 신호가 된다.
 const RECENT_MIN_ROWS = 5.6
 
-export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession, activeSessionId, onSessionDeleted, refreshTrigger = 0, onOpenScholarship }) {
+export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession, activeSessionId, onSessionDeleted, refreshTrigger = 0, onOpenScholarship, isGuest = false, onRequireLogin }) {
   const t = T[lang] || T.ko
   const [credit, setCredit] = useState(null)
   const [sessions, setSessions] = useState([])
@@ -169,7 +172,8 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
 
   useEffect(() => {
     // 학점 진행률은 학생만 — 관리자·비학생은 아예 조회/표시 안 함
-    if (role === 'student') {
+    // 게스트도 마찬가지다. 부를 수 있는 학번이 없어 401만 돌아온다.
+    if (role === 'student' && !isGuest) {
       getGraduationReport()
         .then((d) => setCredit(d?.available ? d : null))   // 데이터 없으면 위젯 숨김
         .catch(() => setCredit(null))
@@ -189,16 +193,18 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
           firstMenuLoad.current = false
         }
       })
-  }, [role, autoRefresh])
+  }, [role, autoRefresh, isGuest])
 
   // '최근 대화' 목록은 새 세션 생성/전환(refreshTrigger)·자동 갱신(autoRefresh)마다 다시 불러 최신 유지
+  // 게스트는 대화를 저장하지 않으므로 목록 자체가 없다 — 조회도 하지 않는다.
   useEffect(() => {
+    if (isGuest) { setSessions([]); return }
     getMySessions()
       // DB에 topic 값이 앞뒤 공백과 함께 저장된 경우가 있어 (예: " graduate_school") trim 처리.
       // 데이터 없으면 빈 목록 → '아직 대화가 없어요' 표시
       .then((list) => setSessions((list || []).map((s) => ({ ...s, topic: s.topic?.trim() || s.topic }))))
       .catch(() => setSessions([]))
-  }, [role, refreshTrigger, autoRefresh])
+  }, [role, refreshTrigger, autoRefresh, isGuest])
 
   const presentTopics = Array.from(new Set(sessions.map((s) => s.topic).filter(Boolean)))
   const filtered = filter === 'all' ? sessions : sessions.filter((s) => s.topic === filter)
@@ -250,9 +256,11 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
           {t.newChat}
         </button>
 
-        {/* 장학금 둘러보기 — 모달 오픈 (RAG 아님, DB 카탈로그 조회) */}
+        {/* 장학금 둘러보기 — 모달 오픈 (RAG 아님, DB 카탈로그 조회)
+            게스트는 모달 안에서 개인 조건 필터·추천을 쓰게 되므로 입구에서 로그인을 안내한다.
+            버튼을 숨기지 않는 이유: 무엇을 더 쓸 수 있는지 보여야 로그인할 이유가 생긴다. */}
         <button
-          onClick={() => onOpenScholarship?.()}
+          onClick={() => (isGuest ? onRequireLogin?.(t.scholarshipFeature) : onOpenScholarship?.())}
           className="flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-(--brand-bright) bg-(--brand-a10) border border-(--brand-bright) hover:bg-(--brand-a20) transition shrink-0"
           style={{ padding: '11px', marginTop: '10px' }}
         >
@@ -430,7 +438,23 @@ export default function Sidebar({ lang = 'ko', role, onNewChat, onSelectSession,
               overscrollBehavior: 'contain',
             }}
           >
-            {filtered.length === 0 ? (
+            {isGuest ? (
+              /* 게스트는 대화가 저장되지 않는다. '아직 대화가 없어요'로 두면 저장이 고장난 것처럼
+                 보이므로, 왜 비어 있는지와 로그인하면 무엇이 달라지는지를 그 자리에서 알린다. */
+              <div className="flex flex-col items-center text-center" style={{ padding: '18px 10px' }}>
+                <span className="emoji" style={{ fontSize: '20px' }}>🔒</span>
+                <p className="text-xs text-(--text-faint)" style={{ marginTop: '8px', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+                  {t.guestRecent}
+                </p>
+                <button
+                  onClick={() => onRequireLogin?.(t.recent)}
+                  className="rounded-lg border border-(--border) text-xs font-semibold text-(--brand) hover:bg-(--brand-a5) transition"
+                  style={{ marginTop: '10px', padding: '6px 14px' }}
+                >
+                  {t.guestLogin}
+                </button>
+              </div>
+            ) : filtered.length === 0 ? (
               <p className="text-xs text-(--text-faint)" style={{ padding: '8px' }}>{t.empty}</p>
             ) : filtered.map((s) => {
               const active = s.id === activeSessionId

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useAuth } from '../store/AuthContext'
 import MascotAvatar from '../components/common/MascotAvatar'
@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { saveUser } = useAuth()
+  const { saveUser, enterGuest } = useAuth()
   const navigate = useNavigate()
   // 세로가 아주 낮은 화면(폰 가로 등) — 마스코트를 접어 폼이 먼저 보이게 한다.
   // 그래도 다 안 들어가면 main의 overflowY:auto가 받아준다(잘리지 않음).
@@ -156,20 +156,24 @@ export default function LoginPage() {
           <div className="h-px flex-1 bg-(--border)" />
         </div>
 
-        {/* SSO 버튼 */}
+        {/* 로그인 없이 둘러보기 — 학사 규정·일정·학식·위치·학과·서식은 로그인 없이도 쓸 수 있다.
+            성적·졸업요건처럼 학번이 있어야 답할 수 있는 것만 그때 로그인을 안내한다. */}
         <button
           type="button"
-          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-(--border) bg-(--surface-card) text-base font-black text-(--text) transition hover:bg-(--surface-2)"
-          style={{ height: 'clamp(46px, 6.4vh, 56px)' }}
+          onClick={() => { enterGuest(); navigate('/chat') }}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-(--border) bg-transparent text-sm font-bold text-(--text-muted) transition hover:border-(--brand-a40) hover:text-(--brand) hover:bg-(--brand-a5)"
+          style={{ height: 'clamp(42px, 5.6vh, 50px)' }}
         >
-          <svg className="h-5 w-5 shrink-0 text-(--brand)" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2.25 5 5.1v5.92c0 4.45 2.85 8.45 7 9.88 4.15-1.43 7-5.43 7-9.88V5.1l-7-2.85Zm2.9 7.85-3.45 4.35a1 1 0 0 1-1.52.05l-1.8-1.9 1.45-1.38 1 1.05 2.75-3.47 1.57 1.3Z" />
+          로그인 없이 둘러보기
+          <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
           </svg>
-          통합인증(SSO) 로그인
         </button>
 
         {/* 하단 링크 */}
         <div className="flex items-center justify-center gap-5 text-sm font-medium text-(--text-faint)">
+          <Link to="/signup" className="font-bold text-(--brand) hover:underline">회원가입</Link>
+          <span className="text-(--text-faint)">|</span>
           <button type="button" className="hover:text-(--text-muted) transition">아이디 찾기</button>
           <span className="text-(--text-faint)">|</span>
           <button type="button" className="hover:text-(--text-muted) transition">비밀번호 찾기</button>

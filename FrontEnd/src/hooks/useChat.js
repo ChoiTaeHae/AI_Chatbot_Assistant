@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { sendMessage, getGraduationStatus, getSessionMessages } from '../api/chat'
+import { useAuth } from '../store/AuthContext'
 
 function getTime() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -21,6 +22,13 @@ export function useChat(lang = 'ko') {
   // (첫 메시지로 sessionId만 바뀔 땐 증가 안 함 → 대화 중엔 remount 안 됨)
   const [viewKey, setViewKey] = useState(0)
 
+  // 게스트는 대화가 서버에 저장되지 않아 서버가 이전 턴을 읽을 수 없다.
+  // 그래서 직전 1턴을 여기 들고 있다가 다음 요청에 실어 보낸다 — 이게 없으면
+  // "휴학 어떻게 신청해?" 다음의 "기간은 얼마나 돼?"가 맥락을 잃는다.
+  // state가 아니라 ref인 이유: 화면에 그릴 값이 아니고, 콜백이 항상 최신을 봐야 한다.
+  const { isGuest } = useAuth()
+  const lastTurn = useRef(null)   // { question, answer, topic }
+
   /** 일반 메시지 전송 */
   const send = useCallback(async (text) => {
     const userMsg = { id: Date.now(), role: 'user', content: text, time: getTime() }
@@ -31,8 +39,18 @@ export function useChat(lang = 'ko') {
 
     try {
       // 일반 질문: file_confirm 없이 전송 (파일 제안 상태는 버튼으로만 처리)
-      const data = await sendMessage(text, sessionId, null, currentPendingContext, lang)
+      // 게스트면 직전 1턴을 함께 보낸다 (로그인 사용자는 서버가 DB에서 읽는다)
+      const data = await sendMessage(
+        text, sessionId, null, currentPendingContext, lang, null,
+        isGuest ? lastTurn.current : null,
+      )
       if (data.session_id) setSessionId(data.session_id)
+
+      // 다음 턴에 넘길 맥락 갱신. 잡담(general)은 담지 않는다 — "감사합니다" 한마디로
+      // 진행 중이던 주제가 끊기는 것을 막는다(서버가 DB에서 읽을 때와 같은 규칙).
+      if (data.topic && data.topic !== 'general') {
+        lastTurn.current = { question: text, answer: data.answer, topic: data.topic }
+      }
 
       // 새 파일 제안이 오면 pendingFile 저장
       if (data.file_offer && !data.file_offer.show_buttons) {
@@ -56,6 +74,7 @@ export function useChat(lang = 'ko') {
         deptCard: data.dept_card || null,
         scholarshipCard: data.scholarship_card || null,
         weatherCard: data.weather_card || null,
+        loginRequired: !!data.login_required,
       }
       // [DEV-ONLY] rewrite가 있으면 사용자 메시지에 붙여 rewrite 피드백 패널 표시
       setMessages((prev) => {
@@ -77,7 +96,7 @@ export function useChat(lang = 'ko') {
     } finally {
       setIsLoading(false)
     }
-  }, [sessionId, pendingContext, lang])
+  }, [sessionId, pendingContext, lang, isGuest])
 
   /** 예/아니오 버튼 클릭 시 호출 */
   const confirmFile = useCallback(async (fileOffer, confirmed) => {
@@ -225,6 +244,7 @@ export function useChat(lang = 'ko') {
     setSessionId(null)
     setPendingFile(null)
     setPendingContext(null)
+    lastTurn.current = null    // 새 대화 → 게스트 맥락도 끊는다
     setViewKey((k) => k + 1)   // 새 대화 → 뷰 새로 마운트
   }
 

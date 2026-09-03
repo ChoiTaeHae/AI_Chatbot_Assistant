@@ -861,14 +861,24 @@ export default function AdminPage() {
                   {!chatStats || chatStats.topic_counts.length === 0 ? (
                     <p className="text-(--text-faint) text-sm">아직 데이터가 없습니다</p>
                   ) : (() => {
-                    const COLORS = ['var(--brand)','#1d4ed8','#7c3aed','#b45309','#0891b2','#16a34a','#dc2626','#9333ea']
-                    const total = chatStats.topic_counts.reduce((s, t) => s + t.count, 0)
+                    // 토픽은 관리자가 DB에서 계속 추가한다. 항목 수를 미리 알 수 없으므로
+                    // 색을 %로 돌려쓰면 같은 색이 반복돼 도넛 조각과 범례를 짝지을 수 없다.
+                    // 앞 20개는 손으로 고른 색을, 그 이상은 황금각(137.5°)으로 색상환을
+                    // 돌며 만든다 — 몇 개가 오든 인접한 색끼리 겹치지 않는다.
+                    const COLORS = [
+                      'var(--brand)','#1d4ed8','#7c3aed','#b45309','#0891b2','#16a34a','#dc2626','#9333ea',
+                      '#0d9488','#ea580c','#4f46e5','#65a30d','#db2777','#0369a1','#a16207','#059669',
+                      '#7e22ce','#be123c','#2563eb','#c2410c',
+                    ]
+                    const colorAt = (i) => i < COLORS.length ? COLORS[i] : `hsl(${(i * 137.508) % 360} 62% 45%)`
+                    const sorted = [...chatStats.topic_counts].sort((a, b) => b.count - a.count)
+                    const total = sorted.reduce((s, t) => s + t.count, 0)
                     const r = 50, cx = 68, cy = 68, stroke = 20
                     const circumference = 2 * Math.PI * r
                     let offset = 0
-                    const segments = chatStats.topic_counts.map((t, i) => {
+                    const segments = sorted.map((t, i) => {
                       const dash = (t.count / total) * circumference
-                      const seg = { ...t, dash, offset, color: COLORS[i % COLORS.length] }
+                      const seg = { ...t, dash, offset, color: colorAt(i) }
                       offset += dash
                       return seg
                     })
@@ -886,14 +896,17 @@ export default function AdminPage() {
                           <text x={cx} y={cy - 7} textAnchor="middle" fontSize="17" fontWeight="900" fill="var(--text)">{total}</text>
                           <text x={cx} y={cy + 11} textAnchor="middle" fontSize="10" fill="var(--text-faint)">전체</text>
                         </svg>
-                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '7px', maxHeight: '190px', overflowY: 'auto', paddingRight: '4px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '9px', minWidth: 0, maxHeight: '208px', overflowY: 'auto', paddingRight: '10px' }}>
                           {segments.map((s, i) => (
-                            <div key={i} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                            <div key={i} style={{ display: 'flex', flexWrap: 'nowrap', overflow: 'hidden', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
                                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color, flexShrink: 0 }} />
-                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{s.label}</span>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</span>
                               </div>
-                              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>{s.count}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', flexShrink: 0, marginLeft: '12px' }}>
+                                {s.count.toLocaleString()}
+                                <span style={{ fontWeight: 400, color: 'var(--text-faint)', marginLeft: '6px' }}>{((s.count / total) * 100).toFixed(1)}%</span>
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -2305,18 +2318,32 @@ export default function AdminPage() {
                           {t.description && <p className="text-xs text-(--text-faint)" style={{ marginBottom: '6px' }}>{t.description}</p>}
                           <p className="text-xs text-(--text-faint)">{t.sentences?.length || 0}개 분류 문장</p>
                         </div>
+                        {/* 시스템 topic(my_grades)은 수정도 막는다.
+                            분류 문장이 의도 라우팅에 직접 물려 있고, 저장하면
+                            _reload_topic_router가 즉시 반영해 라우팅이 실시간으로 바뀐다.
+                            특히 my_grades의 문장은 graduation('내 졸업학점 얼마나 남았어?')과
+                            임베딩이 겹쳐 충돌한 전력이 있어 손대면 안 된다(server.py 주석 참고).
+                            삭제는 백엔드 is_system 가드로 막혀 있으나 수정은 가드가 없다. */}
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => setEditingTopic({ name: t.name, label: t.label, description: t.description || '', sentences: (t.sentences || []).join('\n') })}
-                            className="text-xs text-(--text-muted) border border-(--border) rounded-lg hover:bg-(--surface-2) transition"
-                            style={{ padding: '5px 10px' }}
-                          >수정</button>
-                          {!t.is_system && (
-                            <button
-                              onClick={() => handleDeleteTopic(t.name)}
-                              className="text-xs text-red-400 border border-red-100 rounded-lg hover:bg-red-50 transition"
-                              style={{ padding: '5px 10px' }}
-                            >삭제</button>
+                          {t.is_system ? (
+                            <span
+                              className="text-xs text-(--text-faint) border border-(--border)"
+                              title="시스템 topic은 라우팅에 직접 물려 있어 수정할 수 없습니다"
+                              style={{ padding: '5px 10px', borderRadius: '8px' }}
+                            >수정 불가</span>
+                          ) : (
+                            <>
+                              <button
+                              onClick={() => setEditingTopic({ name: t.name, label: t.label, description: t.description || '', sentences: (t.sentences || []).join('\n') })}
+                                className="text-xs text-(--text-muted) border border-(--border) rounded-lg hover:bg-(--surface-2) transition"
+                                style={{ padding: '5px 10px' }}
+                              >수정</button>
+                              <button
+                                onClick={() => handleDeleteTopic(t.name)}
+                                className="text-xs text-red-400 border border-red-100 rounded-lg hover:bg-red-50 transition"
+                                style={{ padding: '5px 10px' }}
+                              >삭제</button>
+                            </>
                           )}
                         </div>
                       </div>

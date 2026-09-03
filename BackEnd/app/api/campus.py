@@ -44,5 +44,9 @@ async def get_map_image(
             image_bytes = resp.read()
             content_type = resp.headers.get("Content-Type", "image/png")
         return Response(content=image_bytes, media_type=content_type)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"지도 이미지 로드 실패: {str(e)}")
+    except Exception:
+        # 이 엔드포인트는 인증 없이 열려 있다. urllib 예외 문구에는 호출한 카카오 URL과
+        # 질의 파라미터가 그대로 들어가므로 클라이언트에 내보내지 않는다.
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail="지도 이미지를 불러오지 못했습니다.")

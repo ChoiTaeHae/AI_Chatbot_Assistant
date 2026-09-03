@@ -154,6 +154,10 @@ function MessageActions({ messageId, content }) {
             </svg>
           )}
         </button>
+        {/* 좋아요·싫어요는 저장할 메시지가 있어야 의미가 있다. messageId가 없으면
+            (게스트 대화·파일 확인 응답·알림 열람) 눌러도 아무 일이 없으므로 아예 감춘다.
+            복사는 서버와 무관하니 항상 남긴다. */}
+        {messageId && (<>
         {/* 좋아요 */}
         <button
           type="button"
@@ -178,6 +182,7 @@ function MessageActions({ messageId, content }) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M7.498 15.25H4.372c-1.026 0-1.945-.694-2.054-1.715a12.137 12.137 0 0 1-.068-1.285c0-2.848.992-5.464 2.649-7.521C5.287 4.247 5.886 4 6.504 4h4.016a4.5 4.5 0 0 1 1.423.23l3.114 1.04a4.5 4.5 0 0 0 1.423.23h1.294M7.498 15.25c.618 0 .991.724.725 1.282A7.471 7.471 0 0 0 7.5 19.75 2.25 2.25 0 0 0 9.75 22a.75.75 0 0 0 .75-.75v-.633c0-.573.11-1.14.322-1.672.304-.76.93-1.33 1.653-1.715a9.04 9.04 0 0 0 2.86-2.4c.498-.634 1.226-1.08 2.032-1.08h.384m-10.253 1.5H9.7m8.075-9.75c.01.05.027.1.05.148.593 1.2.925 2.55.925 3.977 0 1.487-.36 2.89-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398-.306.774-1.086 1.227-1.918 1.227h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 0 0 .303-.54" />
           </svg>
         </button>
+        </>)}
       </div>
     </>
   )
@@ -186,11 +191,14 @@ function MessageActions({ messageId, content }) {
 // 카드 정적 라벨 다국어 (동적 데이터(건물명·학과명 등)는 백엔드 값 그대로 — 프론트는 '틀'만 번역).
 const CT = {
   ko: { viewMap: '카카오맵에서 크게 보기', mapAria: '위치 지도', deptHome: '학과 홈페이지 바로가기',
-        yes: '예', no: '아니요', pickFile: '원하시는 파일을 선택해 주세요.', downloadAll: '전부 다운로드', allDone: '모두 다운로드 완료 ✓' },
+        yes: '예', no: '아니요', pickFile: '원하시는 파일을 선택해 주세요.', downloadAll: '전부 다운로드', allDone: '모두 다운로드 완료 ✓',
+        login: '로그인하기' },
   en: { viewMap: 'View on Kakao Map', mapAria: 'location map', deptHome: 'Department homepage',
-        yes: 'Yes', no: 'No', pickFile: 'Please select a file.', downloadAll: 'Download all', allDone: 'All downloaded ✓' },
+        yes: 'Yes', no: 'No', pickFile: 'Please select a file.', downloadAll: 'Download all', allDone: 'All downloaded ✓',
+        login: 'Sign in' },
   zh: { viewMap: '在Kakao地图查看', mapAria: '位置地图', deptHome: '前往学科主页',
-        yes: '是', no: '否', pickFile: '请选择所需文件。', downloadAll: '全部下载', allDone: '全部下载完成 ✓' },
+        yes: '是', no: '否', pickFile: '请选择所需文件。', downloadAll: '全部下载', allDone: '全部下载完成 ✓',
+        login: '去登录' },
 }
 
 // 채팅 맞춤 장학금 설문 제안 — [예/아니오]. 예 → 설문 모달 오픈, 아니오 → 카드 숨김.
@@ -465,6 +473,21 @@ export default function MessageBubble({ message, lang = 'ko', onClearPendingFile
           {/* 맞춤 장학금 설문 제안 — 예 누르면 설문 모달, 아니오 누르면 숨김 */}
           {message.scholarshipCard?.survey && (
             <ScholarshipSurveyOffer onStart={() => onStartSurvey?.()} />
+          )}
+
+          {/* 게스트가 개인 데이터 기능을 물었을 때 — 답변 아래에 로그인 버튼을 붙인다.
+              안내만 하고 끝내면 어디서 로그인하는지 다시 찾아야 한다(헤더까지 눈이 올라간다). */}
+          {message.loginRequired && (
+            <a
+              href="/login"
+              className="inline-flex items-center gap-2 rounded-xl bg-(--brand) text-white font-bold hover:opacity-90 transition"
+              style={{ marginTop: '14px', padding: '10px 18px', fontSize: '14px' }}
+            >
+              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+              </svg>
+              {ct.login}
+            </a>
           )}
 
           {/* 학과/학부/단과대 안내 카드 — 소개 본문은 담지 않고 소속 정보 + 홈페이지 링크만 */}

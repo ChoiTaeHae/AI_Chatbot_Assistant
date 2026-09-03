@@ -376,8 +376,11 @@ class GraduationService:
     # 메인 진입점
     # =============================================
 
-    async def answer_graduation_with_metadata(self, question: str, student_id: int, db: AsyncSession) -> tuple[str, dict]:
+    async def answer_graduation_with_metadata(self, question: str, student_id: int | None, db: AsyncSession) -> tuple[str, dict]:
         """Agent가 호출하는 메인 함수 — 개인현황/문서/다른학과를 코드로 분기.
+
+        student_id=None 은 비로그인(게스트). 아래 '학생 레코드 없음' 분기가 그대로 받아
+        학과가 명시된 요건 질문에는 답하고, 1인칭 개인 현황 질문만 걸러 낸다.
 
         - 질문에 '내 학과가 아닌 다른 학과'가 언급되면 → 그 학과 요건(DB, 내 입학연도 기준)
           + RAG. 본인 이수현황은 절대 섞지 않는다(환각 방지).
@@ -785,7 +788,7 @@ class GraduationService:
                 metadata["files_to_offer"] = [Path(f).stem for f in files]
                 stems = "\n".join(f"- {Path(f).stem}" for f in files)
                 return (
-                    "질문하신 내용은 챗봇이 정리해 둔 자료에는 없지만, 관련 안내 파일이 준비되어 있어요.\n\n"
+                    "질문하신 내용은 코파일럿이 정리해 둔 자료에는 없지만, 관련 안내 파일이 준비되어 있어요.\n\n"
                     f"{stems}\n\n파일 드릴까요?",
                     metadata,
                 )
