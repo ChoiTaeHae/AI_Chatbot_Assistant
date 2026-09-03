@@ -47,7 +47,7 @@ RUN echo "/usr/local/cuda/lib64" >> /etc/ld.so.conf.d/cuda.conf && \
     ldconfig
 
 # llama-cpp-python CUDA 소스 빌드 (RTX 3070 = compute capability 8.6)
-RUN CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=86" \
+RUN CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=89" \
     FORCE_CMAKE=1 \
     pip install --no-cache-dir llama-cpp-python==0.3.29
 

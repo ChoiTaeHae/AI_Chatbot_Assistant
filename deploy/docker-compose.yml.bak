@@ -20,9 +20,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      # 호스트 5432는 로컬 설치된 PostgreSQL 18이 이미 점유 중이라 5433으로 옮긴다.
-      # 컨테이너끼리는 내부 이름(postgres:5432)으로 통신하므로 .env 는 고치지 않는다.
-      - "5433:5432"
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d school_chatbot"]
       interval: 5s
