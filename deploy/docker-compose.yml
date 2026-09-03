@@ -59,6 +59,10 @@ services:
       - ../models:/app/models
       # 배포 데이터 (seed.sql · qdrant_points.jsonl · 첨부파일)
       - ./data:/app/deploy_data:ro
+      # Vertex 서비스계정 키 — LLM_PROVIDER=vertex 일 때만 쓰인다. 이미지에 굽지 않고 :ro 마운트.
+      # 주의: 호스트에 이 파일이 없으면 도커가 같은 이름의 '빈 디렉터리'를 만들어버린다.
+      # 그러면 DefaultCredentialsError 가 나므로, 기동 전에 파일이 실제로 있는지 확인할 것.
+      - ../BackEnd/gcp-sa.json:/app/gcp-sa.json:ro
       - hf_cache:/root/.cache/huggingface
     environment:
       - RERANKER_MODEL_PATH=/app/models/bge-reranker-v2-m3-ko
