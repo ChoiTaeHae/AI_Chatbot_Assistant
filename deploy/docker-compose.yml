@@ -22,7 +22,7 @@ services:
     ports:
       # 호스트 5432는 로컬 설치된 PostgreSQL 18이 이미 점유 중이라 5433으로 옮긴다.
       # 컨테이너끼리는 내부 이름(postgres:5432)으로 통신하므로 .env 는 고치지 않는다.
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d school_chatbot"]
       interval: 5s
@@ -37,13 +37,13 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
     ports:
-      - "6333:6333"
+      - "127.0.0.1:6333:6333"
     restart: unless-stopped
 
   backend:
     build: ../BackEnd
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     # 개발용 compose 와 달리 dns: 를 지정하지 않는다.
     # 커스텀 DNS를 주면 Docker 내장 DNS(127.0.0.11)가 대체돼 컨테이너 이름
     # (postgres, qdrant)을 해석하지 못한다 — 실측으로 확인됨.
@@ -83,7 +83,7 @@ services:
   frontend:
     build: ../FrontEnd
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     volumes:
       - ../FrontEnd/src:/app/src
       - ../FrontEnd/vite.config.js:/app/vite.config.js
