@@ -1,4 +1,4 @@
-﻿from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -420,11 +420,28 @@ async def lifespan(app: FastAPI):
     topic_router._embedding = rag_service.embedding
 
     # DB에서 활성 topic 로드 (신규 topic 시딩을 먼저 — 첫 기동부터 라우팅에 반영되도록)
-    try:
-        await _seed_my_grades_topic()
-    except Exception as e:
-        print(f"[Server] my_grades topic 시딩 실패 (무시): {e}")
-    topic_data = await _load_topics()
+    # Docker Desktop 재시작으로 컨테이너가 한꺼번에 복구될 때는 depends_on(service_healthy)이
+    # 적용되지 않는다. 백엔드가 도커 내장 DNS(127.0.0.11)보다 먼저 떠서 'postgres' 이름을
+    # 해석하지 못하는 일이 있다 — [Errno -3] Temporary failure in name resolution (실측).
+    # 몇 초면 풀리는 일시적 경합인데, _load_topics()가 여기서 터지면 lifespan 전체가 무너져
+    # 컨테이너가 통째로 재시작된다. 그래서 시딩·로드를 함께 재시도한다.
+    #
+    # dns: 로는 해결되지 않는다 — 커스텀 DNS를 주면 내장 DNS가 대체돼 postgres·qdrant 이름을
+    # 아예 못 찾는다(deploy/docker-compose.yml 주석 참고). 주소가 아니라 타이밍 문제다.
+    topic_data = None
+    for _attempt in range(1, 11):
+        try:
+            await _seed_my_grades_topic()
+        except Exception as e:
+            print(f"[Server] my_grades topic 시딩 실패 (무시): {e}")
+        try:
+            topic_data = await _load_topics()
+            break
+        except Exception as e:
+            if _attempt == 10:
+                raise
+            print(f"[Server] DB 준비 대기 — topic 로드 재시도 {_attempt}/10: {e}")
+            await asyncio.sleep(3)
     print(f"[Server] {len(topic_data)}개 topic 로드 완료")
 
     # FileService topic 캐시 초기화 → 파일 캐시는 topic 로드 후 갱신

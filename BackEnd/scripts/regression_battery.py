@@ -9,7 +9,9 @@
   - 이전질문을 주면 2턴 대화로 실행된다(맥락 의존 버그가 여기서만 재현되는 경우가 많다)
   - 학점 기대값은 아래 main()에서 DB를 읽어 주입한다(__TOTAL__ 자리표시자)
 
-주의: 실제 LLM(Vertex)을 호출하므로 토큰을 소비한다. 429 대비로 호출 간 간격 + 1회 재시도.
+주의: 실제 LLM을 호출한다. LLM_PROVIDER=vertex 면 토큰을 소비하고(429 대비로 호출 간
+      간격 + 1회 재시도), local 이면 GGUF 모델을 이 프로세스에 따로 올린다 — 백엔드가
+      떠 있으면 VRAM을 두 벌 쓰므로 `docker compose stop backend` 후 실행할 것.
 """
 import asyncio, sys, io, contextlib, time
 sys.path.insert(0, ".")
@@ -113,8 +115,11 @@ async def run_one(db, q, prev_q, sid):
 
 
 async def main():
-    if llm_service.vertex_client is None:
-        llm_service._init_vertex()
+    # 서버(server.py)와 같은 진입점을 쓴다 — provider를 보고 local/vertex 로 갈라진다.
+    # _init_vertex() 를 직접 부르면 LLM_PROVIDER=local 일 때 self.model 이 None 으로 남고,
+    # 답변 생성이 self.model.n_ctx() 에서 AttributeError 로 죽는다(실측: 49건 중 45건 실패).
+    if llm_service.model is None and llm_service.vertex_client is None:
+        llm_service.load_model()
     topic_router._embedding = rag_service.embedding
     td = await _load_topics()
     loop = asyncio.get_running_loop()
